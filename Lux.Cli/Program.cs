@@ -298,7 +298,8 @@ namespace Lux.Cli
                 lux-light — A CLI to convert Light L16 .lri captures into a variety of formats
 
                 USAGE:
-                  lux-light <command> [options] [input...] lux-light --help
+                  lux-light <command> [options] [input...]
+                  lux-light --help
 
                 COMMANDS:
                   convert <input...>          Process a .lri and export it exactly as Lumen does: the image pipeline
