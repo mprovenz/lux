@@ -1,12 +1,12 @@
 # Lux
-Lux is an image processing utility for the Light L16 camera. It was built to be a cross-platform replacemenet for the original Lumen software. Its goal is to offer byte-exact processing of the original Lumen software while also adding new features and improvements.
+Lux is an image processing utility for the Light L16 camera. It is independently built to be a cross-platform replacement for the original Lumen software. Its goal is to offer byte-exact processing to the original Lumen software while also adding new features and improvements.
 
 Currently, only the Lux 'light' CLI exists. This is meant to be a lightweight GUI replacement. Eventually, a full GUI will be developed.
 
 ## Requirements
 - The .NET 10 SDK
 - ffmpeg on PATH for the animated parallax formats (parallax-wiggle, parallax-wiggle-interp, parallax-orbit, parallax-single, parallax-rack, parallax-dolly).
-  - Frames are produced by Lux, the GIF/WebP/AVIF/APNG container is written by ffmpeg. The CLI will exit if it cannot be found and one of these formats is requested,
+  - Frames are produced by Lux, the GIF/WebP/AVIF/APNG container is written by ffmpeg. The CLI will exit if it cannot be found and one of these formats is requested.
 - libgphoto2 on Linux only if MTP connection to the camera is desired
 
 ## Features
@@ -34,10 +34,13 @@ dotnet build Lux.slnx -c Release
 ```
 The [full CLI usage instructions](#full-cli-usage-instructions) are at the bottom of this document.
 
+Note: a full export can take a few minutes and use up to 7G of memory per file. `convert` processes inputs in parallel
+with one thread per CPU by default, so on a batch pass `-j` with a count that keeps threads × 7G within your RAM.
+
 ## Status
 - DNG and JPG are byte-exact to Lumen (excluding the dense-stereo race condition and assuming processed in Lumen with no pre-existing .lris). 
 - Performance needs some work, exports take 2-4 minutes to process all formats
-- The library is heavily tested on Linux, Windows and OSX testing would be appreciated
+- The tool is heavily tested on Linux, Windows and macOS testing would be appreciated
 - Automated builds are not up yet, coming soon
 
 ## Sample Images
@@ -91,7 +94,8 @@ Format `parallax-single`: single-view 2.5D, the sweep with no multi-view fill.
 
 ## Detailed image processing pipeline technical reference
 
-A Light L16 `.lri` is a container of 10–16 independent camera frames. Producing one image is therefore a
+A Light L16 `.lri` is a container of 10–16 independent camera frames, one per module that fired; a stacked low-light
+capture carries several frames per module. Producing one image is therefore a
 multi-camera fusion problem, not a single-sensor develop. The pipeline runs in five phases — **load**, **per-module
 ISP**, **registration + depth**, **fusion**, **export render** — and only the last phase differs between output
 formats. All formats share one `PipelineCache`; the fusion render is ~74 % of wall-clock, so producing four formats
@@ -351,7 +355,7 @@ With no options specified, `convert` replicates Lumen output exactly: DNG (fmt 2
 | `-o, --out-directory <dir>` | Write `<stem>.<ext>` per input (default: a lux_convert/ beside the .lri) |
 | `--out-file <path>` | Name the output file (only when the run makes exactly one file) |
 | `-j, --threads <n>` | Inputs converted in parallel (default: CPU count) |
-| `--formats <list>` | Original (extended): dng, jpg, hdr, ppm, jpg+depth<br>New:   depth, lens-frames, parallax-wiggle, parallax-wiggle-interp, parallax-orbit, parallax-single, parallax-rack, parallax-dolly, parallax-dof, parallax-anaglyph, parallax-crosseye, parallax-sbs, parallax-still<br>all:   every format above except hdr and ppm<br>Comma-separated (default dng,jpg)<br>`depth` is the metric-millimetre stereo pair `(<stem>_depth.f32` + `<stem>_depth.jpg)` on the exported grid. The Lux formats are named `<stem>_<format>.<ext>;` lens-frames writes `<stem>_<module>.jpg.` |
+| `--formats <list>` | Original (extended): dng, jpg, hdr, ppm, jpg+depth<br>New:   depth, lens-frames, parallax-wiggle, parallax-wiggle-interp, parallax-orbit, parallax-single, parallax-rack, parallax-dolly, parallax-dof, parallax-anaglyph, parallax-crosseye, parallax-sbs, parallax-still<br>all:   every format above except hdr and ppm<br>Comma-separated (default dng,jpg)<br>`depth` is the metric-millimetre stereo pair (`<stem>_depth.f32` + `<stem>_depth.jpg`) on the exported grid. The Lux formats are named `<stem>_<format>.<ext>`; lens-frames writes `<stem>_<module>.jpg`. |
 
 #### GRID (picks the pixel grid; leaves tone and colour alone)
 
@@ -408,7 +412,7 @@ With no options specified, `convert` replicates Lumen output exactly: DNG (fmt 2
 
 #### LENS-FRAMES
 
-(Each module of the capture as a display JPG through the ported module ISP. A STACKED capture has several frames per module: `all` writes every one as `<stem>_f<k>_<module>.jpg,` an index picks one, and the default is frame 0, the frame Lumen's StackFusion references.)
+(Each module of the capture as a display JPG through the ported module ISP. A STACKED capture has several frames per module: `all` writes every one as `<stem>_f<k>_<module>.jpg`, an index picks one, and the default is frame 0, the frame Lumen's StackFusion references.)
 
 | Option | Description |
 |---|---|
@@ -494,7 +498,7 @@ Every format but parallax-wiggle forces the level-0 build (announced, as jpg+dep
 | `--isp-level <n>` | module-ISP config level (default 0) |
 | `--profile <p>` | CIAPI RendererProfile 0-3 (default 3 = Desktop) |
 
-*(the PPM is written beside the .lri as `<stem>_isp_l<n>.ppm)`*
+*(the PPM is written beside the .lri as `<stem>_isp_l<n>.ppm`)*
 
 ### DEVICES OPTIONS
 
@@ -576,3 +580,6 @@ Every format but parallax-wiggle forces the level-0 build (announced, as jpg+dep
 | `LUX_HYB_DUMP=<prefix>` | hybrid denoise: every intermediate, as `<prefix>_hyb_<tag>.f32` |
 | `LUX_MONO_DUMP=<prefix>` | mono fusion: the per-stage RGB and float-Bayer images of the mono module's own ISP, as `<prefix>_own_st<i>_<stage>.<kind>.bin` |
 | `LUX_TELE_ISPDUMP=<pre>` | the telephoto level-0 cache's whole grown-rect ISP output, as `<prefix>_<module>_isp_<x0>_<y0>_<x1>_<y1>.bin` |
+
+## License
+Lux is released under the GNU General Public License, version 3. See [LICENSE](LICENSE).
