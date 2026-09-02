@@ -1,0 +1,169 @@
+# Manual release builder for lux-light.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag"
+        required: true
+        type: string
+      platforms:
+        description: "Platforms to build"
+        type: choice
+        default: all
+        options:
+          - all
+          - linux
+          - windows
+          - macos
+      draft:
+        description: "Create the release as a draft"
+        type: boolean
+        default: true
+      prerelease:
+        description: "Mark the release as a pre-release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      msbuild_version: ${{ steps.version.outputs.msbuild_version }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Validate the version
+        id: version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::version must look like v1.2.3 or v1.2.3-beta.1, got '$VERSION'"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "msbuild_version=${VERSION#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Select the platforms
+        id: matrix
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          all='[
+            {"family": "linux",   "os": "ubuntu-latest",  "rid": "linux-x64",   "native": true},
+            {"family": "linux",   "os": "ubuntu-latest",  "rid": "linux-arm64", "native": false},
+            {"family": "windows", "os": "windows-latest", "rid": "win-x64",     "native": true},
+            {"family": "macos",   "os": "macos-latest",   "rid": "osx-arm64",   "native": true},
+            {"family": "macos",   "os": "macos-latest",   "rid": "osx-x64",     "native": false}
+          ]'
+          if [ "$PLATFORMS" = all ]; then
+            sel=$(jq -c '{include: .}' <<< "$all")
+          else
+            sel=$(jq -c --arg f "$PLATFORMS" '{include: [.[] | select(.family == $f)]}' <<< "$all")
+          fi
+          echo "matrix=$sel" >> "$GITHUB_OUTPUT"
+          echo "building: $(jq -r '[.include[].rid] | join(", ")' <<< "$sel")"
+
+  build:
+    name: Build ${{ matrix.rid }}
+    needs: plan
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Publish
+        shell: bash
+        env:
+          RID: ${{ matrix.rid }}
+          MSBUILD_VERSION: ${{ needs.plan.outputs.msbuild_version }}
+        run: |
+          dotnet publish Lux.Cli/Lux.Cli.csproj -c Release -r "$RID" --self-contained true \
+            -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none \
+            -p:Version="$MSBUILD_VERSION" -o "publish/$RID"
+          cp LICENSE README.md "publish/$RID/"
+          ls -la "publish/$RID"
+
+      - name: Smoke test
+        if: matrix.native
+        shell: bash
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          exe="publish/$RID/lux-light"
+          [ -f "$exe.exe" ] && exe="$exe.exe"
+          "$exe" --help | head -3
+
+      - name: Package (tar.gz)
+        if: runner.os != 'Windows'
+        env:
+          RID: ${{ matrix.rid }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          mkdir -p dist
+          tar -C "publish/$RID" -czf "dist/lux-light-$VERSION-$RID.tar.gz" .
+
+      - name: Package (zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RID: ${{ matrix.rid }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "publish/$env:RID/*" -DestinationPath "dist/lux-light-$env:VERSION-$env:RID.zip"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lux-light-${{ matrix.rid }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Create the GitHub release
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          DRAFT: ${{ inputs.draft }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          args=(--repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "lux-light $VERSION" --generate-notes)
+          if [ "$DRAFT" = true ]; then args+=(--draft); fi
+          if [ "$PRERELEASE" = true ]; then args+=(--prerelease); fi
+          gh release create "$VERSION" dist/* "${args[@]}"
