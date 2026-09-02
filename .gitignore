@@ -70,3 +70,8 @@ _spike/
 # The three embedded lookup tables under Pipeline/**/Data are REQUIRED by the build (see the EmbeddedResource
 # entries in Lux.Engine.csproj) and are deliberately re-included past the patterns above.
 !Lux.Engine/Pipeline/**/*.bin
+
+# Sample captures and outputs shipped with the repo: everything under Samples/ is versioned,
+# regardless of the output-type patterns above. Keep each file well under GitHub's 100 MB limit.
+!Samples/
+!Samples/**
