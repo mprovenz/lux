@@ -69,4 +69,4 @@ _spike/
 
 # The three embedded lookup tables under Pipeline/**/Data are REQUIRED by the build (see the EmbeddedResource
 # entries in Lux.Engine.csproj) and are deliberately re-included past the patterns above.
-!src/Lux.Engine/Pipeline/**/*.bin
+!Lux.Engine/Pipeline/**/*.bin
