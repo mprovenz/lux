@@ -51,7 +51,8 @@ public static class ModuleRender
             // the ported tuning itself is untouched. cross_talk_correction needs an IR blend estimated from the CFA's
             // R/B site ratios, which a mono sensor has none of; color_noise_reduction is a CHROMA denoiser that
             // degenerates on R=G=B and blanks whole 32x32 tiles (measured on A2); hot_pixel_removal and
-            // highlight_restore index by (redX, redY), and the mono sentinel (-1,-1) indexes out of range.
+            // highlight_restore index by (redX, redY), and the mono sentinel (-1,-1) indexes out of range. The
+            // collapse demosaics of levels 2-4 take their no-CFA branch (the plain cell mean, CollapseDemosaicKernel.RunMono).
             tuning.Set("cross_talk_correction.type", "none").Set("color_noise_reduction.type", "none")
                   .Set("hot_pixel_removal.type", "none").Set("highlight_restore.type", "none");
         }

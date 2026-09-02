@@ -17,6 +17,7 @@ public static class CollapseDemosaicKernel
     public static Image<Vec4F> Run(float[] src, int stride, int offset, int w, int h, int n, int redX, int redY)
     {
         if (n < 2 || (n & 1) != 0) throw new InvalidOperationException("Collapse block size must be even and at least 2!");
+        if (redX < 0 || redY < 0) return RunMono(src, stride, offset, w, h, n);   // no CFA: see RunMono
         int ow = w / n, oh = h / n;
         var dst = new Image<Vec4F>(ow, oh);
         int rx = redX, ry = redY;
@@ -51,6 +52,31 @@ public static class CollapseDemosaicKernel
                 float inv = Sse.ReciprocalScalar(Vector128.CreateScalar((float)(rows * cols))).ToScalar();
                 float tR = inv * sR, tG1 = inv * sG1, tG2 = inv * sG2, tB = inv * sB;
                 dst.Data[by * ow + bx] = new Vec4F(tG1 * 0f + tR * 1f, tG2 * 0.5f + tG1 * 0.5f, tB * 1f + tG2 * 0f, 1f);
+            }
+        return dst;
+    }
+
+    /// <summary>The no-CFA (monochrome) collapse: every site is luminance, so a block is its plain n×n mean, written to
+    /// all three channels. Lumen never demosaics the mono module on its own (its mono path is the fusion one, which ISPs
+    /// the reference colour frame), so this is Lux-defined behaviour for the lens-frames render at config levels 2–4:
+    /// the colour kernels index sites by the red position, and the mono sentinel (−1,−1) has none.</summary>
+    public static Image<Vec4F> RunMono(float[] src, int stride, int offset, int w, int h, int n)
+    {
+        if (n < 2 || (n & 1) != 0) throw new InvalidOperationException("Collapse block size must be even and at least 2!");
+        int ow = w / n, oh = h / n;
+        var dst = new Image<Vec4F>(ow, oh);
+        float inv = 1f / (n * n);
+        for (int by = 0; by < oh; by++)
+            for (int bx = 0; bx < ow; bx++)
+            {
+                float total = 0f;
+                for (int j = 0; j < n; j++)
+                {
+                    int baseIdx = offset + (by * n + j) * stride + bx * n;
+                    for (int i = 0; i < n; i++) total += src[baseIdx + i];
+                }
+                float m = total * inv;
+                dst.Data[by * ow + bx] = new Vec4F(m, m, m, 1f);
             }
         return dst;
     }

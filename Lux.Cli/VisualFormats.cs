@@ -6,7 +6,6 @@ using Lux.Engine.Pipeline.Export;
 using Lux.Engine.Pipeline.Isp;
 using Lux.Engine.Pipeline.Parallax;
 using Lux.Engine.Pipeline.Registration;
-using OpenCvSharp;
 
 namespace Lux.Cli;
 
@@ -200,13 +199,17 @@ internal sealed class VisualFormats
 
     // ---- lens-frames ----------------------------------------------------------------------------------------
 
+    /// <summary>Baseline JPEG through Lux's own encoder (the one the Lumen-identical JPG uses): 4:2:0, JFIF header,
+    /// no Exif or comment. The encoder takes RGBX rows, so the packed RGB is widened with an ignored fourth byte.</summary>
     static void WriteLensJpeg(string path, ModuleRender.Image img, int quality)
     {
         var rgb = ModuleRender.ToRgb8(img);
-        var bgr = new byte[rgb.Length];
-        for (long i = 0; i < rgb.LongLength; i += 3) { bgr[i] = rgb[i + 2]; bgr[i + 1] = rgb[i + 1]; bgr[i + 2] = rgb[i]; }
-        using var mat = Mat.FromPixelData(img.Height, img.Width, MatType.CV_8UC3, bgr);
-        Cv2.ImWrite(path, mat, new ImageEncodingParam(ImwriteFlags.JpegQuality, quality));
+        var rgbx = new byte[(long)img.Width * img.Height * 4];
+        for (long i = 0, o = 0; i < rgb.LongLength; i += 3, o += 4)
+        { rgbx[o] = rgb[i]; rgbx[o + 1] = rgb[i + 1]; rgbx[o + 2] = rgb[i + 2]; rgbx[o + 3] = 255; }
+        using var fs = File.Create(path);
+        JpegEncoder.Encode(fs, rgbx, img.Width, img.Height, img.Width * 4, grayscale: false,
+                           new JpegEncoder { Quality = quality });
     }
 
     // ---- parallax-wiggle ------------------------------------------------------------------------------------

@@ -33,6 +33,7 @@ public static class Demosaic2xCatmull
     public static Image<Vec4F> Run(float[] src, int stride, int offset, int w, int h, int redX, int redY, RectI ext)
     {
         if (((w | h) & 1) != 0) throw new InvalidOperationException("invalid bayer image size!");
+        if (redX < 0 || redY < 0) return CollapseDemosaicKernel.RunMono(src, stride, offset, w, h, 2);   // no CFA: the 2×2 cell mean
         if ((uint)(redX | redY) >= 2) throw new InvalidOperationException("non-bayer red coordinate!");
         int ex0 = (ext.X0 + 1) & ~1, ey0 = (ext.Y0 + 1) & ~1, ex1 = ext.X1 & ~1, ey1 = ext.Y1 & ~1;   // even-aligned inward (CFA phase kept)
         if (ex0 > 0 || ey0 > 0 || ex1 < w || ey1 < h) throw new ArgumentException("extents must contain the view");
