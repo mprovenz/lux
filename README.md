@@ -4,8 +4,9 @@ Lux is an image processing utility for the Light L16 camera. It is independently
 Currently, only the Lux 'light' CLI exists. This is meant to be a lightweight GUI replacement. Eventually, a full GUI will be developed.
 
 ## Requirements
-- The .NET 10 SDK
-- ffmpeg on PATH for the animated parallax formats (parallax-wiggle, parallax-wiggle-interp, parallax-orbit, parallax-single, parallax-rack, parallax-dolly).
+- [.NET 10](https://dotnet.microsoft.com/download/dotnet/10.0): The SDK to build from source. The precompiled releases bundle
+  the runtime and need no .NET install.
+- [ffmpeg](https://ffmpeg.org/download.html) on PATH for the animated parallax formats (parallax-wiggle, parallax-wiggle-interp, parallax-orbit, parallax-single, parallax-rack, parallax-dolly).
   - Frames are produced by Lux, the GIF/WebP/AVIF/APNG container is written by ffmpeg. The CLI will exit if it cannot be found and one of these formats is requested.
 - libgphoto2 on Linux only if MTP connection to the camera is desired
 
@@ -28,6 +29,15 @@ Currently, only the Lux 'light' CLI exists. This is meant to be a lightweight GU
   `pull`.
 
 ## Build & run
+Precompiled builds: download the archive for your platform from the [Releases page](https://github.com/mprovenz/lux/releases),
+extract it and run `lux-light` from the extracted folder. It is self-contained, so no .NET install is needed.
+```
+tar -xzf lux-light-<version>-linux-x64.tar.gz      # a .zip on Windows
+./lux-light convert <file-or-dir> [--out-directory out] [--formats all] [-j threads]
+```
+macOS: the binaries are not signed, so clear the quarantine flag once after extracting: `xattr -d com.apple.quarantine lux-light`.
+
+Build from source (needs the .NET 10 SDK):
 ```
 dotnet build Lux.slnx -c Release
 ./Lux.Cli/bin/Release/net10.0/lux-light convert <file-or-dir> [--out-directory out] [--formats all] [-j threads]
