@@ -1,0 +1,8 @@
+// reconstructed from cp.dll
+syntax = "proto2";
+package ltpb;
+
+message UUID {
+  optional uint64 low = 1;
+  optional uint64 high = 2;
+}

@@ -1,0 +1,22 @@
+// reconstructed from cp.dll
+syntax = "proto2";
+package ltpb;
+
+message DepthEditorState {
+  enum DataType {
+    DepthOnly = 1;
+    OcclusionOnly = 2;
+    DepthAndOcc = 3;
+  }
+  message Vec2I {
+    required int32 x = 1;
+    required int32 y = 2;
+  }
+  message Tile {
+    required DepthEditorState.Vec2I index = 1;
+    required DepthEditorState.DataType dtype = 2;
+  }
+  required DepthEditorState.Vec2I depth_size = 1;
+  required DepthEditorState.Vec2I tile_size = 2;
+  repeated DepthEditorState.Tile tiles = 3;
+}

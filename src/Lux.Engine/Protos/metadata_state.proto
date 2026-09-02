@@ -1,0 +1,9 @@
+// reconstructed from cp.dll
+syntax = "proto2";
+package ltpb;
+import "state_common.proto";
+
+message MetaData {
+  optional UUID uuid = 1;
+  optional uint32 user_rating = 2;
+}

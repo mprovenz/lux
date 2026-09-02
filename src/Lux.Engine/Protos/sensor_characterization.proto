@@ -1,0 +1,23 @@
+// reconstructed from liblricompression.dylib
+syntax = "proto2";
+package ltpb;
+
+message SensorCharacterization {
+  message VstNoiseModel {
+    message VstModel {
+      required float a = 1;
+      required float b = 2;
+    }
+    required uint32 gain = 1;
+    required float threshold = 2;
+    required float scale = 3;
+    required SensorCharacterization.VstNoiseModel.VstModel red = 4;
+    required SensorCharacterization.VstNoiseModel.VstModel green = 5;
+    required SensorCharacterization.VstNoiseModel.VstModel blue = 6;
+    optional SensorCharacterization.VstNoiseModel.VstModel panchromatic = 7;
+  }
+  required float black_level = 1;
+  required float white_level = 2;
+  optional float cliff_slope = 3;
+  repeated SensorCharacterization.VstNoiseModel vst_model = 4;
+}

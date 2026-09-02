@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Lux.Ba/Lux.Ba.fsproj" />
+    <Project Path="src/Lux.Cli/Lux.Cli.csproj" />
+    <Project Path="src/Lux.Engine/Lux.Engine.csproj" />
+  </Folder>
+</Solution>

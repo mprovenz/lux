@@ -1,0 +1,45 @@
+// reconstructed from cp.dll
+syntax = "proto2";
+package ltpb;
+import "camera_id.proto";
+import "point3f.proto";
+import "matrix3x3f.proto";
+
+enum StereoState {
+  None = 0;
+  LowerCalibrationDone = 1;
+  HasDepthLayer = 2;
+  HigherCalibratoinDone = 3;
+}
+
+enum DepthFormat {
+  Float32 = 0;
+}
+
+message RefinedGeomCalib {
+  required CameraID module_id = 1;
+  required Matrix3x3F k_mat = 2;
+  required Matrix3x3F r_mat = 3;
+  required Point3F t_vec = 4;
+}
+
+message Calibration2DPoints {
+  required CameraID module_id = 1;
+  required uint64 points_offset = 2;
+  required uint32 num_points = 3;
+}
+
+message Calibration3DPoints {
+  required uint64 points_offset = 2;
+  required uint32 num_points = 3;
+}
+
+message Stereo {
+  required DepthFormat depth_format = 1;
+  optional uint64 depth_offset = 2;
+  optional uint32 depth_level = 3;
+  repeated Calibration2DPoints calibration_2d_points = 4;
+  optional Calibration3DPoints calibration_3d_points = 5;
+  repeated RefinedGeomCalib calibration = 6;
+  required StereoState state = 7;
+}

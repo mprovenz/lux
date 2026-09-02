@@ -1,0 +1,35 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- Build-time C# generation from the 36 reconstructed ltpb .proto files (messages only) -->
+  <ItemGroup>
+    <Protobuf Include="Protos\**\*.proto" GrpcServices="None" ProtoRoot="Protos" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.36.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.83.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260627" />
+    <PackageReference Include="OpenCvSharp4.official.runtime.linux-x64" Version="4.13.0.20260627" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Lux.Ba\Lux.Ba.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Pipeline\Isp\Data\IrCorrectionTables.bin" LogicalName="IrCorrectionTables.bin" />
+    <EmbeddedResource Include="Pipeline\Fusion\BayerWaveletNoiseGain.bin" LogicalName="BayerWaveletNoiseGain.bin" />
+    <EmbeddedResource Include="Pipeline\Export\Data\ToneCurves.bin" LogicalName="ToneCurves.bin" />
+  </ItemGroup>
+
+</Project>

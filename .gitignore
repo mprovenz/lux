@@ -1,0 +1,72 @@
+# Lux — .NET solution
+#
+# Only this directory is published; everything else in the project (oracle dumps, captures, the Wine prefix,
+# vendor binaries, Ghidra projects) lives outside it and is backed up locally instead.
+
+# ---- build output -------------------------------------------------------------------------------------------
+bin/
+obj/
+[Bb]uild/
+[Oo]ut/
+artifacts/
+*.binlog
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+!packages/build/
+project.lock.json
+project.assets.json
+
+# ---- IDE / editor -------------------------------------------------------------------------------------------
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# ---- test / coverage / profiling ----------------------------------------------------------------------------
+[Tt]est[Rr]esult*/
+coverage*.json
+coverage*.xml
+coverage*.info
+*.coverage
+*.coveragexml
+*.trx
+BenchmarkDotNet.Artifacts/
+*.dotCover
+*.psess
+*.vsp
+*.vspx
+
+# ---- local scratch ------------------------------------------------------------------------------------------
+# `_spike/` is a throwaway experiment area kept out of history deliberately.
+_spike/
+*.received.*
+*.orig
+*.rej
+*.bak
+
+# ---- outputs a run may drop in the tree ---------------------------------------------------------------------
+# The CLI writes exports beside the input by default; if anyone points it at the solution directory, these keep
+# multi-hundred-megabyte DNGs and captures out of a commit. Source data lives outside this directory entirely.
+*.lri
+*.dng
+*.jpg
+*.jpeg
+*.ppm
+*.hdr
+*.f32
+
+# The three embedded lookup tables under Pipeline/**/Data are REQUIRED by the build (see the EmbeddedResource
+# entries in Lux.Engine.csproj) and are deliberately re-included past the patterns above.
+!src/Lux.Engine/Pipeline/**/*.bin

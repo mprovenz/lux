@@ -1,0 +1,27 @@
+// reconstructed from cp.dll
+syntax = "proto2";
+package ltpb;
+
+message Transform {
+  message RectF {
+    required float start_x = 1;
+    required float start_y = 2;
+    required float width = 3;
+    required float height = 4;
+  }
+  message Matrix3x3 {
+    required float m_00 = 1;
+    required float m_01 = 2;
+    required float m_02 = 3;
+    required float m_10 = 4;
+    required float m_11 = 5;
+    required float m_12 = 6;
+    required float m_20 = 7;
+    required float m_21 = 8;
+    required float m_22 = 9;
+  }
+  required int32 aspect_ratio_x = 1;
+  required int32 aspect_ratio_y = 2;
+  required Transform.RectF crop_rect = 3;
+  required Transform.Matrix3x3 matrix = 4;
+}

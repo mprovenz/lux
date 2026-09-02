@@ -1,0 +1,16 @@
+// reconstructed from liblricompression.dylib
+syntax = "proto2";
+package ltpb;
+import "camera_id.proto";
+import "rectanglei.proto";
+
+message FaceData {
+  message ROI {
+    optional uint32 id = 1;
+    optional RectangleI roi = 2;
+    optional float confidence = 3;
+  }
+  required CameraID id = 1;
+  required uint32 frame_index = 2;
+  repeated FaceData.ROI rois = 3;
+}
