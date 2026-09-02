@@ -23,10 +23,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Lux.Ba\Lux.Ba.fsproj" />
-  </ItemGroup>
-
-  <ItemGroup>
     <EmbeddedResource Include="Pipeline\Isp\Data\IrCorrectionTables.bin" LogicalName="IrCorrectionTables.bin" />
     <EmbeddedResource Include="Pipeline\Fusion\BayerWaveletNoiseGain.bin" LogicalName="BayerWaveletNoiseGain.bin" />
     <EmbeddedResource Include="Pipeline\Export\Data\ToneCurves.bin" LogicalName="ToneCurves.bin" />
