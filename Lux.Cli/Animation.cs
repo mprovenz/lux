@@ -34,13 +34,28 @@ public static class Animation
 
     public static string? Ffmpeg() => Which("ffmpeg");
 
+    /// <summary>Resolve <paramref name="tool"/> the way the shell does: every PATH directory, and on Windows every
+    /// PATHEXT extension too (`ffmpeg` is `ffmpeg.exe` there; `.exe .cmd .bat` if PATHEXT is unset). Windows PATH
+    /// entries may be quoted, so the quotes are stripped. The current directory is not searched.</summary>
     public static string? Which(string tool)
     {
-        foreach (var d in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
+        string[] exts = { "" };
+        if (OperatingSystem.IsWindows())
         {
+            var pathext = Environment.GetEnvironmentVariable("PATHEXT");
+            var list = (string.IsNullOrWhiteSpace(pathext) ? ".EXE;.CMD;.BAT" : pathext)
+                       .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            exts = Path.HasExtension(tool) ? new[] { "" }.Concat(list).ToArray() : list;
+        }
+        foreach (var raw in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
+        {
+            var d = raw.Trim().Trim('"');
             if (d.Length == 0) continue;
-            string c = Path.Combine(d, tool);
-            if (File.Exists(c)) return c;
+            foreach (var ext in exts)
+            {
+                string c = Path.Combine(d, tool + ext);
+                if (File.Exists(c)) return c;
+            }
         }
         return null;
     }
