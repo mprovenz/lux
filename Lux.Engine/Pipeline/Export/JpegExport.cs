@@ -73,7 +73,7 @@ public sealed class JpegExportRenderer
             var blurred = ToU8(ExportResample.ConvSeparable(ToFloat(src), sw, sh, kernelX, kernelY));
             outp = WarpBilinearU8(blurred, sw, sh, _size.W, _size.H, to);
         }
-        else outp = WarpClamped2U8(src, sw, sh, _size.W, _size.H, to);
+        else outp = WarpClamped2U8(src, sw, sh, _size.W, _size.H, to, Threads);
         StageHook?.Invoke("r8out", _size.W, _size.H, outp);
         return outp;
     }
@@ -81,6 +81,10 @@ public sealed class JpegExportRenderer
     /// <summary>`renderForExport&lt;vec4x8ui&gt;` `FUN_180524320`: every 512-grid tile of the export level that overlaps
     /// <paramref name="src"/> is produced whole by the display tile generator, scaled by 255 and converted to RGBA8;
     /// the overlap with <paramref name="src"/> is copied into the destination.</summary>
+    /// <summary>Tiles rendered at once inside <see cref="RenderSource"/>; 1 = the sequential order (see <see cref="ExportRenderer.Threads"/>).</summary>
+    public int Threads { get; set; } = 1;
+    readonly object _hookLock = new();
+
     public byte[] RenderSource(int level, RectI src)
     {
         var (W, H) = _lv.ExportDims[level];
@@ -91,40 +95,44 @@ public sealed class JpegExportRenderer
         var dst = new byte[(long)src.Width * src.Height * 4];
         var (isp, stats) = _ispOfLevel(level);
         var pd = _lv.PipelineDims[level];
-        for (int ty = ty0; ty <= ty1; ty++)
-            for (int tx = tx0; tx <= tx1; tx++)
+        var tiles = new List<(int Tx, int Ty)>();
+        for (int ty = ty0; ty <= ty1; ty++) for (int tx = tx0; tx <= tx1; tx++) tiles.Add((tx, ty));
+        void One((int Tx, int Ty) t)
+        {
+            var (tx, ty) = t;
+            var tile = _lv.TileRect(level, tx, ty);
+            var geo = DisplayRender.Geometry(tile, pd, _lv.Origins[level], _lv.CacheDims, level);
+            var px = _cache.Render(_lv.BaseLevel + geo.CacheLevel, geo.Grown, pd);       // FUN_1804bd710
+            var grown = new Image<Vec4F>(geo.Grown.Width, geo.Grown.Height);
+            System.Runtime.InteropServices.MemoryMarshal.Cast<float, Vec4F>(px.AsSpan()).CopyTo(grown.Data);
+            var img = DisplayRender.Run(isp, _frame, stats, grown, geo, level);          // the whole output ISP + lambda_2's crop
+            if (TileHook is not null) lock (_hookLock) TileHook(level, tile, img);
+            Log?.Invoke($"  jpeg tile L{level} ({tx},{ty}) export ({tile.X0},{tile.Y0},{tile.X1},{tile.Y1}) grown ({geo.Grown.X0},{geo.Grown.Y0},{geo.Grown.X1},{geo.Grown.Y1}) float ({geo.Float.X0:R},{geo.Float.Y0:R},{geo.Float.X1:R},{geo.Float.Y1:R})");
+            var c = tile.Intersect(src);   // this tile's own region of the output — disjoint across tiles
+            if (c.IsEmpty) throw new InvalidOperationException("renderForExport: Unxpected TileUpdate with no overlap!");
+            for (int y = c.Y0; y < c.Y1; y++)
             {
-                var tile = _lv.TileRect(level, tx, ty);
-                var geo = DisplayRender.Geometry(tile, pd, _lv.Origins[level], _lv.CacheDims, level);
-                var px = _cache.Render(_lv.BaseLevel + geo.CacheLevel, geo.Grown, pd);       // FUN_1804bd710
-                var grown = new Image<Vec4F>(geo.Grown.Width, geo.Grown.Height);
-                System.Runtime.InteropServices.MemoryMarshal.Cast<float, Vec4F>(px.AsSpan()).CopyTo(grown.Data);
-                var img = DisplayRender.Run(isp, _frame, stats, grown, geo, level);          // the whole output ISP + lambda_2's crop
-                TileHook?.Invoke(level, tile, img);
-                Log?.Invoke($"  jpeg tile L{level} ({tx},{ty}) export ({tile.X0},{tile.Y0},{tile.X1},{tile.Y1}) grown ({geo.Grown.X0},{geo.Grown.Y0},{geo.Grown.X1},{geo.Grown.Y1}) float ({geo.Float.X0:R} {geo.Float.Y0:R} {geo.Float.X1:R} {geo.Float.Y1:R})");
-                var c = tile.Intersect(src);
-                if (c.IsEmpty) throw new InvalidOperationException("renderForExport: Unxpected TileUpdate with no overlap!");
-                for (int y = c.Y0; y < c.Y1; y++)
+                var row = img.Row(y - tile.Y0);
+                long o = ((long)(y - src.Y0) * src.Width + (c.X0 - src.X0)) * 4;
+                for (int x = c.X0; x < c.X1; x++)
                 {
-                    var row = img.Row(y - tile.Y0);
-                    long o = ((long)(y - src.Y0) * src.Width + (c.X0 - src.X0)) * 4;
-                    for (int x = c.X0; x < c.X1; x++)
+                    var v = row[x - tile.X0];
+                    if (UseDisplayRounding)
+                    {   // diagnostic only (LUX_JPEG_ROUND=rne): the §12.1 display store, to show that the two
+                        // converters are distinguishable on real data and that the JPEG uses the §12.2 one.
+                        dst[o++] = DisplayOutput.DisplayByte(v.R * 255f); dst[o++] = DisplayOutput.DisplayByte(v.G * 255f);
+                        dst[o++] = DisplayOutput.DisplayByte(v.B * 255f); dst[o++] = DisplayOutput.DisplayByte(v.A * 255f);
+                    }
+                    else
                     {
-                        var v = row[x - tile.X0];
-                        if (UseDisplayRounding)
-                        {   // diagnostic only (LUX_JPEG_ROUND=rne): the §12.1 display store, to show that the two
-                            // converters are distinguishable on real data and that the JPEG uses the §12.2 one.
-                            dst[o++] = DisplayOutput.DisplayByte(v.R * 255f); dst[o++] = DisplayOutput.DisplayByte(v.G * 255f);
-                            dst[o++] = DisplayOutput.DisplayByte(v.B * 255f); dst[o++] = DisplayOutput.DisplayByte(v.A * 255f);
-                        }
-                        else
-                        {
-                            dst[o++] = DisplayOutput.ExportByte(v.R * 255f); dst[o++] = DisplayOutput.ExportByte(v.G * 255f);
-                            dst[o++] = DisplayOutput.ExportByte(v.B * 255f); dst[o++] = DisplayOutput.ExportByte(v.A * 255f);
-                        }
+                        dst[o++] = DisplayOutput.ExportByte(v.R * 255f); dst[o++] = DisplayOutput.ExportByte(v.G * 255f);
+                        dst[o++] = DisplayOutput.ExportByte(v.B * 255f); dst[o++] = DisplayOutput.ExportByte(v.A * 255f);
                     }
                 }
             }
+        }
+        if (Threads <= 1 || tiles.Count <= 1) { foreach (var t in tiles) One(t); }
+        else Parallel.ForEach(tiles, new ParallelOptions { MaxDegreeOfParallelism = Threads }, One);
         return dst;
     }
 
@@ -137,12 +145,13 @@ public sealed class JpegExportRenderer
     /// zero fill outside, `max(−0.25·P, N) + P` recombination — with the samples widened from u8 and the result stored
     /// through `cvtps2dq`/`packssdw`/`packuswb`. Kept byte-in/byte-out so a full-size (8320×6240) export does not need
     /// two 830 MB float buffers.</summary>
-    public static byte[] WarpClamped2U8(byte[] src, int sw, int sh, int dw, int dh, TransformOutput to)
+    public static byte[] WarpClamped2U8(byte[] src, int sw, int sh, int dw, int dh, TransformOutput to, int threads = 1)
     {
         var dst = new byte[(long)dw * dh * 4];
-        var res = new float[4];
-        Span<float> block = stackalloc float[64];
-        for (int y = 0; y < dh; y++)
+        void Row(int y)
+        {
+            var res = new float[4];
+            Span<float> block = stackalloc float[64];
             for (int x = 0; x < dw; x++)
             {
                 var (u, v) = to.Map((float)x, (float)y);
@@ -164,6 +173,8 @@ public sealed class JpegExportRenderer
                 dst[o] = DisplayOutput.DisplayByte(res[0]); dst[o + 1] = DisplayOutput.DisplayByte(res[1]);
                 dst[o + 2] = DisplayOutput.DisplayByte(res[2]); dst[o + 3] = DisplayOutput.DisplayByte(res[3]);
             }
+        }
+        if (threads > 1 && dh > 1) Parallel.For(0, dh, new ParallelOptions { MaxDegreeOfParallelism = threads }, Row); else for (int y = 0; y < dh; y++) Row(y);   // rows are independent
         return dst;
     }
 

@@ -99,7 +99,7 @@ public static class ExportFloatImage
             var blurred = ExportResample.ConvSeparable(src, sw, sh, kernelX, kernelY);
             return ExportResample.WarpBilinear(blurred, sw, sh, W, H, to);
         }
-        return ExportResample.WarpClamped2(src, sw, sh, W, H, to);
+        return ExportResample.WarpClamped2(src, sw, sh, W, H, to, renderer.Threads);
     }
 }
 

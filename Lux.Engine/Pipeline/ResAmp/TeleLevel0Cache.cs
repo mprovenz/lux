@@ -34,7 +34,7 @@ public sealed class TeleLevel0Cache
     public Dictionary<RectI, Image<Vec4F>>? IspOutputs;
     /// <summary>Diagnostics: replace the module ISP by an externally supplied output for a grown rect (e.g. cp.dll's own output for that rect) to verify the tile/warp path alone.</summary>
     public Func<RectI, Image<Vec4F>?>? SourceOverride;
-    readonly Dictionary<(int, int), ushort[]> _tiles = new();
+    readonly Cache.TileStore<(int, int), ushort[]> _tiles = new();
     readonly float[] _table = WarpResample.BuildTable();
 
     public TeleLevel0Cache(LriFile lri, string moduleName, CameraCalib view, CameraCalib module, (int W, int H) validSize, (float X, float Y) scale,
@@ -128,7 +128,7 @@ public sealed class TeleLevel0Cache
         { var q = orr.Split(',').Select(int.Parse).ToArray(); if (grown != new RectI(q[0], q[1], q[2], q[3])) return new Image<Vec4F>(grown).View(srcRect); }
         var img = SourceOverride?.Invoke(grown) ?? Isp.ProcessBayer(Frame, grown, 0, Log);
         if (img.Rect != grown) throw new InvalidOperationException($"tele ISP output rect {img.Rect} != grown rect {grown}");
-        IspOutputs?.TryAdd(grown, img);
+        if (IspOutputs is not null) lock (IspOutputs) IspOutputs.TryAdd(grown, img);
         if (Environment.GetEnvironmentVariable("LUX_TELE_ISPDUMP") is string dp)   // diagnostic twin of cp.dll's tele-ISP intermediate hook (0x4de3f4): the whole grown-rect ISP output
         {
             int gw = img.Width, gh = img.Height; var mb = new byte[16 + gw * gh * 16];
@@ -167,12 +167,9 @@ public sealed class TeleLevel0Cache
         return t;
     }
 
-    ushort[] Tile(int tx, int ty)
-    {
-        var key = (tx, ty);
-        if (!_tiles.TryGetValue(key, out var t)) { t = Generate(tx, ty); _tiles[key] = t; }
-        return t;
-    }
+    ushort[] Tile(int tx, int ty) => _tiles.GetOrCreate((tx, ty), k => Generate(k.Item1, k.Item2));
+    /// <summary>Generate (and keep) one tile ahead of any render that needs it — the unit of the export's dependency prefetch.</summary>
+    public void EnsureTile(int tx, int ty) => Tile(tx, ty);
 
     /// <summary>`TileCache&lt;vec4x16f&gt;::renderROI&lt;vec4x32f&gt;(cache+8, out, rect, 0)` (`1804bdfe0`): gather the tiles overlapping `rect` (level-0 pixels,
     /// must lie inside the level) as float RGBA via the exact half→float conversion (alpha from the stored half).</summary>

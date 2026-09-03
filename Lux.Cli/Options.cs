@@ -14,6 +14,8 @@ public sealed class Options
     public string? OutDirectory { get; private set; }
     public string? OutFile { get; private set; }
     public int Threads { get; private set; } = Environment.ProcessorCount;
+    /// <summary>`--render-threads`: threads inside each conversion; null = CPU count ÷ the inputs converted at once.</summary>
+    public int? RenderThreads { get; private set; }
     /// <summary>convert: output list, e.g. "dng,jpg,hdr,ppm,jpg+depth,depth" (default dng,jpg).</summary>
     public string? Formats { get; private set; }
     /// <summary>convert: shorthand for adding hdr to --formats.</summary>
@@ -130,6 +132,7 @@ public sealed class Options
                     case "-o" or "--out-directory": o.OutDirectory = Need("a directory"); break;
                     case "--out-file": o.OutFile = Need("a path"); break;
                     case "-j" or "--threads": o.Threads = Math.Max(1, int.Parse(Need("a count"), CultureInfo.InvariantCulture)); break;
+                    case "--render-threads": o.RenderThreads = Math.Max(1, int.Parse(Need("a count"), CultureInfo.InvariantCulture)); break;
                     case "--formats" or "--format":
                     {   // a comma list may be written with spaces (`dng, jpg, ppm`): absorb the tokens the shell split off
                         var list = Need("a list, e.g. dng,jpg");

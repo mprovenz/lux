@@ -16,8 +16,7 @@ public sealed class PipelineCache
     public const int TileSize = 512;
     public readonly (int W, int H)[] LevelDims;           // +0x08: [0] ResAmp canvas, [1] sensor, [2..4] reference cache levels 1..3
     public readonly (int X, int Y)[] Grid;                // +0x20: max(1, (256 + W) / 512)
-    readonly Dictionary<(int L, int Tx, int Ty), ushort[]> _tiles = new();
-    readonly Dictionary<(int, int, int), (int W, int H)> _tileDims = new();
+    readonly TileStore<(int L, int Tx, int Ty), ushort[]> _tiles = new();
     public Func<int, RectI, Image<Vec4F>> ReferenceLevel = null!;   // cache level L (1..3), rect in level pixels → float RGBA (processLevel)
     /// <summary>Level 1: `PipelineCache::processLevel1` (fusion cache render + inlined-map undistort warp), rect in sensor pixels → float RGBA.</summary>
     public Func<RectI, Image<Vec4F>>? Level1;
@@ -26,6 +25,10 @@ public sealed class PipelineCache
     public Func<RectI, ResAmp.ResImage>? Level0;
     public float[] Neutral = { 1f, 1f, 1f };
     public Action<string>? Log;
+    /// <summary>Optional: generate the inputs of the level-0 generator (the fusion, reference and telephoto cache tiles) with the given
+    /// thread count before <see cref="Prefetch"/> starts the level-0 tiles. Left to the level-0 tiles themselves, those inputs are made
+    /// lazily by whichever tile asks first while its neighbours wait on the same entries, which serialises the start of the phase.</summary>
+    public Action<int>? Level0Prefetch;
 
     public PipelineCache((int W, int H)[] levelDims)
     {
@@ -87,11 +90,29 @@ public sealed class PipelineCache
         return tile;
     }
 
-    ushort[] Tile(int level, int tx, int ty)
+    ushort[] Tile(int level, int tx, int ty) => _tiles.GetOrCreate((level, tx, ty), k => Generate(k.L, k.Tx, k.Ty));
+
+    /// <summary>The tile grid range overlapping <paramref name="rect"/> (level pixels), clamped to the grid.</summary>
+    public (int Tx0, int Tx1, int Ty0, int Ty1) TileRange(int level, RectI rect)
     {
-        var key = (level, tx, ty);
-        if (!_tiles.TryGetValue(key, out var t)) { t = Generate(level, tx, ty); _tiles[key] = t; _tileDims[key] = TileDims(level, tx, ty); }
-        return t;
+        var (nx, ny) = Grid[level];
+        return (Math.Min(rect.X0 / TileSize, nx - 1), Math.Min((rect.X1 - 1) / TileSize, nx - 1), Math.Min(rect.Y0 / TileSize, ny - 1), Math.Min((rect.Y1 - 1) / TileSize, ny - 1));
+    }
+
+    /// <summary>Generate every tile of <paramref name="level"/> overlapping <paramref name="rect"/> that is not cached yet, running up to
+    /// <paramref name="threads"/> generations at once. A later <see cref="Render"/> of any part of the rect is then a cache hit. The tiles are
+    /// the same whichever thread makes them: each is a pure function of the capture, memoised once by <see cref="TileStore{TKey,TValue}"/>.</summary>
+    public void Prefetch(int level, RectI rect, int threads)
+    {
+        var (W, H) = LevelDims[level];
+        var r = new RectI(Math.Max(rect.X0, 0), Math.Max(rect.Y0, 0), Math.Min(rect.X1, W), Math.Min(rect.Y1, H));
+        if (r.Width <= 0 || r.Height <= 0) return;
+        var (tx0, tx1, ty0, ty1) = TileRange(level, r);
+        if (level == 0 && threads > 1) Level0Prefetch?.Invoke(threads);
+        var keys = new List<(int, int)>();
+        for (int ty = ty0; ty <= ty1; ty++) for (int tx = tx0; tx <= tx1; tx++) keys.Add((tx, ty));
+        if (threads <= 1) { foreach (var (tx, ty) in keys) Tile(level, tx, ty); return; }
+        Parallel.ForEach(keys, new ParallelOptions { MaxDegreeOfParallelism = threads }, k => Tile(level, k.Item1, k.Item2));
     }
 
     /// <summary>`TileCache::renderROI&lt;vec4x32f&gt;` (1804bd050): gather the tiles overlapping `rect` (level pixels) as float RGBA with alpha 1.</summary>
@@ -106,7 +127,7 @@ public sealed class PipelineCache
         for (int ty = ty0; ty <= ty1; ty++)
             for (int tx = tx0; tx <= tx1; tx++)
             {
-                var t = Tile(level, tx, ty); var (tw, th) = _tileDims[(level, tx, ty)];
+                var t = Tile(level, tx, ty); var (tw, th) = TileDims(level, tx, ty);
                 int x0 = Math.Max(rect.X0, tx * TileSize), y0 = Math.Max(rect.Y0, ty * TileSize), x1 = Math.Min(rect.X1, tx * TileSize + tw), y1 = Math.Min(rect.Y1, ty * TileSize + th);
                 for (int y = y0; y < y1; y++)
                     for (int x = x0; x < x1; x++)
@@ -120,14 +141,25 @@ public sealed class PipelineCache
 
     /// <summary>`FUN_1804bd710(cache, out, rect, reqDims, level)`: `renderROI` when the stored dims equal the requested ones, else the 16.16 Catmull-Rom
     /// `ImageResample&lt;2&gt;` of the ±2-margin source rect (spec §2/§2.2).</summary>
+    /// <summary>The level rect a <see cref="Render"/> of <paramref name="rect"/> reads: the rect itself when the stored dims equal the requested
+    /// ones, else the ±2-margin source rect of the resample.</summary>
+    public RectI SourceRect(int level, RectI rect, (int W, int H) reqDims)
+    {
+        var (Ws, Hs) = LevelDims[level];
+        if ((Ws, Hs) == reqDims) return rect;
+        float fx = (float)Ws / (float)reqDims.W, fy = (float)Hs / (float)reqDims.H;
+        int sx0 = Math.Max(0, (int)MathF.Floor(fx * rect.X0 + -2.0f)), sy0 = Math.Max(0, (int)MathF.Floor(fy * rect.Y0 + -2.0f));
+        int sx1 = Math.Min(Ws, (int)MathF.Ceiling(((float)rect.Width + (float)rect.X0) * fx + 2.0f)), sy1 = Math.Min(Hs, (int)MathF.Ceiling(((float)rect.Height + (float)rect.Y0) * fy + 2.0f));
+        return new RectI(sx0, sy0, sx1, sy1);
+    }
+
     public float[] Render(int level, RectI rect, (int W, int H) reqDims)
     {
         var (Ws, Hs) = LevelDims[level];
         if ((Ws, Hs) == reqDims) return RenderRoi(level, rect);
         float fx = (float)Ws / (float)reqDims.W, fy = (float)Hs / (float)reqDims.H;
-        int sx0 = Math.Max(0, (int)MathF.Floor(fx * rect.X0 + -2.0f)), sy0 = Math.Max(0, (int)MathF.Floor(fy * rect.Y0 + -2.0f));
-        int sx1 = Math.Min(Ws, (int)MathF.Ceiling(((float)rect.Width + (float)rect.X0) * fx + 2.0f)), sy1 = Math.Min(Hs, (int)MathF.Ceiling(((float)rect.Height + (float)rect.Y0) * fy + 2.0f));
-        var src = RenderRoi(level, new RectI(sx0, sy0, sx1, sy1));
+        var sr = SourceRect(level, rect, reqDims); int sx0 = sr.X0, sy0 = sr.Y0, sx1 = sr.X1, sy1 = sr.Y1;
+        var src = RenderRoi(level, sr);
         double offX = (double)((float)rect.X0 * fx - (float)sx0), offY = (double)((float)rect.Y0 * fy - (float)sy0);
         return ImageResample2.Run(src, sx1 - sx0, sy1 - sy0, rect.Width, rect.Height, offX, offY, fx, fy);
     }

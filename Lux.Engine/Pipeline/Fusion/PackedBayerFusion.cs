@@ -58,6 +58,8 @@ public sealed class PackedBayerFusion
     public int NStack { get; init; } = 1;              // FUN_180112250: frames per stack (1 for single captures)
     public bool StreamHalfScale { get; }               // stream+0x14 (data_scale == (0.5,0.5)); L16: false
     public List<int> SourceIds { get; } = new();       // +0x158
+    /// <summary>Sources prepared at once in <see cref="Initialize"/> (each depends only on the reference state, so the count never changes the result).</summary>
+    public int Threads { get; set; } = 1;
     public int PyramidLevels { get; }
 
     /// <summary>Packed reference (+0x80): 4 halves per pixel, quad order (TR, TL, BL, BR); size <see cref="Wp"/>×<see cref="Hp"/>.</summary>
@@ -114,8 +116,9 @@ public sealed class PackedBayerFusion
     /// </summary>
     public bool SourceFrameBlackEstimate { get; }
 
-    public PackedBayerFusion(LriFile lri, int refCamId, float cct, float tint, Action<string>? log = null, bool initialize = true, bool sourceFrameBlackEstimate = true)
+    public PackedBayerFusion(LriFile lri, int refCamId, float cct, float tint, Action<string>? log = null, bool initialize = true, bool sourceFrameBlackEstimate = true, int threads = 1)
     {
+        Threads = Math.Max(1, threads);
         _lri = lri; RefCamId = refCamId; Cct = cct; Tint = tint; Log = log;
         // `FUN_180112250` — frames per stack. On a stacked capture every source frame of the LEVEL-1 fusion is the
         // `lt::StackFusion` result of that module (`FUN_18020a6d0` non-null), and `FUN_1801f7a90` then takes its other
@@ -193,35 +196,45 @@ public sealed class PackedBayerFusion
         }
         var validity = BlockFlow.ValidityFromGainMap(VignMap, VmW, VmH, VmW);
 
-        // per source (initialize L150–330)
+        // per source (initialize L150–330): each source's frame, crop, collapse, flow and packing depend only on the reference state
+        // above, so the sources are prepared at once and appended in id order — the lists keep exactly the sequential layout.
         PackedSrc.Clear(); PackedSrcDims.Clear(); Flows.Clear(); FlowDims.Clear(); SourceCrops.Clear();
-        foreach (int cam in SourceIds)
+        var ids = SourceIds.ToArray();
+        var prep = new (SourceFrame Sf, RectI Crop, ushort[] ColPre, ushort[] Col, int Sw, int Sh, Vec2S[] Flow, int Fw, int Fh, ushort[] Packed, int Pw, int Ph, float Gain)[ids.Length];
+        void Prepare(int i)
         {
+            int cam = ids[i];
             float gain = SourceGain(cam);
             var sf = BuildFrame(cam, gain);
-            Frames.Add(sf);
             // CFA-phase crop: (dx, dy, w − dx, h − dy) with dx = red(src).x != red(ref).x
             int dx = sf.RedX != refFrame.RedX ? 1 : 0, dy = sf.RedY != refFrame.RedY ? 1 : 0;
             int cx0 = Math.Max(0, dx), cy0 = Math.Max(0, dy), cx1 = Math.Min(sf.W, sf.W - dx), cy1 = Math.Min(sf.H, sf.H - dy);
             var crop = (cx1 <= cx0 || cy1 <= cy0) ? new RectI(0, 0, 0, 0) : new RectI(cx0, cy0, cx1, cy1);
-            SourceCrops.Add(crop);
             int cw = crop.Width, ch = crop.Height;
             var view = new float[cw * ch];
             for (int y = 0; y < ch; y++) Array.Copy(sf.Img, (y + crop.Y0) * sf.W + crop.X0, view, y * cw, cw);
 
             var u16 = BlockFlow.ToUshort(view, cw, ch);
             var col = BlockFlow.FastCollapse(u16, cw, ch, out int sw, out int sh);
-            LastCollapsedSrcPreLut = (ushort[])col.Clone();
+            var colPre = (ushort[])col.Clone();
             BlockFlow.ApplySqrtLut(col);
-            LastCollapsedSrc = col; LastCollapsedDims = (sw, sh);
-            CollapsedSources.Add((col, sw, sh));
             var flow = BlockFlow.ComputeFlow(RefPyramid, PyramidDims, col, sw, sh, PyramidLevels, validity, out int fw, out int fh);
-            Flows.Add(flow); FlowDims.Add((fw, fh));
 
             float sSrc = One / (sf.White - sf.Black);
             var packed = Pack(Scale(view, sSrc), cw, ch, out int pw, out int ph);
-            PackedSrc.Add(packed); PackedSrcDims.Add((pw, ph));
-            Log?.Invoke($"fusion: source cam {cam} gain {gain:R} crop ({crop.X0},{crop.Y0},{crop.X1},{crop.Y1}) flow {fw}x{fh} packed {pw}x{ph}");
+            prep[i] = (sf, crop, colPre, col, sw, sh, flow, fw, fh, packed, pw, ph, gain);
+        }
+        if (Threads > 1 && ids.Length > 1) Parallel.For(0, ids.Length, new ParallelOptions { MaxDegreeOfParallelism = Threads }, Prepare);
+        else for (int i = 0; i < ids.Length; i++) Prepare(i);
+        for (int i = 0; i < ids.Length; i++)
+        {
+            var q = prep[i];
+            Frames.Add(q.Sf); SourceCrops.Add(q.Crop);
+            LastCollapsedSrcPreLut = q.ColPre; LastCollapsedSrc = q.Col; LastCollapsedDims = (q.Sw, q.Sh);
+            CollapsedSources.Add((q.Col, q.Sw, q.Sh));
+            Flows.Add(q.Flow); FlowDims.Add((q.Fw, q.Fh));
+            PackedSrc.Add(q.Packed); PackedSrcDims.Add((q.Pw, q.Ph));
+            Log?.Invoke($"fusion: source cam {ids[i]} gain {q.Gain:R} crop ({q.Crop.X0},{q.Crop.Y0},{q.Crop.X1},{q.Crop.Y1}) flow {q.Fw}x{q.Fh} packed {q.Pw}x{q.Ph}");
         }
         Initialized = true;
     }
@@ -662,19 +675,16 @@ public sealed class PackedBayerFusion
         return new RectI(x0, y0, x0 + w, y0 + h);
     }
 
-    readonly Dictionary<(int, int), (RectI Rect, byte[] W8)> _weightTiles = new();
+    readonly Cache.TileStore<(int, int), (RectI Rect, byte[] W8)> _weightTiles = new();
 
     /// <summary>`FusionCacheBayer::lambda_0`: the uint8 weight tile of `process(tile rect, 1.0)`.</summary>
-    public (RectI Rect, byte[] W8) WeightTile(int tx, int ty)
+    public (RectI Rect, byte[] W8) WeightTile(int tx, int ty) => _weightTiles.GetOrCreate((tx, ty), k =>
     {
-        if (_weightTiles.TryGetValue((tx, ty), out var t)) return t;
-        var rect = TileRect(tx, ty, FrameW, FrameH);
+        var rect = TileRect(k.Item1, k.Item2, FrameW, FrameH);
         var pr = Process(rect, One);
-        t = (rect, WeightToByte(pr.Weight));
-        _weightTiles[(tx, ty)] = t;
-        Log?.Invoke($"fusion: weight tile ({tx},{ty}) {rect.Width}x{rect.Height}");
-        return t;
-    }
+        Log?.Invoke($"fusion: weight tile ({k.Item1},{k.Item2}) {rect.Width}x{rect.Height}");
+        return (rect, WeightToByte(pr.Weight));
+    });
 
     /// <summary>`TileCache&lt;uint8&gt;::renderROI` over the grown rect (frame pixels).</summary>
     public byte[] RenderWeight8(RectI grown)

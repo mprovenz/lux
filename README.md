@@ -365,6 +365,7 @@ With no options specified, `convert` replicates Lumen output exactly: DNG (fmt 2
 | `-o, --out-directory <dir>` | Write `<stem>.<ext>` per input (default: a lux_convert/ beside the .lri) |
 | `--out-file <path>` | Name the output file (only when the run makes exactly one file) |
 | `-j, --threads <n>` | Inputs converted in parallel (default: CPU count) |
+| `--render-threads <n>` | Threads per input for the tile render (default: CPU count ÷ the inputs converted at once; 1 = sequential) |
 | `--formats <list>` | Original (extended): dng, jpg, hdr, ppm, jpg+depth<br>New:   depth, lens-frames, parallax-wiggle, parallax-wiggle-interp, parallax-orbit, parallax-single, parallax-rack, parallax-dolly, parallax-dof, parallax-anaglyph, parallax-crosseye, parallax-sbs, parallax-still<br>all:   every format above except hdr and ppm<br>Comma-separated (default dng,jpg)<br>`depth` is the metric-millimetre stereo pair (`<stem>_depth.f32` + `<stem>_depth.jpg`) on the exported grid. The Lux formats are named `<stem>_<format>.<ext>`; lens-frames writes `<stem>_<module>.jpg`. |
 
 #### GRID (picks the pixel grid; leaves tone and colour alone)

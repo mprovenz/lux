@@ -45,6 +45,15 @@ public static class BlockFlow
     /// <summary>Per-level downsampling factors `UNK_1806ae7bc` (index = level).</summary>
     static readonly int[] Factors = { 0, 2, 4, 4, 4, 4, 2, 2 };
 
+    /// <summary>Block rows searched at once by the per-block flow loops (1 = sequential). Every block's result depends only on the
+    /// two pyramids and the prior field, so the count never changes a flow; set process-wide by the CLI from its render-thread count.</summary>
+    public static int Threads { get; set; } = 1;
+    static void Rows(int fh, Action<int> body)
+    {
+        if (Threads > 1 && fh > 1) Parallel.For(0, fh, new ParallelOptions { MaxDegreeOfParallelism = Threads }, body);
+        else for (int by = 0; by < fh; by++) body(by);
+    }
+
     static float[] Bits(params int[] b) { var f = new float[b.Length]; for (int i = 0; i < b.Length; i++) f[i] = BitConverter.Int32BitsToSingle(b[i]); return f; }
     static float Abs(float a) => BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(a) & 0x7fffffff);
     static float Neg(float a) => BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(a) ^ unchecked((int)0x80000000));
@@ -321,12 +330,15 @@ public static class BlockFlow
     {
         fw = rd.W / B; fh = rd.H / B;
         var o = new (float X, float Y)[fw * fh];
-        for (int by = 0; by < fh; by++)
-            for (int bx = 0; bx < fw; bx++)
+        int fwl = fw, fhl = fh;   // out params cannot be captured by the row lambda
+        Rows(fhl, by =>
+        {
+            for (int bx = 0; bx < fwl; bx++)
             {
                 var rb = RefBlock(B * bx, B * by, B, rd.W, rd.H);
-                o[by * fw + bx] = rb is null ? (0f, 0f) : RefineSub(B, refImg, rd.W, rb.Value, src, sd.W, sd.H, B * bx, B * by, null, R);
+                o[by * fwl + bx] = rb is null ? (0f, 0f) : RefineSub(B, refImg, rd.W, rb.Value, src, sd.W, sd.H, B * bx, B * by, null, R);
             }
+        });
         return o;
     }
 
@@ -337,15 +349,18 @@ public static class BlockFlow
     {
         fw = rd.W / B; fh = rd.H / B;
         var o = new (float X, float Y)[fw * fh];
-        for (int by = 0; by < fh; by++)
-            for (int bx = 0; bx < fw; bx++)
+        int fwl = fw, fhl = fh;   // out params cannot be captured by the row lambda
+        Rows(fhl, by =>
+        {
+            for (int bx = 0; bx < fwl; bx++)
             {
                 var rb = RefBlock(B * bx, B * by, B, rd.W, rd.H);
-                if (rb is null) { o[by * fw + bx] = (0f, 0f); continue; }
+                if (rb is null) { o[by * fwl + bx] = (0f, 0f); continue; }
                 var i2 = Candidate(refImg, rd.W, rb.Value, prev, pw, ph, ((float)bx, (float)by), src, sd.W, sd.H, scale, B);
                 var sub = RefineSub(B, refImg, rd.W, rb.Value, src, sd.W, sd.H, B * bx + i2.X, B * by + i2.Y, null, R);
-                o[by * fw + bx] = ((float)i2.X + sub.X, (float)i2.Y + sub.Y);
+                o[by * fwl + bx] = ((float)i2.X + sub.X, (float)i2.Y + sub.Y);
             }
+        });
         return o;
     }
 
@@ -354,12 +369,15 @@ public static class BlockFlow
     {
         fw = rd.W / 8; fh = rd.H / 8;
         var o = new (float X, float Y)[fw * fh];
-        for (int by = 0; by < fh; by++)
-            for (int bx = 0; bx < fw; bx++)
+        int fwl = fw, fhl = fh;   // out params cannot be captured by the row lambda
+        Rows(fhl, by =>
+        {
+            for (int bx = 0; bx < fwl; bx++)
             {
                 var rb = RefBlock(8 * bx, 8 * by, 8, rd.W, rd.H);
-                o[by * fw + bx] = rb is null ? (0f, 0f) : RefineSub(8, refImg, rd.W, rb.Value, src, sd.W, sd.H, 8 * bx, 8 * by, null);
+                o[by * fwl + bx] = rb is null ? (0f, 0f) : RefineSub(8, refImg, rd.W, rb.Value, src, sd.W, sd.H, 8 * bx, 8 * by, null);
             }
+        });
         return o;
     }
 
@@ -369,15 +387,18 @@ public static class BlockFlow
     {
         fw = rd.W / 16; fh = rd.H / 16;
         var o = new (float X, float Y)[fw * fh];
-        for (int by = 0; by < fh; by++)
-            for (int bx = 0; bx < fw; bx++)
+        int fwl = fw, fhl = fh;   // out params cannot be captured by the row lambda
+        Rows(fhl, by =>
+        {
+            for (int bx = 0; bx < fwl; bx++)
             {
                 var rb = RefBlock(16 * bx, 16 * by, 16, rd.W, rd.H);
-                if (rb is null) { o[by * fw + bx] = (0f, 0f); continue; }
+                if (rb is null) { o[by * fwl + bx] = (0f, 0f); continue; }
                 var i2 = Candidate(refImg, rd.W, rb.Value, prev, pw, ph, ((float)bx, (float)by), src, sd.W, sd.H, scale);
                 var sub = RefineSub(16, refImg, rd.W, rb.Value, src, sd.W, sd.H, 16 * bx + i2.X, 16 * by + i2.Y, null);
-                o[by * fw + bx] = ((float)i2.X + sub.X, (float)i2.Y + sub.Y);
+                o[by * fwl + bx] = ((float)i2.X + sub.X, (float)i2.Y + sub.Y);
             }
+        });
         return o;
     }
 
@@ -387,15 +408,18 @@ public static class BlockFlow
     {
         fw = rd.W / 8 - 1; fh = rd.H / 8 - 1;
         var o = new (float X, float Y)[Math.Max(fw, 0) * Math.Max(fh, 0)];
-        for (int by = 0; by < fh; by++)
-            for (int bx = 0; bx < fw; bx++)
+        int fwl = fw, fhl = fh;   // out params cannot be captured by the row lambda
+        Rows(fhl, by =>
+        {
+            for (int bx = 0; bx < fwl; bx++)
             {
                 var rb = RefBlock(8 * bx, 8 * by, 16, rd.W, rd.H);
-                if (rb is null) { o[by * fw + bx] = (0f, 0f); continue; }
+                if (rb is null) { o[by * fwl + bx] = (0f, 0f); continue; }
                 var i2 = Candidate(refImg, rd.W, rb.Value, prev, pw, ph, ((float)bx * ScaleHalf, (float)by * ScaleHalf), src, sd.W, sd.H, scale);
                 var sub = Refine2(refImg, rd.W, rb.Value, src, sd.W, sd.H, 8 * bx + i2.X, 8 * by + i2.Y, validity, radius);
-                o[by * fw + bx] = ((float)i2.X + sub.X, (float)i2.Y + sub.Y);
+                o[by * fwl + bx] = ((float)i2.X + sub.X, (float)i2.Y + sub.Y);
             }
+        });
         return o;
     }
 

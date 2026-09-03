@@ -412,11 +412,11 @@ public static class HybridDenoise
         return o;
     }
 
-    static byte[]? _jitter;
-    /// <summary>Discard the cached jitter table so the next <see cref="PatchNlm4"/> call rebuilds it for its own
-    /// <c>step</c>. The table depends only on <c>step</c>, which never changes within a render; a caller running the
-    /// kernel on its own with a different step resets it first.</summary>
-    public static void ResetJitterTable() => _jitter = null;
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte[]> _jitter = new();
+    /// <summary>Discard the cached jitter tables so the next <see cref="PatchNlm4"/> call rebuilds one for its own
+    /// <c>step</c>. The table depends only on <c>step</c> (one is kept per step, so concurrent tiles never observe a
+    /// half-built table); resetting exists for callers that drive the kernel on its own.</summary>
+    public static void ResetJitterTable() => _jitter.Clear();
     static byte[] Jitter(int step)
     {
         var t = new byte[25106]; ulong x = 0x330E;
@@ -427,7 +427,7 @@ public static class HybridDenoise
     /// <summary>`ImageDenoisePatchNLM&lt;4&gt;`: jittered 4×4 patch NLM over a quincunx window, four quadrant passes per 128×128 tile, weights per lane.</summary>
     public static Vec4F[] PatchNlm4(Vec4F[] src, Vec4F[] vst, int w, int h, Vec4F hn, int W, int step)
     {
-        var tab = _jitter ??= Jitter(step);
+        var tab = _jitter.GetOrAdd(step, Jitter);
         var outp = new Vec4F[w * h]; var wsum = new Vec4F[w * h];
         for (int i = 0; i < src.Length; i++) { outp[i] = new Vec4F(src[i].R * C001, src[i].G * C001, src[i].B * C001, src[i].A * C001); wsum[i] = new Vec4F(C001, C001, C001, C001); }
         float k16R = hn.R * 16.0f, k16G = hn.G * 16.0f, k16B = hn.B * 16.0f, k16A = hn.A * 16.0f;   // h16 = hn·16 (DAT_180687650), T = vst(q)·h16 per lane

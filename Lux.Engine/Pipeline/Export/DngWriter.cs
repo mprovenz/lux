@@ -153,7 +153,7 @@ public static class DngWriter
     }
 
     /// <summary>Write the DNG. <paramref name="generator"/> = `exportDNG` lambda_0 for a 2048² block rect (unclamped) → (clamped rect, float RGBA ×16384).</summary>
-    public static void Write(Stream s, int width, int height, DngExportTags t, Func<RectI, (RectI Rect, float[] Pixels)> generator, Action<string>? log = null)
+    public static void Write(Stream s, int width, int height, DngExportTags t, Func<RectI, (RectI Rect, float[] Pixels)> generator, Action<string>? log = null, int threads = 1)
     {
         var ifd0 = new TiffDirectory(); var exif = new TiffDirectory();
         // FUN_1801439b0: header with a placeholder IFD offset, patched after the tiles
@@ -168,45 +168,71 @@ public static class DngWriter
                 var (rect, px) = generator(new RectI(bx, by, bx + BlockSize, by + BlockSize));
                 int w = rect.Width, h = rect.Height;
                 int lw = Math.Min(width - bx, w), lh = Math.Min(height - by, h);
-                var u16 = ToU16(px, w, h);   // FUN_1801471d0 (converter FUN_18004c880) — the whole block once
+                var u16 = ToU16(px, w, h, threads);   // FUN_1801471d0 (converter FUN_18004c880) — the whole block once
+                var jobs = new List<(int X, int Y, int Idx)>();
                 for (int y = 0; y < lh; y += th)
                     for (int x = 0; x < lw; x += tw)
                     {
                         int idx = ((by + y) / th) * tilesAcross + (bx + x) / tw;
                         if (idx >= offsets.Length) throw new InvalidOperationException("DNGWriter: Tile Index overrun");
+                        jobs.Add((x, y, idx));
+                    }
+                if (t.Compression == 1)
+                {
+                    // Every tile of the block encoded on its own (into memory, `threads` at a time — the encoder is stateless and a
+                    // tile's bytes depend on its pixels alone), then appended in tile order exactly as the sequential writer did.
+                    var encoded = new byte[jobs.Count][];
+                    void EncodeOne(int j)
+                    {
+                        var (x, y, _) = jobs[j];
+                        int vx1 = Math.Min(x + tw, w), vy1 = Math.Min(y + th, h);
+                        int vw = vx1 - x, vh = vy1 - y;
+                        if (vw > tw || vh > th) throw new InvalidOperationException("Write window too small");
+                        var ms = new MemoryStream();
+                        if (vw == tw && vh == th) LosslessJpeg.Encode(ms, u16, tw, th, w * 4, (y * w + x) * 4);   // view into the block image
+                        else
+                        {   // FUN_180146330: zero-filled tile with the view copied at (0,0)
+                            var tile = new ushort[tw * th * 4];
+                            for (int yy = 0; yy < vh; yy++) Array.Copy(u16, ((y + yy) * w + x) * 4, tile, yy * tw * 4, vw * 4);
+                            LosslessJpeg.Encode(ms, tile, tw, th, tw * 4);
+                        }
+                        encoded[j] = ms.ToArray();
+                    }
+                    if (threads > 1 && jobs.Count > 1) Parallel.For(0, jobs.Count, new ParallelOptions { MaxDegreeOfParallelism = threads }, EncodeOne);
+                    else for (int j = 0; j < jobs.Count; j++) EncodeOne(j);
+                    for (int j = 0; j < jobs.Count; j++)
+                    {
+                        offsets[jobs[j].Idx] = (uint)s.Position;
+                        s.Write(encoded[j]);
+                        counts[jobs[j].Idx] = (uint)encoded[j].Length;
+                    }
+                }
+                else if (t.Compression == 0)
+                {
+                    foreach (var (x, y, idx) in jobs)
+                    {
                         offsets[idx] = (uint)s.Position;
                         int vx1 = Math.Min(x + tw, w), vy1 = Math.Min(y + th, h);
                         int vw = vx1 - x, vh = vy1 - y;
                         if (vw > tw || vh > th) throw new InvalidOperationException("Write window too small");
-                        if (t.Compression == 1)
+                        // FUN_180146d20: u16 = clamp(v + 0.5, 0, 65535) truncated, 6 B/px, rows zero-padded beyond the view
+                        var row = new byte[tw * 6];
+                        for (int yy = 0; yy < th; yy++)
                         {
-                            if (vw == tw && vh == th) LosslessJpeg.Encode(s, u16, tw, th, w * 4, (y * w + x) * 4);   // view into the block image
-                            else
-                            {   // FUN_180146330: zero-filled tile with the view copied at (0,0)
-                                var tile = new ushort[tw * th * 4];
-                                for (int yy = 0; yy < vh; yy++) Array.Copy(u16, ((y + yy) * w + x) * 4, tile, yy * tw * 4, vw * 4);
-                                LosslessJpeg.Encode(s, tile, tw, th, tw * 4);
-                            }
+                            Array.Clear(row);
+                            if (yy < vh)
+                                for (int xx = 0; xx < vw; xx++)
+                                    for (int c = 0; c < 3; c++)
+                                    {
+                                        float v = px[((y + yy) * w + x + xx) * 4 + c] + 0.5f; if (v <= 0f) v = 0f; if (65535f <= v) v = 65535f;
+                                        BinaryPrimitives.WriteUInt16LittleEndian(row.AsSpan(xx * 6 + c * 2), (ushort)(short)(int)v);
+                                    }
+                            s.Write(row);
                         }
-                        else if (t.Compression == 0)
-                        {   // FUN_180146d20: u16 = clamp(v + 0.5, 0, 65535) truncated, 6 B/px, rows zero-padded beyond the view
-                            var row = new byte[tw * 6];
-                            for (int yy = 0; yy < th; yy++)
-                            {
-                                Array.Clear(row);
-                                if (yy < vh)
-                                    for (int xx = 0; xx < vw; xx++)
-                                        for (int c = 0; c < 3; c++)
-                                        {
-                                            float v = px[((y + yy) * w + x + xx) * 4 + c] + 0.5f; if (v <= 0f) v = 0f; if (65535f <= v) v = 65535f;
-                                            BinaryPrimitives.WriteUInt16LittleEndian(row.AsSpan(xx * 6 + c * 2), (ushort)(short)(int)v);
-                                        }
-                                s.Write(row);
-                            }
-                        }
-                        else throw new InvalidOperationException("Unhandled case");
                         counts[idx] = (uint)(s.Position - offsets[idx]);
                     }
+                }
+                else throw new InvalidOperationException("Unhandled case");
                 log?.Invoke($"dng: block ({bx},{by}) {w}x{h} written, pos {s.Position}");
             }
         // FUN_1801454c0 L~172–183: pad to 4, patch the header offset, write the IFD there
@@ -224,16 +250,21 @@ public static class DngWriter
     }
 
     /// <summary>`FUN_1801471d0` via the vec4x32f → Vec4&lt;u16&gt; converter `FUN_18004c880`: `u16 = (int)clamp(v + copysign(0.5, v), 0, 65535)`.</summary>
-    public static ushort[] ToU16(float[] px, int w, int h)
+    public static ushort[] ToU16(float[] px, int w, int h, int threads = 1)
     {
         var o = new ushort[w * h * 4];
-        for (int i = 0; i < o.Length; i++)
+        void Row(int y)
         {
-            float v = px[i];
-            float r = BitConverter.Int32BitsToSingle((int)((BitConverter.SingleToInt32Bits(v) & unchecked((int)0x80000000)) | 0x3f000000)) + v;
-            if (r <= 0f) r = 0f; if (65535f <= r) r = 65535f;
-            o[i] = (ushort)((int)r & 0xffff);
+            for (int i = y * w * 4, e = i + w * 4; i < e; i++)
+            {
+                float v = px[i];
+                float r = BitConverter.Int32BitsToSingle((int)((BitConverter.SingleToInt32Bits(v) & unchecked((int)0x80000000)) | 0x3f000000)) + v;
+                if (r <= 0f) r = 0f; if (65535f <= r) r = 65535f;
+                o[i] = (ushort)((int)r & 0xffff);
+            }
         }
+        if (threads > 1 && h > 1) Parallel.For(0, h, new ParallelOptions { MaxDegreeOfParallelism = threads }, Row);
+        else for (int y = 0; y < h; y++) Row(y);
         return o;
     }
 

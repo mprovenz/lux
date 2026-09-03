@@ -54,11 +54,12 @@ public sealed class SoftIsp
     private bool _dirty = true;
     private readonly Dictionary<PayloadDomain, List<IStage>> _graphs = new();
     private IspStats? _stats;
+    readonly object _sync = new();   // guards the lazily built stage graphs and stats: one ISP serves many concurrent tiles
 
     public SoftIsp(Tuning tuning, LumenProfile profile) { _tuning = tuning; _profile = profile; }
     public Tuning Tuning => _tuning;
 
-    public SoftIsp Set(string key, object value) { _tuning.Set(key, value); _dirty = true; _stats = null; return this; }
+    public SoftIsp Set(string key, object value) { lock (_sync) { _tuning.Set(key, value); _dirty = true; _stats = null; } return this; }
 
     /// <summary>`FUN_180410ac0`: mono sensors get neutral (1,1,1); otherwise the AWB functor installed by
     /// `setWhiteBalance` — `manual_temp` (lambda_21) → neutral from (temp, tint) through the profile; `manual_color` →
@@ -69,7 +70,9 @@ public sealed class SoftIsp
     /// (`cross_talk_correction = ir_correction` and a valid red position).</summary>
     public IspStats ComputeStats(CapturedFrame frame) => ComputeStats(frame.Info, frame);
 
-    private IspStats ComputeStats(ModuleFrameInfo f, CapturedFrame? frame)
+    private IspStats ComputeStats(ModuleFrameInfo f, CapturedFrame? frame) { lock (_sync) return ComputeStatsCore(f, frame); }
+
+    private IspStats ComputeStatsCore(ModuleFrameInfo f, CapturedFrame? frame)
     {
         if (_stats is not null) return _stats;
         float[] neutral = { 1f, 1f, 1f }; float cct = 0f, tint = 0f; (float X, float Y) xy = (0f, 0f);
@@ -177,14 +180,17 @@ public sealed class SoftIsp
     }
 
     /// <summary>`FUN_1803de110(isp, &amp;stats)`: attach stats computed for another capture (the stereo ISP shares the reference capture's stats).</summary>
-    public SoftIsp UseStats(IspStats stats) { _stats = stats; return this; }
+    public SoftIsp UseStats(IspStats stats) { lock (_sync) _stats = stats; return this; }
     public IspStats? CurrentStats => _stats;
 
     public List<IStage> Stages(PayloadDomain domain)
     {
-        if (_dirty) { _graphs.Clear(); _dirty = false; }
-        if (!_graphs.TryGetValue(domain, out var g)) _graphs[domain] = g = StageGraph.Build(domain, _tuning);
-        return g;
+        lock (_sync)
+        {
+            if (_dirty) { _graphs.Clear(); _dirty = false; }
+            if (!_graphs.TryGetValue(domain, out var g)) _graphs[domain] = g = StageGraph.Build(domain, _tuning);
+            return g;
+        }
     }
 
     /// <summary>ROI clamp of `FUN_1803dc7b0` ("empty source RAW image!" / "invalid output ROI!").</summary>

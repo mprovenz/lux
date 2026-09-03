@@ -27,6 +27,11 @@ public sealed record ExportRequest
     /// serves all of them; within that there are only two distinct renders (see <see cref="Exporter"/>).</summary>
     public IReadOnlyList<ExportImageFormat> Formats { get; init; } = ConvertCmd.DefaultFormats;
 
+    /// <summary>Threads for the tile render inside this one export: the pipeline tiles, the fusion / reference /
+    /// telephoto cache tiles behind them, and the output-ISP tiles of the JPEG. 1 = the sequential order. The pixels
+    /// are the same at any count — every tile is a pure function of the capture, memoised once.</summary>
+    public int RenderThreads { get; init; } = 1;
+
     /// <summary>Also write the stereo depth map (`&lt;stem&gt;_depth.f32` + `_depth.jpg`) — a Lux extra, not a
     /// Lumen `ExportImageFormat`. Forces the level-0 build exactly as `jpg+depth` does.</summary>
     public bool DepthMap { get; init; }
@@ -173,7 +178,7 @@ public sealed class ExportSession
         // L965/L1161 sets to `FUN_18048a930(reference capture)` for every level. That is the per-capture histogram
         // value (SoT §3.5), not the module-ISP tuning's 1.0.
         float Mult(int _) => State.Capture.LensShadingMultiplier;
-        return new(State.Cache, Win, Grid.Transform, Size, forceLevel0: false, Mult, _vign.Value) { Log = _eng };
+        return new(State.Cache, Win, Grid.Transform, Size, forceLevel0: false, Mult, _vign.Value) { Log = _eng, Threads = Request.RenderThreads };
     }
     public float[] FloatImage()
     {
@@ -209,7 +214,7 @@ public sealed class ExportSession
     public (JpegExportRenderer Renderer, byte[] Rgba) Rgba8()
     {
         if (_jpegRenderer is not null && _rgba8 is not null) return (_jpegRenderer, _rgba8);
-        _jpegRenderer = new JpegExportRenderer(State.Cache, Win, Grid.Transform, Size, forceLevel0: false, IspOfLevel, Frame) { Log = _eng };
+        _jpegRenderer = new JpegExportRenderer(State.Cache, Win, Grid.Transform, Size, forceLevel0: false, IspOfLevel, Frame) { Log = _eng, Threads = Request.RenderThreads };
         var swr = System.Diagnostics.Stopwatch.StartNew();
         _rgba8 = _jpegRenderer.Render();
         if (_v) _log?.Invoke($"  render {Size.W}x{Size.H} RGBA8 in {swr.Elapsed.TotalSeconds:F1}s");
@@ -326,7 +331,7 @@ public static class Exporter
         int buildLevel = BuildLevelFor(req);
         if (buildLevel == 0 && (req.Level ?? 0) != 0 && !v)
             log?.Invoke($"depth: building the level-0 registration state (the depth cache) even though the export level is {req.Level}");
-        return Run(ExportBuild.Build(lriPath, buildLevel, eng), req, log);
+        return Run(ExportBuild.Build(lriPath, buildLevel, eng, req.RenderThreads), req, log);
     }
 
     /// <summary>The same export against a state the caller has already built — one <see cref="ExportState"/> can
@@ -432,10 +437,11 @@ public static class Exporter
                 case ExportImageFormat.Dng:
                 {
                     var r = s.NewFloatRenderer();
+                    r.Prefetch(new RectI(0, 0, size.W, size.H));   // threaded: every tile at once; the writer's blocks then hit the cache
                     var t = TagsFor(f);
                     if (v) log?.Invoke($"tags: illum {t.Illuminant1}/{t.Illuminant2} tone {t.ToneMappingType} ev {t.BaselineExposure:R} neutral ({string.Join(",", t.Neutral.Select(x => x.ToString("R")))}) fnum {t.FNumber:R} iso {t.Iso} focal {t.FocalLengthMm} exp {t.ExposureTimeSeconds:R} cs {t.ColorSpaceProperty} comp {t.Compression}");
                     using var fs = File.Create(path);
-                    DngWriter.Write(fs, size.W, size.H, t, block => r.RenderBlock(block), eng);
+                    DngWriter.Write(fs, size.W, size.H, t, block => r.RenderBlock(block), eng, req.RenderThreads);
                     break;
                 }
                 case ExportImageFormat.Jpeg:

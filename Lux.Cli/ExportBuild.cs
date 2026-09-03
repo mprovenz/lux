@@ -34,7 +34,8 @@ public static class ExportBuild
     /// <summary>Build the cache from the `.lri` and nothing else. <paramref name="maxLevel"/> = the finest pipeline level that will be
     /// rendered (0 needs the registration state). The reference calibration is the ctor pair `api+0x3a8[ref]` and the level-0 depth is the
     /// in-process dense stereo, both out of <see cref="Lux.Engine.Pipeline.Registration.StereoAsyncApi"/>.</summary>
-    public static ExportState Build(string lriPath, int maxLevel, Action<string>? log)
+    /// <param name="threads">Threads for the build's own concurrent parts (the fusion sources, the telephoto caches); the result is the same at any count.</param>
+    public static ExportState Build(string lriPath, int maxLevel, Action<string>? log, int threads = 1)
     {
         var lri = LriFile.Load(lriPath);
         int refId = (int)lri.Modules[lri.ReferenceModule].Module.Id;
@@ -59,9 +60,9 @@ public static class ExportBuild
         var frame = CapturedFrame.Load(lri, lri.ReferenceModule);
         var colour = LumenProfile.Compute(lri); var wb = WhiteBalance.CaptureWb.From(lri, colour);
         var tunings = new Dictionary<int, Tuning>();
-        Tuning Tuning(int cfg) { if (!tunings.TryGetValue(cfg, out var t)) { t = ModuleIspTuning.Build(cfg, (RendererProfile)3, frame.Info, wb.Cct, wb.Tint); tunings[cfg] = t; } return t; }
+        Tuning Tuning(int cfg) { lock (tunings) { if (!tunings.TryGetValue(cfg, out var t)) { t = ModuleIspTuning.Build(cfg, (RendererProfile)3, frame.Info, wb.Cct, wb.Tint); tunings[cfg] = t; } return t; } }
         var isps = new Dictionary<int, SoftIsp>();
-        SoftIsp Isp(int L) { if (!isps.TryGetValue(L, out var isp)) { isp = new SoftIsp(Tuning(new[] { 0, 2, 3, 4 }[L]), colour); isp.ComputeStats(frame); isps[L] = isp; } return isp; }
+        SoftIsp Isp(int L) { lock (isps) { if (!isps.TryGetValue(L, out var isp)) { isp = new SoftIsp(Tuning(new[] { 0, 2, 3, 4 }[L]), colour); isp.ComputeStats(frame); isps[L] = isp; } return isp; } }
         // `setInputDataStream`'s `renderer+0x2a0` vector: level 0 is the pipeline canvas (`(int)(sensor · FUN_1804b23e0)`, reference-group dependent —
         // 10432×7824 for an A reference, 8896×6672 for a B one), level 1 is the module frame itself and levels 2–4 halve it.
         var canvas0 = Lux.Engine.Pipeline.Export.ExportWindow.Canvas(lri, (frame.Width, frame.Height));
@@ -79,13 +80,15 @@ public static class ExportBuild
             log?.Invoke($"export: stacked capture ({lri.StackFrames} frames) — reference {lri.ReferenceModule} fused by lt::StackFusion, ISP margin {margin}");
         }
         pc.ReferenceLevel = (L, r) => Lux.Engine.Pipeline.Geometry.AlignedWarp.ProcessLevel(Isp(L), frame, calib, L, r, new float[4], log, stacked);
+        Lux.Engine.Pipeline.BayerFusion.FusionCacheBayer? fc = null;
         if (maxLevel <= 1)
         {
             // The fusion reference is the capture's OWN reference module, not a hardcoded A1: `refId` is 0 for every
             // A-reference capture (the whole verified corpus) but 8 for the B4-reference 149 mm captures.
-            var fus = new Lux.Engine.Pipeline.BayerFusion.PackedBayerFusion(lri, refId, wb.Cct, wb.Tint, log, sourceFrameBlackEstimate: maxLevel != 0);
-            var fc = new Lux.Engine.Pipeline.BayerFusion.FusionCacheBayer(lri, frame, fus, (RendererProfile)3, wb.Cct, wb.Tint, log);
-            pc.Level1 = r => Lux.Engine.Pipeline.Geometry.AlignedWarp.ProcessLevel1(calib, r, frame.Width, frame.Height, fc.Render, log);
+            var fus = new Lux.Engine.Pipeline.BayerFusion.PackedBayerFusion(lri, refId, wb.Cct, wb.Tint, log, sourceFrameBlackEstimate: maxLevel != 0, threads: threads);
+            fc = new Lux.Engine.Pipeline.BayerFusion.FusionCacheBayer(lri, frame, fus, (RendererProfile)3, wb.Cct, wb.Tint, log);
+            var fcl = fc;
+            pc.Level1 = r => Lux.Engine.Pipeline.Geometry.AlignedWarp.ProcessLevel1(calib, r, frame.Width, frame.Height, fcl.Render, log);
         }
         if (maxLevel == 0)
         {
@@ -94,19 +97,18 @@ public static class ExportBuild
             float[] depth = reg.FullDepth!.Depth; int depthW = reg.FullDepth.W, depthH = reg.FullDepth.H;
             float scale = (float)dims[0].W / (float)dims[1].W; var sc = (scale, scale);
             int W = frame.Width, H = frame.Height;
-            var refTiles = new Dictionary<(int, int), (RectI Rect, ushort[] Half)>();
+            var refTiles = new TileStore<(int, int), (RectI Rect, ushort[] Half)>();   // compute-once, safe for concurrent tiles
             var (rnx, rny) = (Math.Max(1, (256 + W) / 512), Math.Max(1, (256 + H) / 512));
-            (RectI Rect, ushort[] Half) RefTile(int tx, int ty)
+            (RectI Rect, ushort[] Half) RefTile(int tx, int ty) => refTiles.GetOrCreate((tx, ty), key =>
             {
-                if (refTiles.TryGetValue((tx, ty), out var t)) return t;
                 int x0 = tx * 512, y0 = ty * 512, x1 = tx == rnx - 1 ? W : x0 + 512, y1 = ty == rny - 1 ? H : y0 + 512;
                 var rect = new RectI(x0, y0, x1, y1);
                 var img = Lux.Engine.Pipeline.Geometry.AlignedWarp.ProcessLevel(Isp(0), frame, calib, 0, rect, new float[4]);
                 var hbuf = new ushort[rect.Width * rect.Height * 3];
                 for (int y = 0; y < rect.Height; y++) { var row = img.Row(y); for (int x = 0; x < rect.Width; x++) { var q = row[x]; int i = (y * rect.Width + x) * 3; hbuf[i] = Lux.Engine.Imaging.Half16.FromFloat(q.R); hbuf[i + 1] = Lux.Engine.Imaging.Half16.FromFloat(q.G); hbuf[i + 2] = Lux.Engine.Imaging.Half16.FromFloat(q.B); } }
                 log?.Invoke($"ref cache: level-0 tile ({tx},{ty}) {rect.Width}x{rect.Height}");
-                return refTiles[(tx, ty)] = (rect, hbuf);
-            }
+                return (rect, hbuf);
+            });
             var refGen = Lux.Engine.Pipeline.ResAmp.ImageGenerator.SqrtOf(W, H, r =>
             {
                 var o = new float[r.Width * r.Height * 4];
@@ -129,19 +131,41 @@ public static class ExportBuild
                 return o;
             });
             var camNames = new[] { "A1", "A2", "A3", "A4", "A5", "B1", "B2", "B3", "B4", "B5" };
-            var modules = new List<Lux.Engine.Pipeline.ResAmp.ResAmpModule>();
-            foreach (int id in reg.Sizes.Keys.Where(k => k >= 5 && k <= 9).OrderBy(k => k))
+            var teleIds = reg.Sizes.Keys.Where(k => k >= 5 && k <= 9).OrderBy(k => k).ToArray();
+            // Each telephoto cache (its own module frame, ISP stats and warp field) is independent of the others, so they are built at
+            // once; the module list keeps the id order the sequential loop had, which is what ImageResolutionAmp merges in.
+            var teleCaches = new Lux.Engine.Pipeline.ResAmp.TeleLevel0Cache[teleIds.Length];
+            var teleModules = new Lux.Engine.Pipeline.ResAmp.ResAmpModule[teleIds.Length];
+            Parallel.For(0, teleIds.Length, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, threads) }, i =>
             {
+                int id = teleIds[i];
                 // `api+0x3a8[id].view/.module`: the online-calibration pair the renderer hands the tele SourceImageCache — always from the
                 // ported registration state.
                 var (v2, m2) = reg.Pairs[id];
                 var cache = new Lux.Engine.Pipeline.ResAmp.TeleLevel0Cache(lri, camNames[id], v2, m2, reg.Sizes[id], sc, (RendererProfile)3, colour, wb.Cct, wb.Tint);
                 var wf = Lux.Engine.Pipeline.ResAmp.TeleWarpFieldBuilder.BuildFromPoses(reg.Cams[id].Pose, reg.Cams[id].Slot, reg.Cams[refId].Pose, reg.Cams[refId].Slot, sc, depth, depthW, depthH);
-                modules.Add(new Lux.Engine.Pipeline.ResAmp.ResAmpModule(cache.ToGenerator(), wf));
-                log?.Invoke($"tele {camNames[id]}: level-0 dims {cache.Dims.W}x{cache.Dims.H} gain {cache.Gain:R}");
-            }
+                teleCaches[i] = cache; teleModules[i] = new Lux.Engine.Pipeline.ResAmp.ResAmpModule(cache.ToGenerator(), wf);
+            });
+            for (int i = 0; i < teleIds.Length; i++) log?.Invoke($"tele {camNames[teleIds[i]]}: level-0 dims {teleCaches[i].Dims.W}x{teleCaches[i].Dims.H} gain {teleCaches[i].Gain:R}");
+            var modules = teleModules.ToList();
             var amp = new Lux.Engine.Pipeline.ResAmp.ImageResolutionAmp(refGen, l1Gen, modules, scale);
             pc.Level0 = r => amp.Run(r);
+            // The level-0 tiles' inputs, generated ahead of them on every thread: the fusion tiles (the slowest, first), the mono
+            // initialisation the first level-1 render would otherwise do under a lock, the reference tiles and the telephoto tiles.
+            var fcache = fc!;
+            pc.Level0Prefetch = threads =>
+            {
+                var work = new List<Action>();
+                var (fnx, fny) = fcache.TileGrid;
+                for (int ty = 0; ty < fny; ty++) for (int tx = 0; tx < fnx; tx++) { int a = tx, b = ty; work.Add(() => fcache.EnsureTile(a, b)); }
+                work.Add(fcache.EnsureMonoInitialized);
+                for (int ty = 0; ty < rny; ty++) for (int tx = 0; tx < rnx; tx++) { int a = tx, b = ty; work.Add(() => RefTile(a, b)); }
+                foreach (var tc in teleCaches)
+                    for (int ty = 0; ty < tc.Grid.Y; ty++) for (int tx = 0; tx < tc.Grid.X; tx++) { int a = tx, b = ty; var c = tc; work.Add(() => c.EnsureTile(a, b)); }
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                Parallel.ForEach(System.Collections.Concurrent.Partitioner.Create(work, loadBalance: true), new ParallelOptions { MaxDegreeOfParallelism = threads }, a => a());
+                log?.Invoke($"prefetch: {work.Count} level-0 inputs (fusion {fnx * fny}, reference {rnx * rny}, telephoto {work.Count - fnx * fny - rnx * rny - 1}) on {threads} threads in {sw.Elapsed.TotalSeconds:F1}s");
+            };
         }
         (float[], int, int)? full = null;
         if (api?.FullDepth is not null) full = (api.FullDepth.Depth, api.FullDepth.W, api.FullDepth.H);

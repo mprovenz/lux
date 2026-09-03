@@ -220,7 +220,7 @@ public sealed class ExportRenderer
             var blurred = ExportResample.ConvSeparable(src, sw, sh, kernelX, kernelY);
             outp = ExportResample.WarpBilinear(blurred, sw, sh, dw, dh, to);
         }
-        else outp = ExportResample.WarpClamped2(src, sw, sh, dw, dh, to);
+        else outp = ExportResample.WarpClamped2(src, sw, sh, dw, dh, to, Threads);
         BlockHook?.Invoke("rsout", rect, dw, dh, outp);
         var scaled = new float[outp.Length];
         for (int i = 0; i < outp.Length; i++) scaled[i] = outp[i] * 16384f;   // FUN_18001b790 with _DAT_1806ef750 = (16384,16384,16384,16384)
@@ -230,37 +230,82 @@ public sealed class ExportRenderer
 
     /// <summary>`renderForExport`: the export-level source rect gathered from the render-thread tiles (each rendered whole by the tile callback:
     /// level origin shift → `FUN_1804bd710` → `RemoveVignettingGeneric&lt;vec4x32f,1&gt;` with the crop rect = shifted tile × cacheDims/pipelineDims).</summary>
+    /// <summary>Tiles rendered at once inside <see cref="RenderSource"/> and <see cref="Prefetch"/>; 1 = the sequential order. Every tile is a
+    /// pure function of the capture, memoised once by the caches, so the pixels do not depend on the schedule — only the order of the log
+    /// lines and of the diagnostic hooks does.</summary>
+    public int Threads { get; set; } = 1;
+    readonly object _hookLock = new();
+
+    (int Tx, int Ty)[] TilesOf(int level, RectI src)
+    {
+        var (W, H) = _lv.ExportDims[level];
+        int nx = ExportLevels.GridCount(W), ny = ExportLevels.GridCount(H);
+        int tx0 = Math.Min(src.X0 / ExportLevels.Tile, nx - 1), tx1 = Math.Min((src.X1 - 1) / ExportLevels.Tile, nx - 1);
+        int ty0 = Math.Min(src.Y0 / ExportLevels.Tile, ny - 1), ty1 = Math.Min((src.Y1 - 1) / ExportLevels.Tile, ny - 1);
+        var tiles = new List<(int, int)>();
+        for (int ty = ty0; ty <= ty1; ty++) for (int tx = tx0; tx <= tx1; tx++) tiles.Add((tx, ty));
+        return tiles.ToArray();
+    }
+
+    void ForEachTile((int Tx, int Ty)[] tiles, Action<(int Tx, int Ty)> body)
+    {
+        if (Threads <= 1 || tiles.Length <= 1) { foreach (var t in tiles) body(t); return; }
+        Parallel.ForEach(tiles, new ParallelOptions { MaxDegreeOfParallelism = Threads }, body);
+    }
+
+    /// <summary>Generate, ahead of the writer, every pipeline tile the export of <paramref name="rect"/> reads, <see cref="Threads"/> at a time.
+    /// The DNG writer asks per 2048² block, which would bound the concurrency to a block's handful of tiles; after this every block is a
+    /// cache hit. No-op when sequential.</summary>
+    public void Prefetch(RectI rect)
+    {
+        if (Threads <= 1) return;
+        var r = new RectI(Math.Max(rect.X0, 0), Math.Max(rect.Y0, 0), Math.Min(rect.X1, _size.W), Math.Min(rect.Y1, _size.H));
+        if (r.Width <= 0 || r.Height <= 0) return;
+        var to = ExportTransformOutput.Compute(_tr, _size, r, _lv.ExportDims, _force0);
+        var tiles = TilesOf(to.Level, to.Source);
+        var (ox, oy) = _lv.Origins[to.Level]; var pd = _lv.PipelineDims[to.Level]; int L = _lv.BaseLevel + to.Level;
+        // the union of the pipeline rects the export tiles will read (contiguous tiles, so a rect); the cache generates every
+        // pipeline tile under it, its level-0 inputs first
+        int ux0 = int.MaxValue, uy0 = int.MaxValue, ux1 = int.MinValue, uy1 = int.MinValue;
+        foreach (var (tx, ty) in tiles)
+        {
+            var tile = _lv.TileRect(to.Level, tx, ty);
+            var s = _cache.SourceRect(L, new RectI(tile.X0 + ox, tile.Y0 + oy, tile.X1 + ox, tile.Y1 + oy), pd);
+            ux0 = Math.Min(ux0, s.X0); uy0 = Math.Min(uy0, s.Y0); ux1 = Math.Max(ux1, s.X1); uy1 = Math.Max(uy1, s.Y1);
+        }
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        _cache.Prefetch(L, new RectI(ux0, uy0, ux1, uy1), Threads);
+        Log?.Invoke($"prefetch: the pipeline tiles under {tiles.Length} export tiles of level {to.Level} on {Threads} threads in {sw.Elapsed.TotalSeconds:F1}s");
+    }
+
     public float[] RenderSource(int level, RectI src)
     {
         var (W, H) = _lv.ExportDims[level];
         if (src.X0 < 0 || src.Y0 < 0 || src.X1 > W || src.Y1 > H) throw new ArgumentException("export source rect out of bounds");
-        int nx = ExportLevels.GridCount(W), ny = ExportLevels.GridCount(H);
-        int tx0 = Math.Min(src.X0 / ExportLevels.Tile, nx - 1), tx1 = Math.Min((src.X1 - 1) / ExportLevels.Tile, nx - 1);
-        int ty0 = Math.Min(src.Y0 / ExportLevels.Tile, ny - 1), ty1 = Math.Min((src.Y1 - 1) / ExportLevels.Tile, ny - 1);
         var outp = new float[src.Width * src.Height * 4];
         var (ox, oy) = _lv.Origins[level]; var pd = _lv.PipelineDims[level];
         float m = _multiplier(level);
         var g = LensShadingKernel.Transform(_grid, m, inverse: true);
         float fx = (float)_lv.CacheDims.W / (float)pd.W, fy = (float)_lv.CacheDims.H / (float)pd.H;   // FUN_18049c5d0
-        for (int ty = ty0; ty <= ty1; ty++)
-            for (int tx = tx0; tx <= tx1; tx++)
-            {
-                var tile = _lv.TileRect(level, tx, ty);
-                var shifted = new RectI(tile.X0 + ox, tile.Y0 + oy, tile.X1 + ox, tile.Y1 + oy);   // 180526690 L42–47
-                var px = _cache.Render(_lv.BaseLevel + level, shifted, pd);                          // FUN_18048f2b0 → FUN_1804bd710 (mode 0, PipelineCache)
-                int tw = tile.Width, th = tile.Height;
-                TilePreHook?.Invoke(level, tile, shifted, px);
-                var img = new Image<Vec4F>(tw, th);
-                System.Runtime.InteropServices.MemoryMarshal.Cast<float, Vec4F>(px.AsSpan()).CopyTo(img.Data);
-                var floatRect = new RectF(fx * (float)shifted.X0, fy * (float)shifted.Y0, fx * (float)shifted.X1, fy * (float)shifted.Y1);
-                LensShadingKernel.Apply(img, new RectI(0, 0, tw, th), floatRect, tw, th, _lv.CacheDims.W, _lv.CacheDims.H, _cols, _rows, g);
-                System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, float>(img.Data.AsSpan()).CopyTo(px);
-                TileHook?.Invoke(level, tile, shifted, px);
-                var c = tile.Intersect(src);
-                for (int y = c.Y0; y < c.Y1; y++)
-                    Array.Copy(px, ((y - tile.Y0) * tw + (c.X0 - tile.X0)) * 4, outp, ((y - src.Y0) * src.Width + (c.X0 - src.X0)) * 4, c.Width * 4);
-                Log?.Invoke($"  tile L{level} ({tx},{ty}) export ({tile.X0},{tile.Y0},{tile.X1},{tile.Y1}) pipeline ({shifted.X0},{shifted.Y0}) m {m:R}");
-            }
+        ForEachTile(TilesOf(level, src), t =>
+        {
+            var (tx, ty) = t;
+            var tile = _lv.TileRect(level, tx, ty);
+            var shifted = new RectI(tile.X0 + ox, tile.Y0 + oy, tile.X1 + ox, tile.Y1 + oy);   // 180526690 L42–47
+            var px = _cache.Render(_lv.BaseLevel + level, shifted, pd);                          // FUN_18048f2b0 → FUN_1804bd710 (mode 0, PipelineCache)
+            int tw = tile.Width, th = tile.Height;
+            if (TilePreHook is not null) lock (_hookLock) TilePreHook(level, tile, shifted, px);
+            var img = new Image<Vec4F>(tw, th);
+            System.Runtime.InteropServices.MemoryMarshal.Cast<float, Vec4F>(px.AsSpan()).CopyTo(img.Data);
+            var floatRect = new RectF(fx * (float)shifted.X0, fy * (float)shifted.Y0, fx * (float)shifted.X1, fy * (float)shifted.Y1);
+            LensShadingKernel.Apply(img, new RectI(0, 0, tw, th), floatRect, tw, th, _lv.CacheDims.W, _lv.CacheDims.H, _cols, _rows, g);
+            System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, float>(img.Data.AsSpan()).CopyTo(px);
+            if (TileHook is not null) lock (_hookLock) TileHook(level, tile, shifted, px);
+            var c = tile.Intersect(src);   // this tile's own region of the output — disjoint across tiles, so the copies need no lock
+            for (int y = c.Y0; y < c.Y1; y++)
+                Array.Copy(px, ((y - tile.Y0) * tw + (c.X0 - tile.X0)) * 4, outp, ((y - src.Y0) * src.Width + (c.X0 - src.X0)) * 4, c.Width * 4);
+            Log?.Invoke($"  tile L{level} ({tx},{ty}) export ({tile.X0},{tile.Y0},{tile.X1},{tile.Y1}) pipeline ({shifted.X0},{shifted.Y0}) m {m:R}");
+        });
         return outp;
     }
 }
@@ -316,10 +361,12 @@ public static class ExportResample
 
     /// <summary>`ImageWarpClamped&lt;2,vec4x32f,std::function&gt;` lambda_1 (`180533040`): `p = (int)((map − 1)·64)`, 64-phase Catmull-Rom with the
     /// clamped 4×4 gather at the border, zero fill outside, `max(−0.25·P, N) + P` recombination (shared with the aligned warp).</summary>
-    public static float[] WarpClamped2(float[] src, int sw, int sh, int dw, int dh, TransformOutput to)
+    public static float[] WarpClamped2(float[] src, int sw, int sh, int dw, int dh, TransformOutput to, int threads = 1)
     {
-        var dst = new float[dw * dh * 4]; Span<float> block = stackalloc float[64]; Span<float> fill = stackalloc float[4];
-        for (int y = 0; y < dh; y++)
+        var dst = new float[dw * dh * 4];
+        void Row(int y)
+        {
+            Span<float> block = stackalloc float[64]; Span<float> fill = stackalloc float[4];
             for (int x = 0; x < dw; x++)
             {
                 var (u, v) = to.Map((float)x, (float)y);
@@ -335,6 +382,8 @@ public static class ExportResample
                 }
                 else WarpResample.Resample(src, sw, (iy * sw + ix) * 4, Table, px & 63, py & 63, dst, o);
             }
+        }
+        if (threads > 1 && dh > 1) Parallel.For(0, dh, new ParallelOptions { MaxDegreeOfParallelism = threads }, Row); else for (int y = 0; y < dh; y++) Row(y);   // rows are independent
         return dst;
     }
 

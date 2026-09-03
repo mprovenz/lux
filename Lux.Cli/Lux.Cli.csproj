@@ -8,6 +8,10 @@
     <AssemblyName>lux-light</AssemblyName>
     <RootNamespace>Lux.Cli</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- The tile render allocates its scratch per tile on many threads; the workstation collector let ~20 GB of dead
+         scratch accumulate before collecting (22 GB peak RSS at 24 threads), the server collector keeps it near the
+         sequential footprint (8 GB) at the same speed. -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>

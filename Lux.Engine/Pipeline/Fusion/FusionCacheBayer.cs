@@ -19,7 +19,8 @@ public sealed class FusionCacheBayer
     public int Width => RefFrame.Width;
     public int Height => RefFrame.Height;
     public Action<string>? Log { get; set; }
-    readonly Dictionary<(int, int), (RectI Rect, float[] Fused, byte[] W8)> _tiles = new();
+    readonly Cache.TileStore<(int, int), (RectI Rect, float[] Fused, byte[] W8)> _tiles = new();
+    readonly object _monoLock = new();
 
     /// <summary>`FusionCacheBase` ctor: pipeline-5 tuning (`ModuleIspTuning.Build(5)` incl. the sensor-tuning row overrides), Stats from the reference
     /// capture with the AsShot neutral (`setNeutral` `FUN_180504100`), halo by gain, noise scale from the sensor-tuning row (§2.1).</summary>
@@ -60,19 +61,24 @@ public sealed class FusionCacheBayer
     public bool HasMono { get; }
     /// <summary>`FusionCacheBase+0x20` (null unless <see cref="HasMono"/>); initialised on first use (`FusionCacheBayer::initialize` 180507a20 runs it after the colour fusion).</summary>
     public MonoFusion? Mono { get; }
-    public void EnsureMonoInitialized() { if (Mono is not null && !Mono.Initialized) Mono.Initialize(); }
+    public void EnsureMonoInitialized()
+    {
+        if (Mono is null) return;
+        lock (_monoLock) if (!Mono.Initialized) Mono.Initialize();   // once, whichever tile asks first; the others wait
+    }
 
     /// <summary>`lambda_0` (180508ed0): one 512×512 tile = `process(tile rect, 1.0)`; float tile into the float cache, `w8` into the uint8 cache.</summary>
-    (RectI Rect, float[] Fused, byte[] W8) Tile(int tx, int ty)
+    (RectI Rect, float[] Fused, byte[] W8) Tile(int tx, int ty) => _tiles.GetOrCreate((tx, ty), k =>
     {
-        if (_tiles.TryGetValue((tx, ty), out var t)) return t;
-        var rect = PackedBayerFusion.TileRect(tx, ty, Width, Height);
+        var rect = PackedBayerFusion.TileRect(k.Item1, k.Item2, Width, Height);
         var pr = Fusion.Process(rect, 1.0f);
-        t = (rect, pr.Out, PackedBayerFusion.WeightToByte(pr.Weight));
-        _tiles[(tx, ty)] = t;
-        Log?.Invoke($"fusion cache: tile ({tx},{ty}) {rect.Width}x{rect.Height}");
-        return t;
-    }
+        Log?.Invoke($"fusion cache: tile ({k.Item1},{k.Item2}) {rect.Width}x{rect.Height}");
+        return (rect, pr.Out, PackedBayerFusion.WeightToByte(pr.Weight));
+    });
+
+    /// <summary>Generate (and keep) one tile ahead of any render that needs it — the unit of the export's dependency prefetch.</summary>
+    public void EnsureTile(int tx, int ty) => Tile(tx, ty);
+    public (int Nx, int Ny) TileGrid => PackedBayerFusion.TileGrid(Width, Height);
 
     /// <summary>`TileCache::renderROI` over <paramref name="grown"/> (frame pixels) for both caches.</summary>
     public (float[] Fused, byte[] W8) RenderTiles(RectI grown)

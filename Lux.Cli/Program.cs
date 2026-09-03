@@ -125,7 +125,10 @@ namespace Lux.Cli
             var plan = ConvertCmd.TryPlan(o, total, out string? planError);
             if (plan is null) { Console.Error.WriteLine($"error: {planError}"); return 2; }
             var request = plan.Request;
-            Console.WriteLine($"lux-light convert: {total} file(s), {o.Threads} thread(s), Lumen export path"
+            // Threads inside each conversion: the whole machine for one input at a time, shared out when several run at once.
+            int renderThreads = o.RenderThreads ?? Math.Max(1, Environment.ProcessorCount / Math.Max(1, Math.Min(o.Threads, total)));
+            Lux.Engine.Pipeline.BayerFusion.BlockFlow.Threads = renderThreads;   // the block-flow searches of the fusion set-up (process-wide)
+            Console.WriteLine($"lux-light convert: {total} file(s), {Math.Min(o.Threads, total)} at once, {renderThreads} render thread(s) each, Lumen export path"
                               + (o.Level != 0 ? $", level {o.Level}" : "") + (o.Size is { } s ? $", size {s.W}x{s.H}" : "")
                               + $", formats {plan.FormatsLabel}"
                               + $" -> {o.OutFile ?? o.OutDirectory ?? "<beside input>"}");
@@ -143,8 +146,8 @@ namespace Lux.Cli
                     Action<string>? flog = Environment.GetEnvironmentVariable("LUX_VERBOSE") == "1"
                         ? m => Console.Error.WriteLine($"  [{stem}] {m}") : null;
                     var req = o.OutFile is string one
-                        ? request with { OutFile = one }
-                        : request with { OutDirectory = outDir, Stem = stem };
+                        ? request with { OutFile = one, RenderThreads = renderThreads }
+                        : request with { OutDirectory = outDir, Stem = stem, RenderThreads = renderThreads };
                     var res = Exporter.Run(path, req, flog);
                     int n = Interlocked.Increment(ref done);
                     // one entry per format: the Lumen rasters by extension and size, lens-frames as a count
@@ -336,6 +339,8 @@ namespace Lux.Cli
                   -o, --out-directory <dir>   Write <stem>.<ext> per input (default: a lux_convert/ beside the .lri)
                       --out-file <path>       Name the output file (only when the run makes exactly one file)
                   -j, --threads <n>           Inputs converted in parallel (default: CPU count)
+                      --render-threads <n>    Threads per input for the tile render (default: CPU
+                                              count ÷ the inputs converted at once; 1 = sequential)
                       --formats <list>        Original (extended): dng, jpg, hdr, ppm, jpg+depth
                                               New:   depth, lens-frames, parallax-wiggle, parallax-wiggle-interp,
                                                      parallax-orbit, parallax-single, parallax-rack, parallax-dolly,
