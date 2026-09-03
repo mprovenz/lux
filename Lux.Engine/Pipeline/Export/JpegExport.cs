@@ -83,6 +83,8 @@ public sealed class JpegExportRenderer
     /// the overlap with <paramref name="src"/> is copied into the destination.</summary>
     /// <summary>Tiles rendered at once inside <see cref="RenderSource"/>; 1 = the sequential order (see <see cref="ExportRenderer.Threads"/>).</summary>
     public int Threads { get; set; } = 1;
+    /// <summary>Progress: "jpeg tiles" per <see cref="RenderSource"/> call, one unit per export tile.</summary>
+    public ProgressReporter Progress { get; set; } = ProgressReporter.None;
     readonly object _hookLock = new();
 
     public byte[] RenderSource(int level, RectI src)
@@ -97,6 +99,7 @@ public sealed class JpegExportRenderer
         var pd = _lv.PipelineDims[level];
         var tiles = new List<(int Tx, int Ty)>();
         for (int ty = ty0; ty <= ty1; ty++) for (int tx = tx0; tx <= tx1; tx++) tiles.Add((tx, ty));
+        Progress.Begin("jpeg tiles", tiles.Count);
         void One((int Tx, int Ty) t)
         {
             var (tx, ty) = t;
@@ -130,6 +133,7 @@ public sealed class JpegExportRenderer
                     }
                 }
             }
+            Progress.Tick();
         }
         if (Threads <= 1 || tiles.Count <= 1) { foreach (var t in tiles) One(t); }
         else Parallel.ForEach(tiles, new ParallelOptions { MaxDegreeOfParallelism = Threads }, One);

@@ -29,6 +29,8 @@ public sealed class PipelineCache
     /// thread count before <see cref="Prefetch"/> starts the level-0 tiles. Left to the level-0 tiles themselves, those inputs are made
     /// lazily by whichever tile asks first while its neighbours wait on the same entries, which serialises the start of the phase.</summary>
     public Action<int>? Level0Prefetch;
+    /// <summary>Progress of <see cref="Prefetch"/>: the "level-N tiles" phase, one unit per tile.</summary>
+    public ProgressReporter Progress { get; set; } = ProgressReporter.None;
 
     public PipelineCache((int W, int H)[] levelDims)
     {
@@ -111,8 +113,9 @@ public sealed class PipelineCache
         if (level == 0 && threads > 1) Level0Prefetch?.Invoke(threads);
         var keys = new List<(int, int)>();
         for (int ty = ty0; ty <= ty1; ty++) for (int tx = tx0; tx <= tx1; tx++) keys.Add((tx, ty));
-        if (threads <= 1) { foreach (var (tx, ty) in keys) Tile(level, tx, ty); return; }
-        Parallel.ForEach(keys, new ParallelOptions { MaxDegreeOfParallelism = threads }, k => Tile(level, k.Item1, k.Item2));
+        Progress.Begin($"level-{level} tiles", keys.Count);
+        if (threads <= 1) { foreach (var (tx, ty) in keys) { Tile(level, tx, ty); Progress.Tick(); } return; }
+        Parallel.ForEach(keys, new ParallelOptions { MaxDegreeOfParallelism = threads }, k => { Tile(level, k.Item1, k.Item2); Progress.Tick(); });
     }
 
     /// <summary>`TileCache::renderROI&lt;vec4x32f&gt;` (1804bd050): gather the tiles overlapping `rect` (level pixels) as float RGBA with alpha 1.</summary>

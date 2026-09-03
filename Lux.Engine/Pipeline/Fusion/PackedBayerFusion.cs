@@ -60,6 +60,8 @@ public sealed class PackedBayerFusion
     public List<int> SourceIds { get; } = new();       // +0x158
     /// <summary>Sources prepared at once in <see cref="Initialize"/> (each depends only on the reference state, so the count never changes the result).</summary>
     public int Threads { get; set; } = 1;
+    /// <summary>Progress of <see cref="Initialize"/>: the "fusion set-up" phase, the reference then one unit per source.</summary>
+    public ProgressReporter Progress { get; set; } = ProgressReporter.None;
     public int PyramidLevels { get; }
 
     /// <summary>Packed reference (+0x80): 4 halves per pixel, quad order (TR, TL, BL, BR); size <see cref="Wp"/>×<see cref="Hp"/>.</summary>
@@ -116,9 +118,9 @@ public sealed class PackedBayerFusion
     /// </summary>
     public bool SourceFrameBlackEstimate { get; }
 
-    public PackedBayerFusion(LriFile lri, int refCamId, float cct, float tint, Action<string>? log = null, bool initialize = true, bool sourceFrameBlackEstimate = true, int threads = 1)
+    public PackedBayerFusion(LriFile lri, int refCamId, float cct, float tint, Action<string>? log = null, bool initialize = true, bool sourceFrameBlackEstimate = true, int threads = 1, ProgressReporter? progress = null)
     {
-        Threads = Math.Max(1, threads);
+        Threads = Math.Max(1, threads); Progress = progress ?? ProgressReporter.None;
         _lri = lri; RefCamId = refCamId; Cct = cct; Tint = tint; Log = log;
         // `FUN_180112250` — frames per stack. On a stacked capture every source frame of the LEVEL-1 fusion is the
         // `lt::StackFusion` result of that module (`FUN_18020a6d0` non-null), and `FUN_1801f7a90` then takes its other
@@ -172,6 +174,7 @@ public sealed class PackedBayerFusion
     public void Initialize()
     {
         BuildSourceList();
+        Progress.Begin("fusion set-up", 1 + SourceIds.Count);
         var refFrame = BuildFrame(RefCamId, One);
         Frames.Add(refFrame);
         int W = refFrame.W, H = refFrame.H;
@@ -195,6 +198,7 @@ public sealed class PackedBayerFusion
             VignettingFloat.Apply(VignMap, VmW, VmH, new RectF(0f, 0f, (float)W, (float)H), W, H, cols, rows, LensShadingKernel.Transform(grid, One, false));
         }
         var validity = BlockFlow.ValidityFromGainMap(VignMap, VmW, VmH, VmW);
+        Progress.Tick();
 
         // per source (initialize L150–330): each source's frame, crop, collapse, flow and packing depend only on the reference state
         // above, so the sources are prepared at once and appended in id order — the lists keep exactly the sequential layout.
@@ -223,6 +227,7 @@ public sealed class PackedBayerFusion
             float sSrc = One / (sf.White - sf.Black);
             var packed = Pack(Scale(view, sSrc), cw, ch, out int pw, out int ph);
             prep[i] = (sf, crop, colPre, col, sw, sh, flow, fw, fh, packed, pw, ph, gain);
+            Progress.Tick();
         }
         if (Threads > 1 && ids.Length > 1) Parallel.For(0, ids.Length, new ParallelOptions { MaxDegreeOfParallelism = Threads }, Prepare);
         else for (int i = 0; i < ids.Length; i++) Prepare(i);

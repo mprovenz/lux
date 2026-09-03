@@ -19,6 +19,8 @@ public sealed class FusionCacheBayer
     public int Width => RefFrame.Width;
     public int Height => RefFrame.Height;
     public Action<string>? Log { get; set; }
+    /// <summary>Handed to the mono fusion (its initialisation ticks the level-0 inputs phase).</summary>
+    public ProgressReporter Progress { get => Mono?.Progress ?? ProgressReporter.None; set { if (Mono is not null) Mono.Progress = value; } }
     readonly Cache.TileStore<(int, int), (RectI Rect, float[] Fused, byte[] W8)> _tiles = new();
     readonly object _monoLock = new();
 

@@ -32,6 +32,10 @@ public sealed record ExportRequest
     /// are the same at any count — every tile is a pure function of the capture, memoised once.</summary>
     public int RenderThreads { get; init; } = 1;
 
+    /// <summary>Progress sink: one <see cref="ProgressUpdate"/> per phase start and per unit of work, from any thread.
+    /// Null = no reporting (the default; reporting never changes the output).</summary>
+    public Action<ProgressUpdate>? Progress { get; init; }
+
     /// <summary>Also write the stereo depth map (`&lt;stem&gt;_depth.f32` + `_depth.jpg`) — a Lux extra, not a
     /// Lumen `ExportImageFormat`. Forces the level-0 build exactly as `jpg+depth` does.</summary>
     public bool DepthMap { get; init; }
@@ -154,7 +158,7 @@ public sealed class ExportSession
 
     public ExportSession(ExportState st, ExportRequest req, Action<string>? log)
     {
-        State = st; Request = req; _v = req.Verbose; _log = log;
+        State = st; Request = req; _v = req.Verbose; _log = log; Progress = new ProgressReporter(req.Progress);
         // The engine trace (the renderers and the DNG writer). A verbose caller indents it by two spaces under its
         // own headline lines; `convert` hands its log through untouched.
         _eng = log is null ? null : (_v ? s => log("  " + s) : log);
@@ -162,6 +166,8 @@ public sealed class ExportSession
     }
 
     public Action<string>? EngineLog => _eng;
+    /// <summary>The export's progress channel (see <see cref="ExportRequest.Progress"/>).</summary>
+    public ProgressReporter Progress { get; }
     ExportLevels Win => Grid.Window;
     (int W, int H) Size => Grid.Size;
     LriFile Lri => State.Lri;
@@ -178,7 +184,7 @@ public sealed class ExportSession
         // L965/L1161 sets to `FUN_18048a930(reference capture)` for every level. That is the per-capture histogram
         // value (SoT §3.5), not the module-ISP tuning's 1.0.
         float Mult(int _) => State.Capture.LensShadingMultiplier;
-        return new(State.Cache, Win, Grid.Transform, Size, forceLevel0: false, Mult, _vign.Value) { Log = _eng, Threads = Request.RenderThreads };
+        return new(State.Cache, Win, Grid.Transform, Size, forceLevel0: false, Mult, _vign.Value) { Log = _eng, Threads = Request.RenderThreads, Progress = Progress };
     }
     public float[] FloatImage()
     {
@@ -214,7 +220,7 @@ public sealed class ExportSession
     public (JpegExportRenderer Renderer, byte[] Rgba) Rgba8()
     {
         if (_jpegRenderer is not null && _rgba8 is not null) return (_jpegRenderer, _rgba8);
-        _jpegRenderer = new JpegExportRenderer(State.Cache, Win, Grid.Transform, Size, forceLevel0: false, IspOfLevel, Frame) { Log = _eng, Threads = Request.RenderThreads };
+        _jpegRenderer = new JpegExportRenderer(State.Cache, Win, Grid.Transform, Size, forceLevel0: false, IspOfLevel, Frame) { Log = _eng, Threads = Request.RenderThreads, Progress = Progress };
         var swr = System.Diagnostics.Stopwatch.StartNew();
         _rgba8 = _jpegRenderer.Render();
         if (_v) _log?.Invoke($"  render {Size.W}x{Size.H} RGBA8 in {swr.Elapsed.TotalSeconds:F1}s");
@@ -331,7 +337,7 @@ public static class Exporter
         int buildLevel = BuildLevelFor(req);
         if (buildLevel == 0 && (req.Level ?? 0) != 0 && !v)
             log?.Invoke($"depth: building the level-0 registration state (the depth cache) even though the export level is {req.Level}");
-        return Run(ExportBuild.Build(lriPath, buildLevel, eng, req.RenderThreads), req, log);
+        return Run(ExportBuild.Build(lriPath, buildLevel, eng, req.RenderThreads, new ProgressReporter(req.Progress)), req, log);
     }
 
     /// <summary>The same export against a state the caller has already built — one <see cref="ExportState"/> can
@@ -407,6 +413,7 @@ public static class Exporter
                 SubsamplingId = req.JpegSubsampling ?? 2, // the literal 2 = 4:2:0
                 Comment = req.JpegComment ?? "Created with LibCP " + version,
                 ExifApp1 = JpegExif.Build(t, size.W, size.H),
+                RowProgress = (row, rows) => { if (row == 1) s.Progress.Begin("jpeg encode", rows); s.Progress.Tick(); },
             };
             if (f == ExportImageFormat.JpegGDepth)
             {
@@ -441,7 +448,7 @@ public static class Exporter
                     var t = TagsFor(f);
                     if (v) log?.Invoke($"tags: illum {t.Illuminant1}/{t.Illuminant2} tone {t.ToneMappingType} ev {t.BaselineExposure:R} neutral ({string.Join(",", t.Neutral.Select(x => x.ToString("R")))}) fnum {t.FNumber:R} iso {t.Iso} focal {t.FocalLengthMm} exp {t.ExposureTimeSeconds:R} cs {t.ColorSpaceProperty} comp {t.Compression}");
                     using var fs = File.Create(path);
-                    DngWriter.Write(fs, size.W, size.H, t, block => r.RenderBlock(block), eng, req.RenderThreads);
+                    DngWriter.Write(fs, size.W, size.H, t, block => r.RenderBlock(block), eng, req.RenderThreads, s.Progress);
                     break;
                 }
                 case ExportImageFormat.Jpeg:
@@ -469,11 +476,13 @@ public static class Exporter
                                   + "so fmt 1/2/3 render through FUN_1805253c0 + the DNG float tile lambda. Verified: cp.dll's own CS=4 and CS=1 .hdr files are byte-identical.");
                     }
                     var img = s.FloatImage();
+                    s.Progress.Begin(f == ExportImageFormat.Hdr ? "hdr write" : "ppm write", 1);
                     using (var fs = File.Create(path))
                     {
                         if (f == ExportImageFormat.Hdr) RadianceHdrWriter.Write(fs, size.W, size.H, img);
                         else PpmWriter.Write(fs, size.W, size.H, img);
                     }
+                    s.Progress.End();
                     ExportTuningOverride.Restore(outputTuning, saved);
                     break;
                 }
@@ -492,7 +501,9 @@ public static class Exporter
         if (req.DepthMap)
         {
             sw.Restart();
+            s.Progress.Begin("depth", 1);
             var d = DepthCmd.Write(s.DepthOnGrid(), size, req.OutDirectory!, req.Stem!);
+            s.Progress.End();
             outputs.Add(new Output("depth", d.F32Path, new FileInfo(d.F32Path).Length, sw.Elapsed.TotalSeconds));
             outputs.Add(new Output("depth", d.PreviewPath, new FileInfo(d.PreviewPath).Length, 0, ExportImageFormat.JpegGDepth));
             log?.Invoke($"depth map {size.W}x{size.H} near {d.NearMm:F1}mm far {d.FarMm:F1}mm -> " +

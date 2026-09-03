@@ -43,6 +43,8 @@ public sealed class JpegEncoder
     /// <summary>The APP1 deque drained at `0x1800fd9fe` — the GDepth XMP standard packet and its extension chunks, in FIFO order.</summary>
     public List<byte[]> ExtraApp1 = new();
     public int DensityUnit = 1, XDensity = 72, YDensity = 72;   // 0x1800fd731 / 0x1800fd738
+    /// <summary>Progress: (rows done, rows total) after each iMCU row — reporting only, the bytes are the same.</summary>
+    public Action<int, int>? RowProgress;
 
     // ---------------------------------------------------------------- jcparam.c: the Annex-K quantization bases
 
@@ -340,7 +342,7 @@ public sealed class JpegEncoder
         {
             Quality = options.Quality, SubsamplingId = options.SubsamplingId, Comment = options.Comment,
             ExifApp1 = options.ExifApp1, ExtraApp1 = options.ExtraApp1,
-            DensityUnit = options.DensityUnit, XDensity = options.XDensity, YDensity = options.YDensity,
+            DensityUnit = options.DensityUnit, XDensity = options.XDensity, YDensity = options.YDensity, RowProgress = options.RowProgress,
         };
         e.Run(pixels, width, height, strideBytes, grayscale);
     }
@@ -436,6 +438,7 @@ public sealed class JpegEncoder
         var block = new int[64];
         int lastIMcuRow = totalIMcuRows - 1, lastMcuCol = mcusPerRow - 1;
         for (int iMcuRow = 0; iMcuRow < totalIMcuRows; iMcuRow++)
+        {
             for (int mcuCol = 0; mcuCol < mcusPerRow; mcuCol++)
                 foreach (var c in comps)
                 {
@@ -467,6 +470,8 @@ public sealed class JpegEncoder
                         ypos += 8;
                     }
                 }
+            RowProgress?.Invoke(iMcuRow + 1, totalIMcuRows);
+        }
         FlushBits();
         Marker(0xD9);   // EOI
     }

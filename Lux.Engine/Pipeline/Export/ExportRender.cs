@@ -234,6 +234,8 @@ public sealed class ExportRenderer
     /// pure function of the capture, memoised once by the caches, so the pixels do not depend on the schedule — only the order of the log
     /// lines and of the diagnostic hooks does.</summary>
     public int Threads { get; set; } = 1;
+    /// <summary>Progress: "render tiles" per <see cref="RenderSource"/> call, one unit per export tile.</summary>
+    public ProgressReporter Progress { get; set; } = ProgressReporter.None;
     readonly object _hookLock = new();
 
     (int Tx, int Ty)[] TilesOf(int level, RectI src)
@@ -278,7 +280,8 @@ public sealed class ExportRenderer
         Log?.Invoke($"prefetch: the pipeline tiles under {tiles.Length} export tiles of level {to.Level} on {Threads} threads in {sw.Elapsed.TotalSeconds:F1}s");
     }
 
-    public float[] RenderSource(int level, RectI src)
+    /// <param name="reportProgress">report the call as a "render tiles" phase — the whole-image renders do, a writer block's re-read does not</param>
+    public float[] RenderSource(int level, RectI src, bool reportProgress = false)
     {
         var (W, H) = _lv.ExportDims[level];
         if (src.X0 < 0 || src.Y0 < 0 || src.X1 > W || src.Y1 > H) throw new ArgumentException("export source rect out of bounds");
@@ -287,7 +290,10 @@ public sealed class ExportRenderer
         float m = _multiplier(level);
         var g = LensShadingKernel.Transform(_grid, m, inverse: true);
         float fx = (float)_lv.CacheDims.W / (float)pd.W, fy = (float)_lv.CacheDims.H / (float)pd.H;   // FUN_18049c5d0
-        ForEachTile(TilesOf(level, src), t =>
+        var tiles = TilesOf(level, src);
+        bool report = reportProgress && tiles.Length > 0;
+        if (report) Progress.Begin("render tiles", tiles.Length);
+        ForEachTile(tiles, t =>
         {
             var (tx, ty) = t;
             var tile = _lv.TileRect(level, tx, ty);
@@ -305,6 +311,7 @@ public sealed class ExportRenderer
             for (int y = c.Y0; y < c.Y1; y++)
                 Array.Copy(px, ((y - tile.Y0) * tw + (c.X0 - tile.X0)) * 4, outp, ((y - src.Y0) * src.Width + (c.X0 - src.X0)) * 4, c.Width * 4);
             Log?.Invoke($"  tile L{level} ({tx},{ty}) export ({tile.X0},{tile.Y0},{tile.X1},{tile.Y1}) pipeline ({shifted.X0},{shifted.Y0}) m {m:R}");
+            if (report) Progress.Tick();
         });
         return outp;
     }

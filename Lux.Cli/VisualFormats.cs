@@ -111,6 +111,7 @@ internal sealed class VisualFormats
         {
             if (_lri.StackFrames > 1 && (wantWiggle || wantDonors)) _log?.Invoke($"stacked capture: {_lri.StackFrames} firings per module, the A-group formats use frame 0 of each");
             int lensCount = 0; _sw.Restart();
+            _session?.Progress.Begin("lens-frames", jobs.Count);
             foreach (var j in jobs)
             {
                 var img = ModuleRender.Render(_lri, Colour, Wb, j.Name, j.Ref, j.ExpRef, j.Ev, j.Level, j.Profile);
@@ -127,6 +128,7 @@ internal sealed class VisualFormats
                     if (wantWiggle && wiggleOrder!.Contains(j.Name)) wiggleFrames[j.Name] = ModuleRender.ToFrame(img, P!.Size);
                     if (wantDonors && j.Name != _lri.ReferenceModule && group.Contains(j.Name)) donorNative[j.Name] = ModuleRender.ToRgba(img);
                 }
+                _session?.Progress.Tick();
             }
             if (lensCount > 0) _log?.Invoke($"lens-frames: {lensCount} JPEG(s) in {_sw.Elapsed.TotalSeconds:F1}s");
         }
@@ -148,8 +150,10 @@ internal sealed class VisualFormats
             _log?.Invoke($"{donors.Count} real donor viewpoints prepared in {_sw.Elapsed.TotalSeconds:F1}s");
         }
         var pairs = new Dictionary<double, (Rgba L, Rgba R)>();   // one synthesised stereo pair per interocular distance
+        _session?.Progress.Begin("parallax", depthFormats.Count);
         foreach (var f in depthFormats)
         {
+            _session?.Progress.Tick();   // formats started, of the depth-based ones
             _sw.Restart();
             string name = ParallaxFormats.Name(f);
             string path = PathFor("_" + name, ParallaxFormats.Extension(f, P.Container));

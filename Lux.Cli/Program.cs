@@ -136,19 +136,26 @@ namespace Lux.Cli
             var swAll = Stopwatch.StartNew();
             int done = 0, failed = 0, refused = 0;
             var po = new ParallelOptions { MaxDegreeOfParallelism = o.Threads };
+            // one progress line per input in flight and a job line, redrawn in place on a terminal (see ProgressBoard)
+            using var board = new ProgressBoard(total, Math.Min(o.Threads, total), ProgressBoard.CanDrawInPlace());
+            Progress.Board = board;
+            int buildLevel = Exporter.BuildLevelFor(request);
             Parallel.ForEach(files, po, path =>
             {
                 var sw = Stopwatch.StartNew();
                 string stem = Path.GetFileNameWithoutExtension(path);
                 string outDir = o.OutDirectory ?? Path.Combine(Path.GetDirectoryName(path) ?? ".", "lux_convert");
+                var fp = board.Start(stem, ProgressBoard.PlanFor(request, buildLevel), renderThreads);
                 try
                 {
                     Action<string>? flog = Environment.GetEnvironmentVariable("LUX_VERBOSE") == "1"
                         ? m => Console.Error.WriteLine($"  [{stem}] {m}") : null;
+                    Action<Lux.Engine.Pipeline.ProgressUpdate> onProgress = u => board.Update(fp, u);
                     var req = o.OutFile is string one
-                        ? request with { OutFile = one, RenderThreads = renderThreads }
-                        : request with { OutDirectory = outDir, Stem = stem, RenderThreads = renderThreads };
+                        ? request with { OutFile = one, RenderThreads = renderThreads, Progress = onProgress }
+                        : request with { OutDirectory = outDir, Stem = stem, RenderThreads = renderThreads, Progress = onProgress };
                     var res = Exporter.Run(path, req, flog);
+                    board.Finish(fp);
                     int n = Interlocked.Increment(ref done);
                     // one entry per format: the Lumen rasters by extension and size, lens-frames as a count
                     var lens = res.Outputs.Where(x => x.Name == "lens-frames").ToList();
@@ -166,12 +173,14 @@ namespace Lux.Cli
                 }
                 catch (Exception ex)
                 {
+                    board.Finish(fp);
                     Interlocked.Increment(ref failed);
                     int n = done + failed;
                     Progress.Line(n, total, $"{stem}  FAILED: {ex.Message}", error: true);
                     if (Environment.GetEnvironmentVariable("LUX_VERBOSE") == "1") Console.Error.WriteLine(ex);
                 }
             });
+            Progress.Board = null; board.Dispose();
             Console.WriteLine($"\ndone: {done}/{total} converted, {failed} failed{(refused > 0 ? $", {refused} with a refused format" : "")}, {swAll.Elapsed.TotalSeconds:F1}s");
             return failed == 0 && refused == 0 ? 0 : 1;
         }
@@ -507,6 +516,8 @@ namespace Lux.Cli
 
                   LOGGING
                       LUX_VERBOSE=1           convert: per-file progress detail, and the full exception trace when a
+                      LUX_NO_PROGRESS=1       convert: no in-place progress lines (they are also off when stderr is not a terminal or
+                                              LUX_VERBOSE=1 is set)
                                               file fails instead of just its message
 
                   BEHAVIOUR — these change what the pipeline computes

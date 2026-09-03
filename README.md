@@ -541,6 +541,7 @@ Every format but parallax-wiggle forces the level-0 build (announced, as jpg+dep
 | Option | Description |
 |---|---|
 | `LUX_VERBOSE=1` | convert: per-file progress detail, and the full exception trace when a file fails instead of just its message |
+| `LUX_NO_PROGRESS=1` | convert: no in-place progress lines (they are also off when stderr is not a terminal or LUX_VERBOSE=1 is set) |
 
 #### BEHAVIOUR — these change what the pipeline computes
 

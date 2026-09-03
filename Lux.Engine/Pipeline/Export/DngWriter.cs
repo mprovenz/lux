@@ -153,8 +153,9 @@ public static class DngWriter
     }
 
     /// <summary>Write the DNG. <paramref name="generator"/> = `exportDNG` lambda_0 for a 2048² block rect (unclamped) → (clamped rect, float RGBA ×16384).</summary>
-    public static void Write(Stream s, int width, int height, DngExportTags t, Func<RectI, (RectI Rect, float[] Pixels)> generator, Action<string>? log = null, int threads = 1)
+    public static void Write(Stream s, int width, int height, DngExportTags t, Func<RectI, (RectI Rect, float[] Pixels)> generator, Action<string>? log = null, int threads = 1, ProgressReporter? progress = null)
     {
+        var pr = progress ?? ProgressReporter.None;
         var ifd0 = new TiffDirectory(); var exif = new TiffDirectory();
         // FUN_1801439b0: header with a placeholder IFD offset, patched after the tiles
         s.Write(new byte[] { 0x49, 0x49, 0x2a, 0, 8, 0, 0, 0 });
@@ -162,6 +163,7 @@ public static class DngWriter
         int tilesAcross = (width - 1 + tw) / tw, tilesDown = (height - 1 + th) / th;
         var offsets = new uint[tilesAcross * tilesDown]; var counts = new uint[tilesAcross * tilesDown];
         log?.Invoke($"dng: {width}x{height} tiles {tw}x{th} grid {tilesAcross}x{tilesDown} compression {t.Compression}");
+        pr.Begin("dng", tilesAcross * tilesDown);
         for (int by = 0; by < height; by += BlockSize)
             for (int bx = 0; bx < width; bx += BlockSize)
             {
@@ -205,6 +207,7 @@ public static class DngWriter
                         offsets[jobs[j].Idx] = (uint)s.Position;
                         s.Write(encoded[j]);
                         counts[jobs[j].Idx] = (uint)encoded[j].Length;
+                        pr.Tick();
                     }
                 }
                 else if (t.Compression == 0)
@@ -230,6 +233,7 @@ public static class DngWriter
                             s.Write(row);
                         }
                         counts[idx] = (uint)(s.Position - offsets[idx]);
+                        pr.Tick();
                     }
                 }
                 else throw new InvalidOperationException("Unhandled case");

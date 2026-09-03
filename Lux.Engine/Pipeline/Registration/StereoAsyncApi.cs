@@ -36,9 +36,17 @@ public sealed class StereoAsyncApi
     /// <summary>`FUN_180111e00` pixel size by sensor type (`DAT_18068a548`): AR1335 (types 2/3) 0.0011, IMX386 0.0012, AR835 0.0014.</summary>
     static float PixMm(SensorType s) => s is SensorType.SensorAr1335 or SensorType.SensorAr1335Mono ? 0.0011f : s is SensorType.SensorAr835 ? 0.0014f : 0.0012f;
 
-    public static StereoAsyncApi Run(LriFile lri, Action<string>? log = null, bool runHigher = true, bool runDense = true, float[]? depthOverride = null)
+    /// <summary>Progress of <see cref="Run"/>: the "registration" phase, one unit per state or per camera image.</summary>
+    public ProgressReporter Progress { get; set; } = ProgressReporter.None;
+
+    public static StereoAsyncApi Run(LriFile lri, Action<string>? log = null, bool runHigher = true, bool runDense = true, float[]? depthOverride = null, ProgressReporter? progress = null)
     {
-        var api = new StereoAsyncApi { Lri = lri, Log = log }; api.Setup(); api.State1And2(); api.State3(); if (runDense || depthOverride is not null) api.State4And5(depthOverride); if (runHigher) { api.State6(); api.State7(depthOverride); }
+        var api = new StereoAsyncApi { Lri = lri, Log = log, Progress = progress ?? ProgressReporter.None }; api.Setup();
+        int refGroup = api.RefGroupCams().Count(), higher = api.Cdp.Higher.Count;
+        // guide + one per reference-group image + sparse wide + dense + upsample + one per higher image + coarse/tele
+        api.Progress.Begin("registration", 1 + refGroup + 1 + 2 + higher + 1);
+        api.State1And2(); api.State3(); if (runDense || depthOverride is not null) api.State4And5(depthOverride); if (runHigher) { api.State6(); api.State7(depthOverride); }
+        api.Progress.End();
         return api;
     }
 
@@ -96,6 +104,7 @@ public sealed class StereoAsyncApi
         Neutral = Lri.LumenNeutral; var neutral = Neutral;
         // state 1 (FUN_1804ed3d0): the guide from the reference capture through the ctor pose (scale2/shift2 still at their defaults)
         if (ReferenceGuide is null && Environment.GetEnvironmentVariable("LUX_NO_GUIDE") != "1") ReferenceGuide = BuildReferenceGuide(refFrame).Guide;
+        Progress.Tick();
         RefStats = StereoImageBuilder.Isp(refFrame, Profile, null).ComputeStats(refFrame);
         foreach (var c in RefGroupCams())
         {
@@ -113,6 +122,7 @@ public sealed class StereoAsyncApi
             c.Image = new Rgba8Image(r.Rgba8, r.W, r.H, r.W); c.SatLevel = r.Val;
             c.Centre = CdpInputs.WideCentre(c, Lri.Modules[c.Name].Module);
             Log?.Invoke($"state 2 cam {c.Id} ({c.Name}): {r.W}x{r.H} val {r.Val:R} centre {c.Centre} {sw.Elapsed.TotalSeconds:F1}s");
+            Progress.Tick();
         }
     }
     /// <summary>State 1 (`FUN_1804ed3d0`): `GetReferenceImage(img, img, FUN_180307b30(img) = the reference module's CURRENT slot, FUN_1802e1580(pose[ref], slot) = its view, api+0x1b8)`.
@@ -131,7 +141,7 @@ public sealed class StereoAsyncApi
     static ViewPose Clone(ViewPose p) => new() { P = (float[])p.P.Clone(), U = (float[])p.U.Clone(), Q = (float[])p.Q.Clone(), Scale1 = p.Scale1, Shift1 = p.Shift1, Scale2 = p.Scale2, Shift2 = p.Shift2, Shift3 = p.Shift3, Scale3 = p.Scale3 };
 
     /// <summary>State 3: `runReferenceGroupCams`.</summary>
-    public void State3() => Cdp.RunReferenceGroupCams();
+    public void State3() { Cdp.RunReferenceGroupCams(); Progress.Tick(); }
 
     /// <summary>States 4/5: dense stereo on the reference-group images with the post-BA views (`FUN_1804fa6f0` + `FUN_18030cd00` per layer); the depth for the TELE stage
     /// is the finest layer (2080×1560).</summary>
@@ -145,7 +155,9 @@ public sealed class StereoAsyncApi
             var top = Dense[^1]; Cdp.Depth = top.Depth; Cdp.DepthW = top.W; Cdp.DepthH = top.H;
         }
         else { Cdp.Depth = depthOverride; Cdp.DepthW = Cams[RefId].Image.W; Cdp.DepthH = Cams[RefId].Image.H; }
+        Progress.Tick();
         UpsampleFullDepth();
+        Progress.Tick();
     }
 
     /// <summary>State 5, last layer (`FUN_18030cd00` mode 0): `UpsampleLayer::slot(0x08)(layers[5])` → `FullDepth` (W0×H0) when the guide (`api+0x1f8`) is available.
@@ -173,6 +185,7 @@ public sealed class StereoAsyncApi
             var r = StereoImageBuilder.Create(frame, refFrame, isp, aligned, module, size, Neutral, RefYuv, null, false, false, Dist[c.Id]);
             c.Image = new Rgba8Image(r.Rgba8, r.W, r.H, r.W); c.SatLevel = r.Val;
             Log?.Invoke($"state 6 cam {c.Id} ({c.Name}): canvas {r.W}x{r.H} val {r.Val:R} {sw.Elapsed.TotalSeconds:F1}s");
+            Progress.Tick();
         }
     }
 
@@ -182,5 +195,6 @@ public sealed class StereoAsyncApi
         if (Cdp.Depth.Length == 0) throw new InvalidOperationException("no depth image (run the dense stage or pass one)");
         Cdp.InitCoarse();
         Cdp.RunHigherGroupCams();
+        Progress.Tick();
     }
 }

@@ -88,7 +88,7 @@ public static class ExportFloatImage
         var rect = new RectI(0, 0, W, H);
         var to = ExportTransformOutput.Compute(transform, (W, H), rect, exportDims, forceLevel0);
         log?.Invoke($"export image ({W}x{H}): level {to.Level} src ({to.Source.X0},{to.Source.Y0},{to.Source.X1},{to.Source.Y1}) scale ({to.ScaleX:R},{to.ScaleY:R}) affine [{to.A:R} {to.B:R} {to.C:R} | {to.D:R} {to.E:R} {to.F:R}]");
-        var src = renderer.RenderSource(to.Level, to.Source);
+        var src = renderer.RenderSource(to.Level, to.Source, reportProgress: true);
         int sw = to.Source.Width, sh = to.Source.Height;
         // FUN_18052dfc0 — the same resampler the DNG blocks use, over the whole image
         if (1.5f < to.ScaleX || 1.5f < to.ScaleY)   // DAT_180687524
