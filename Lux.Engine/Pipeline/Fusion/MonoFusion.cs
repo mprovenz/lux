@@ -57,6 +57,8 @@ public sealed class MonoFusion
     /// <summary>Progress: <see cref="Initialize"/> ticks the caller's current phase <see cref="InitializeTicks"/> times (it runs inside the level-0 inputs).</summary>
     public ProgressReporter Progress { get; set; } = ProgressReporter.None;
     public const int InitializeTicks = 3;
+    /// <summary>The phase those ticks count in; outside it (a lazy first render) they are dropped.</summary>
+    public string ProgressPhase { get; set; } = "level-0 inputs";
     public Action<string>? Log { get; set; }
 
     // initialize() products
@@ -261,9 +263,9 @@ public sealed class MonoFusion
         for (int i = 0; i < lref.Length; i++) { var p = rgb[i]; lref[i] = ((p.A * 0f + p.G * C1) + (p.B * C2 + p.R * C0)) * Range; }
         rgb = null!;
         RefLuma = lref;
-        Progress.Tick();
+        Progress.Tick(ProgressPhase);
         var validity = ValidityFromVignMap(VignMap, W, H, ValidityScale * C256);
-        Progress.Tick();
+        Progress.Tick(ProgressPhase);
         float gPrev = MinusOne;
         ushort[][]? refPyr = null; (int W, int H)[]? pdims = null;
         var refM = RefFrame.Module;
@@ -306,7 +308,7 @@ public sealed class MonoFusion
             Log?.Invoke($"mono fusion: source cam {cam} gain {gm:R} gr {gr:R} black {blackM:R} flow {fw}x{fh}");
         }
         Initialized = true;
-        Progress.Tick();
+        Progress.Tick(ProgressPhase);
         Log?.Invoke($"mono fusion: ids [{string.Join(",", MonoIds)}] nColour {nColour} w0 {W0:R} scale {Scale:R} A' {NoiseA:R} B' {NoiseB:R} black/white mono {BlackMono:R}/{WhiteMono:R} range {Range:R} coef ({C0:R},{C1:R},{C2:R},{C3:R})");
     }
 

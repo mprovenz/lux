@@ -27,6 +27,9 @@ public sealed class ExportState
     /// exactly as `Setup()` made them — so no second setup is needed. Optional: a caller constructing its own state may
     /// leave it null, and <see cref="ExportSession.Registration"/> then sets one up itself.</summary>
     public Lux.Engine.Pipeline.Registration.StereoAsyncApi? Registration;
+    /// <summary>The progress channel the build reported through; the caches keep it for the inputs they make lazily, and the
+    /// export session reports through the same one so a file has a single phase sequence.</summary>
+    public ProgressReporter Progress { get; init; } = ProgressReporter.None;
 }
 
 public static class ExportBuild
@@ -177,6 +180,6 @@ public static class ExportBuild
         }
         (float[], int, int)? full = null;
         if (api?.FullDepth is not null) full = (api.FullDepth.Depth, api.FullDepth.W, api.FullDepth.H);
-        return new ExportState { Lri = lri, Cache = pc, Frame = frame, Capture = CaptureState.FromReference(lri), Colour = colour, Wb = wb, TuningOfLevel = Tuning, Dims = dims, FullDepth = full, Registration = api };
+        return new ExportState { Lri = lri, Cache = pc, Frame = frame, Capture = CaptureState.FromReference(lri), Colour = colour, Wb = wb, TuningOfLevel = Tuning, Dims = dims, FullDepth = full, Registration = api, Progress = pr };
     }
 }

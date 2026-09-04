@@ -158,7 +158,9 @@ public sealed class ExportSession
 
     public ExportSession(ExportState st, ExportRequest req, Action<string>? log)
     {
-        State = st; Request = req; _v = req.Verbose; _log = log; Progress = new ProgressReporter(req.Progress);
+        State = st; Request = req; _v = req.Verbose; _log = log;
+        // the build's reporter when it has one (the caches still hold it), else a fresh one on the request's sink
+        Progress = st.Progress.IsEnabled ? st.Progress : new ProgressReporter(req.Progress);
         // The engine trace (the renderers and the DNG writer). A verbose caller indents it by two spaces under its
         // own headline lines; `convert` hands its log through untouched.
         _eng = log is null ? null : (_v ? s => log("  " + s) : log);

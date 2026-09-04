@@ -155,6 +155,7 @@ namespace Lux.Cli
                         ? request with { OutFile = one, RenderThreads = renderThreads, Progress = onProgress }
                         : request with { OutDirectory = outDir, Stem = stem, RenderThreads = renderThreads, Progress = onProgress };
                     var res = Exporter.Run(path, req, flog);
+                    board.Completed(fp);   // a full conversion: its phase timings become the estimates' baseline
                     board.Finish(fp);
                     int n = Interlocked.Increment(ref done);
                     // one entry per format: the Lumen rasters by extension and size, lens-frames as a count
@@ -518,6 +519,8 @@ namespace Lux.Cli
                       LUX_VERBOSE=1           convert: per-file progress detail, and the full exception trace when a
                       LUX_NO_PROGRESS=1       convert: no in-place progress lines (they are also off when stderr is not a terminal or
                                               LUX_VERBOSE=1 is set)
+                      LUX_PROGRESS_TRACE=1    convert: print every progress update as a line (phase, done/total) — for
+                                              debugging the phase flow
                                               file fails instead of just its message
 
                   BEHAVIOUR — these change what the pipeline computes
