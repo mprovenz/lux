@@ -99,6 +99,7 @@ public static class ConvertCmd
         ("--jpeg-quality",  new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-sub",      new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-v2",       new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
+        ("--jpeg-sharpening", new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-modify",   new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-comment",  new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-software", new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
@@ -237,6 +238,7 @@ public static class ConvertCmd
         Say("--dng-cs", o.DngCs); Say("--dng-tone", o.DngTone); Say("--dng-comp", o.DngComp);
         Say("--jpeg-cs", o.JpegCs); Say("--jpeg-quality", o.JpegQuality); Say("--jpeg-sub", o.JpegSub);
         if (o.JpegV2) applied.Add("--jpeg-v2");
+        Say("--jpeg-sharpening", o.JpegSharpening);
         Say("--jpeg-modify", o.JpegModify?.ToString("yyyy-MM-ddTHH:mm:ss")); Say("--jpeg-comment", o.JpegComment); Say("--jpeg-software", o.JpegSoftware);
         Say("--hdr-cs", o.HdrCs);
         if (applied.Count > 0)
@@ -276,6 +278,7 @@ public static class ConvertCmd
             JpegColorSpace = o.JpegCs,
             JpegQuality = o.JpegQuality,
             JpegSubsampling = o.JpegSub,
+            JpegSharpening = o.JpegSharpening ?? DisplayIspTuning.GuiSharpeningProperty,
             JpegV2 = o.JpegV2,          // deliberately NOT LUX_DISPLAY_V2: the flag is the supported route and
                                         // `convert` stays immune to the environment variable.
             JpegModifyTime = o.JpegModify,

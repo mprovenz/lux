@@ -81,6 +81,8 @@ public sealed class MonoFusion
     public int Height => RefFrame.Height;
     /// <summary>Diagnostics of the last <see cref="Initialize"/>: the demosaicked reference luma (`Lref`, W×H) and the last flow-reference ushort image.</summary>
     public float[]? RefLuma { get; private set; }
+    /// <summary>The stream's per-module `lt::StackFusion` results (`FUN_18020a6d0`) — set on a stacked capture; null (single-frame) otherwise.</summary>
+    public StackProvider? Stacks { get; set; }
     public ushort[]? LastFlowRef16 { get; private set; }
     public ushort[]? LastMono16 { get; private set; }
 
@@ -252,8 +254,12 @@ public sealed class MonoFusion
         // reference RGB: (raw − black)·rcpss(range) → DemosaickLightV1<0,0> with neutral (1,1,1)
         float rcpRange = Sse.ReciprocalScalar(Vector128.CreateScalar(Range)).ToScalar();
         var norm = new float[W * H];
-        var raw = RefFrame.Raw;
-        for (int i = 0; i < norm.Length; i++) norm[i] = ((float)raw[i] - BlackRef) * rcpRange;
+        // 1801fcdf0 L344–402: `stacked = FUN_18020a6d0(stream, ref)`; null → `FUN_1800f4940(ref)` (ushort → float of the raw frame) into
+        // `FUN_1801f8780(bayer, {black_ref, rcpss(range)})`; on a stacked capture the closure is `{stacked, black, rcp(range)}` — the module's
+        // lt::StackFusion float frame through the same kernel
+        var stackedRef = Stacks?.GetIfStacked(ModuleName(RefCamId));
+        if (stackedRef is null) { var raw = RefFrame.Raw; for (int i = 0; i < norm.Length; i++) norm[i] = ((float)raw[i] - BlackRef) * rcpRange; }
+        else { var sf = stackedRef.Fused; for (int i = 0; i < norm.Length; i++) norm[i] = (sf[i] - BlackRef) * rcpRange; }
         var red0 = RefFrame.Module.SensorBayerRedOverride; int rx = red0?.X ?? 0, ry = red0?.Y ?? 0;
         var rgb = new Vec4F[W * H];
         DemosaicLightV1.Run(norm, W, H, new RectI(0, 0, W, H), rx, ry, new[] { One, One, One }, rgb);
@@ -278,11 +284,22 @@ public sealed class MonoFusion
             float blackM = noise.Black;   // Sensor(m)+4 [?] spec §8.4
             if (cf.Info.HasHotPixelLeakageCalibration) throw new NotSupportedException("HotpixelCalibration::correctHotpixelLeakage is not ported");
             var redM = cf.Module.SensorBayerRedOverride; int mrx = redM?.X ?? 0, mry = redM?.Y ?? 0;
-            var lut = noise.SigmaTables(cf.Info.AnalogGain);
-            var hp = new ushort[w * h];
-            HotPixelKernel.RunInto(cf.Raw, w, h, new RectI(0, 0, w, h), mrx, mry, One, lut[0], lut.Length > 1 ? lut[1] : lut[0], lut.Length > 2 ? lut[2] : lut[0], hp, w, 0);
             var img = new float[w * h];
-            for (int i = 0; i < img.Length; i++) img[i] = (float)hp[i] - blackM;                       // FUN_180200740
+            var stackedM = Stacks?.GetIfStacked(name);
+            if (stackedM is null)
+            {
+                var lut = noise.SigmaTables(cf.Info.AnalogGain);
+                var hp = new ushort[w * h];
+                HotPixelKernel.RunInto(cf.Raw, w, h, new RectI(0, 0, w, h), mrx, mry, One, lut[0], lut.Length > 1 ? lut[1] : lut[0], lut.Length > 2 ? lut[2] : lut[0], hp, w, 0);
+                for (int i = 0; i < img.Length; i++) img[i] = (float)hp[i] - blackM;                       // FUN_180200740
+            }
+            else
+            {
+                // 1801fcdf0 L510–545: `img = stacked(m) ?? FUN_18039f640(captured(m))` — the module's lt::StackFusion float frame (hot-pixel patched
+                // per frame by the stack fusion) straight into FUN_180200740(img, black), black = frame 0's CapturedImage+0xb4 (the DB black of a mono module)
+                var sf = stackedM.Fused;
+                for (int i = 0; i < img.Length; i++) img[i] = sf[i] - blackM;
+            }
             var (mc, mr, mg) = LensShadingKernel.ModelGrid(_lri.Header, cf.Module);
             VignettingFloat.Apply(img, w, h, new RectF(0f, 0f, (float)w, (float)h), w, h, mc, mr, LensShadingKernel.Transform(mg, One, false));
             // FUN_18010fc80: (gain_ref·exp_ref)/(gain_m·exp_m); no vignetting-model factor for a mono source
@@ -304,6 +321,8 @@ public sealed class MonoFusion
             Flows.Add(flow); FlowDims.Add((fw, fh));
             for (int i = 0; i < img.Length; i++) img[i] = img[i] * gr + blackM;                     // FUN_1802009e0
             Sources.Add(img); SourceGains.Add(gr);
+            if (Environment.GetEnvironmentVariable("LUX_FUSION_DUMP") is string dpre)   // diagnostic twin of the oracle's mkern_wrap `mono_src<i>` (whole-frame mono source, img·gr + black)
+                PackedBayerFusion.DumpFloat($"{dpre}_mono_src{Sources.Count - 1}.bin", img, w, h);
             gPrev = gr;
             Log?.Invoke($"mono fusion: source cam {cam} gain {gm:R} gr {gr:R} black {blackM:R} flow {fw}x{fh}");
         }
@@ -407,9 +426,21 @@ public sealed class MonoFusion
     static int FloorDiv8(int v) => (v + (v < 0 ? 7 : 0)) >> 3;   // (v + ((v >> 31) >>> 29)) >> 3
     static int CeilDiv8(int v) { int q = FloorDiv8(v); return (v & 7) != 0 ? q + (v >= 0 ? 1 : 0) : q; }
 
-    /// <summary>`FUN_1801ee0b0(out, wOut, L, vign, srcs, flows, rect, prm)`: returns (mono, weight) images of the rect's size.</summary>
+    /// <summary>`FUN_1801ee0b0(out, wOut, L, vign, srcs, flows, rect, prm)`: returns (mono, weight) images of the rect's size. `L` is the image of the
+    /// rect itself (its extent == the ROI), as `MonoFusion::process` passes its grown-rect luma.</summary>
     public static (float[] Mono, float[] Weight) Merge(float[] L, float[]? vign /* W×H */, RectI rect, List<float[]> srcs, int W, int H, List<Vec2S[]> flows, List<(int W, int H)> flowDims,
         float w0, float scale, float A, float B, float black, float white, Func<float, float, float> fn)
+        => MergeCore(L, rect.Width, rect, vign, rect, srcs, W, H, flows, flowDims, w0, scale, A, B, black, white, fn);
+
+    /// <summary>The kernel with `L` as an image of its own extent: <paramref name="lRect"/> is L's rect in frame coordinates and <paramref name="lStride"/>
+    /// its row stride; <paramref name="rect"/> is the ROI (frame coordinates). The per-block noise view (`FUN_1801d79d0` over `B ∩ L.rect`) and the block
+    /// extract (`FUN_1801ecee0`, edge replication at L's edge) clip to L's rect, the Hann accumulation (`FUN_1801d63c0` / `FUN_1801d6750`, with its
+    /// "block fully inside" fast path) and the final combine are on the ROI. `MonoFusion` passes L == ROI; the mono branch of `lt::StackFusion` passes
+    /// the whole prepared frame with 16×16 tiles as the ROI (`StackFusion::lambda_1` → `FUN_1801ef920`, the ushort instantiation of this kernel — its
+    /// helpers `FUN_1801d7b20` / `FUN_1801f0d70` / `FUN_1801f1140` are the ushort twins of `FUN_1801d79d0` / `FUN_1801ecee0` / `FUN_1801ef500`, reading
+    /// `(float)v`, so the float kernel on the converted frame is the same arithmetic).</summary>
+    public static (float[] Mono, float[] Weight) MergeCore(float[] L, int lStride, RectI lRect, float[]? vign /* W×H */, RectI rect, List<float[]> srcs, int W, int H,
+        List<Vec2S[]> flows, List<(int W, int H)> flowDims, float w0, float scale, float A, float B, float black, float white, Func<float, float, float> fn)
     {
         if (srcs.Count == 0) throw new InvalidOperationException("No source images provided!");
         if (flows.Count != srcs.Count) throw new InvalidOperationException("Number of flow fields should match number of source images!");
@@ -419,7 +450,6 @@ public sealed class MonoFusion
         int w = x1 - x0, h = y1 - y0;
         var acc = new float[w * h]; var wOut = new float[w * h];
         var R = new float[256]; var Rw = new float[256]; var S = new float[256]; var accB = new float[256];
-        var lRect = new RectI(0, 0, w, h);
         var srcRect = new RectI(0, 0, W, H);
         int byStart = FloorDiv8(y0) * 8 - 8, byEnd = CeilDiv8(y1) * 8 + 8;
         int bxStart = FloorDiv8(x0) * 8 - 8, bxEnd = CeilDiv8(x1) * 8 + 8;
@@ -429,7 +459,8 @@ public sealed class MonoFusion
             for (int bx = bxStart; bx < bxEnd; bx += 8)
             {
                 int rbx = bx - x0, rby = by - y0;
-                int ix0 = Math.Max(rbx, 0), iy0 = Math.Max(rby, 0), ix1 = Math.Min(rbx + 16, w), iy1 = Math.Min(rby + 16, h);
+                // skip unless B ∩ L.rect is non-empty (frame coordinates)
+                int ix0 = Math.Max(bx, lRect.X0), iy0 = Math.Max(by, lRect.Y0), ix1 = Math.Min(bx + 16, lRect.X1), iy1 = Math.Min(by + 16, lRect.Y1);
                 if (!(ix0 < ix1 && iy0 < iy1)) continue;
                 float g = One;
                 if (vign is not null)
@@ -440,8 +471,9 @@ public sealed class MonoFusion
                     for (int y = vy0; y < vy1; y++) for (int x = vx0; x < vx1; x++) sum = sum + vign[y * W + x];
                     g = sum / (float)(vh * vw);
                 }
-                float sigma2 = MonoMerge.BlockNoise(L, w, ix0, iy0, ix1 - ix0, iy1 - iy0, A, B, black, white, g);
-                MonoMerge.ExtractBlock(L, w, lRect, rbx, rby, R);
+                float sigma2 = MonoMerge.BlockNoise(L, lStride, ix0 - lRect.X0, iy0 - lRect.Y0, ix1 - ix0, iy1 - iy0, A, B, black, white, g);
+                // the reference block: the kernel's L is a sub-view whose w/h are the ROI's (the tile for the stack kernel), so the clipped path clamps to the ROI window
+                MonoMerge.ExtractBlockWin(L, lStride, lRect, rect, bx, by, R);
                 Array.Copy(R, Rw, 256);
                 MonoWavelet.Forward(Rw);
                 Array.Clear(accB);
@@ -474,13 +506,16 @@ public sealed class MonoFusion
                 MonoMerge.AddHannScalar(wOut, w, h, rbx, rby, wt, hann);
             }
         }
-        // FUN_1801ef500: out = acc·((1 − w0)/nSrc) + L·w0
+        // FUN_1801ef500 (FUN_1801f1140 for a ushort L): out = acc·((1 − w0)/nSrc) + L·w0
         float k2 = w1 / (float)srcs.Count;
         var outp = new float[w * h];
-        for (int i = 0; i < outp.Length; i++) outp[i] = acc[i] * k2 + L[i] * w0;
+        for (int y = 0; y < h; y++)
+        {
+            int lrow = (y + y0 - lRect.Y0) * lStride + (x0 - lRect.X0), orow = y * w;
+            for (int x = 0; x < w; x++) outp[orow + x] = acc[orow + x] * k2 + L[lrow + x] * w0;
+        }
         return (outp, wOut);
     }
-
     /// <summary>`FUN_1802090c0(std, W8, m8, k)`: `idx = max((((W8+1)·(m8+1)) &gt;&gt; 8) − 1, 0)`, `std = DAT_1806b5110[idx]·k`.</summary>
     public static float[] StdPlaneMono(byte[] w8, byte[] m8, float k)
     {

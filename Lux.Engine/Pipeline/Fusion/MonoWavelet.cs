@@ -192,6 +192,34 @@ public static class MonoMerge
         }
     }
 
+    /// <summary>`FUN_1801ecee0` / `FUN_1801f0d70` on a SUB-VIEW: `img` holds the region <paramref name="lRect"/> (frame coordinates, row stride
+    /// <paramref name="stride"/>), but the view the kernel was handed spans only <paramref name="win"/> (its `w`/`h` fields) with its rect fields shifted
+    /// to <paramref name="lRect"/>. The fast path copies when `B ∩ lRect` is the whole 16×16 block (reading past the window into the frame — the
+    /// pointer arithmetic is on the shifted rect); otherwise the row/column clamps are `[0, h−1]` / `[0, w−1]` of the WINDOW, so a block that crosses
+    /// the frame edge on one side replicates the window's edge rows/columns on the other sides too. With `win == lRect` this is
+    /// <see cref="ExtractBlock"/>.</summary>
+    public static void ExtractBlockWin(float[] img, int stride, RectI lRect, RectI win, int bx, int by, float[] block)
+    {
+        int ix0 = Math.Max(bx, lRect.X0), iy0 = Math.Max(by, lRect.Y0), ix1 = Math.Min(bx + 16, lRect.X1), iy1 = Math.Min(by + 16, lRect.Y1);
+        if (ix1 - ix0 == 16 && iy1 - iy0 == 16)
+        {
+            for (int r = 0; r < 16; r++) Array.Copy(img, (by + r - lRect.Y0) * stride + (bx - lRect.X0), block, r * 16, 16);
+            return;
+        }
+        for (int r = 0; r < 16; r++)
+        {
+            int y = by + r;
+            if (y < win.Y0) y = win.Y0; else if (y > win.Y1 - 1) y = win.Y1 - 1;
+            int row = (y - lRect.Y0) * stride - lRect.X0;
+            for (int c = 0; c < 16; c++)
+            {
+                int x = bx + c;
+                if (x < win.X0) x = win.X0; else if (x >= win.X1) x = win.X1 - 1;
+                block[r * 16 + c] = img[row + x];
+            }
+        }
+    }
+
     /// <summary>`FUN_1801d63c0`: block fully inside (1801d64fb–1801d6576): `dst += (block·hann_x)·hann_y` (mulps block,hannV; mulps ·,hy; addps);
     /// clipped (1801d664b–1801d6660): `dst += (hann_y·block)·hann_x` (mulss hy,block; mulss ·,hx; addss).</summary>
     public static void AddHann(float[] dst, int w, int h, int bx, int by, float[] block, float[] hann)

@@ -118,21 +118,21 @@ public sealed class PackedBayerFusion
     /// </summary>
     public bool SourceFrameBlackEstimate { get; }
 
-    public PackedBayerFusion(LriFile lri, int refCamId, float cct, float tint, Action<string>? log = null, bool initialize = true, bool sourceFrameBlackEstimate = true, int threads = 1, ProgressReporter? progress = null)
+    /// <summary>The stream's per-module `lt::StackFusion` results on a stacked capture (`FUN_18020a6d0`); null for a single-frame capture.</summary>
+    public StackProvider? Stacks { get; }
+    public string RefModuleName => ModuleName(RefCamId);
+
+    public PackedBayerFusion(LriFile lri, int refCamId, float cct, float tint, Action<string>? log = null, bool initialize = true, bool sourceFrameBlackEstimate = true, int threads = 1, ProgressReporter? progress = null, StackProvider? stacks = null)
     {
         Threads = Math.Max(1, threads); Progress = progress ?? ProgressReporter.None;
         _lri = lri; RefCamId = refCamId; Cct = cct; Tint = tint; Log = log;
-        // `FUN_180112250` — frames per stack. On a stacked capture every source frame of the LEVEL-1 fusion is the
-        // `lt::StackFusion` result of that module (`FUN_18020a6d0` non-null), and `FUN_1801f7a90` then takes its other
-        // branch, `out = FUN_1801f8780(stacked, gain, black)`, instead of the ushort hot-pixel/highlight-restore path
-        // below. That branch is NOT ported (no cp.dll reference dump exercises it), so refuse rather than fuse the wrong frames.
-        // The reference module's own stack fusion IS ported — see `StackFusion`, which is what a level-3 export needs.
+        // `FUN_180112250` — frames per stack. On a stacked capture every frame of the LEVEL-1 fusion (reference and sources) is the
+        // `lt::StackFusion` result of that module (`FUN_18020a6d0` non-null), and `FUN_1801f7a90` takes its other branch,
+        // `out = FUN_1801f8780(stacked, {black, gain})`, instead of the ushort hot-pixel/highlight-restore path (BuildFrame).
         NStack = lri.StackFrames;
-        if (NStack >= 2)
-            throw new NotSupportedException(
-                $"stacked capture ({NStack} frames per module): the level-1 fusion needs `FUN_1801f8780` (the stacked branch of "
-              + "FUN_1801f7a90, which consumes lt::StackFusion's float frame per source module) and that is not ported. "
-              + "Levels >= 2 render through StackFusion. See a-stack-fusion.md.");
+        Stacks = stacks;
+        if (NStack >= 2 && stacks is null)
+            throw new InvalidOperationException($"stacked capture ({NStack} frames per module): the level-1 fusion consumes the stream's per-module lt::StackFusion results — pass a StackProvider");
         SourceFrameBlackEstimate = Environment.GetEnvironmentVariable("LUX_FUSION_SRC_BLACK") switch { "db" => false, "estimate" => true, _ => sourceFrameBlackEstimate };
         var refInfo = ModuleFrameInfo.From(lri, ModuleName(refCamId));
         StreamHalfScale = refInfo.IsHalfScale;
@@ -264,22 +264,36 @@ public sealed class PackedBayerFusion
         // (identical for the reference on 00466: 42.51; the sources give 42.36 / 43.17 / 42.75 vs 42 with the AsShot neutral — verified
         // against cp.dll's source frames, 2026-08-27).
         float black = noise.Black;
-        if (frame.Info.IsColour && frame.Info.Sensor == SensorType.SensorAr1335 && (camId == RefCamId || SourceFrameBlackEstimate))
-        {
-            var (_, shadow) = CaptureState.SiteStats(frame.Module, frame.Raw, w, h);
-            // 18020b0b0 → FUN_18020aad0 builds a SoftISP (manual_temp) for the frame: the estimate's neutral is the ISP one (lambda_21 / xy path)
-            black = CaptureState.EstimateFrameBlack(shadow, rx, ry, WhiteBalance.NeutralFromTempTint(Cct, Tint, ProfileOf(frame.Module.Id)), noise.Black);
-        }
-        // FUN_18039f640 → ImagePatchHotPixels(out, src, redpos, analogGain, sensor, 1.0)
-        var lut = noise.SigmaTables(frame.Info.AnalogGain);
-        var hp = new ushort[w * h];
-        HotPixelKernel.RunInto(frame.Raw, w, h, full, rx, ry, One, lut[0], lut[1], lut[2], hp, w, 0);
-        // RestoreHighlightsBayer(hp, redpos, neutral(profile(cam), cct/tint), black, white)
-        var hr = new ushort[w * h];
-        HighlightRestoreKernel.Run(hp, w, 0, full, hr, w, 0, full, rx, ry, neutral, black, white);
-        // FUN_1801216a0: ((float)raw − black) · gain
         var f = new float[w * h];
-        for (int i = 0; i < f.Length; i++) f[i] = ((float)hr[i] - black) * gain;
+        var stacked = NStack >= 2 ? Stacks!.Get(name) : null;   // FUN_18020a6d0(stream, camId): null for a single-frame capture
+        if (stacked is null)
+        {
+            if (frame.Info.IsColour && frame.Info.Sensor == SensorType.SensorAr1335 && (camId == RefCamId || SourceFrameBlackEstimate))
+            {
+                var (_, shadow) = CaptureState.SiteStats(frame.Module, frame.Raw, w, h);
+                // 18020b0b0 → FUN_18020aad0 builds a SoftISP (manual_temp) for the frame: the estimate's neutral is the ISP one (lambda_21 / xy path)
+                black = CaptureState.EstimateFrameBlack(shadow, rx, ry, WhiteBalance.NeutralFromTempTint(Cct, Tint, ProfileOf(frame.Module.Id)), noise.Black);
+            }
+            // FUN_18039f640 → ImagePatchHotPixels(out, src, redpos, analogGain, sensor, 1.0)
+            var lut = noise.SigmaTables(frame.Info.AnalogGain);
+            var hp = new ushort[w * h];
+            HotPixelKernel.RunInto(frame.Raw, w, h, full, rx, ry, One, lut[0], lut[1], lut[2], hp, w, 0);
+            // RestoreHighlightsBayer(hp, redpos, neutral(profile(cam), cct/tint), black, white)
+            var hr = new ushort[w * h];
+            HighlightRestoreKernel.Run(hp, w, 0, full, hr, w, 0, full, rx, ry, neutral, black, white);
+            // FUN_1801216a0: ((float)raw − black) · gain
+            for (int i = 0; i < f.Length; i++) f[i] = ((float)hr[i] - black) * gain;
+        }
+        else
+        {
+            // FUN_1801f7a90 L76–85 (`FUN_18020a6d0` non-null): `out = FUN_1801f8780(stacked, {black, gain})` = `(stacked − black)·gain` on the module's
+            // lt::StackFusion float frame — no hot-pixel patch and no highlight restore here (the stack fusion applied both per frame); `black` =
+            // frame 0's CapturedImage+0xb4 (`FUN_18020bcb0(stream, camId)` = `FUN_180110190(hdr, stream+0x10 = 0, camId)`), i.e. the stack's own
+            // reference black, whose estimate/DB rule lives in StackProvider.
+            black = stacked.Black;
+            var sf = stacked.Fused;
+            for (int i = 0; i < f.Length; i++) f[i] = (sf[i] - black) * gain;
+        }
         if (camId == RefCamId)
         {
             Black = black; White = white;
@@ -288,7 +302,17 @@ public sealed class PackedBayerFusion
         // RemoveVignettingGeneric<float,1>(out, out, rectF(0,0,w,h), img, 1.0, false)
         var (cols, rows, grid) = LensShadingKernel.ModelGrid(_lri.Header, frame.Module);
         VignettingFloat.Apply(f, w, h, new RectF(0f, 0f, (float)w, (float)h), w, h, cols, rows, LensShadingKernel.Transform(grid, One, false));
+        if (Environment.GetEnvironmentVariable("LUX_FUSION_DUMP") is string dpre)   // diagnostic twin of the oracle's fsrc_wrap (`<prefix>_fus_src<i>_cam<id>.bin`): the FUN_1801f7a90 output
+            DumpFloat($"{dpre}_srcframe_cam{camId}.bin", f, w, h);
         return new SourceFrame(camId, name, f, w, h, black, white, gain, rx, ry, neutral, frame);
+    }
+    /// <summary>Diagnostic dump in the oracle's image format: int[4] {w, h, stride, bpp} then the rows.</summary>
+    public static void DumpFloat(string path, float[] data, int w, int h)
+    {
+        var b = new byte[16 + (long)w * h * 4];
+        BitConverter.GetBytes(w).CopyTo(b, 0); BitConverter.GetBytes(h).CopyTo(b, 4); BitConverter.GetBytes(w).CopyTo(b, 8); BitConverter.GetBytes(4).CopyTo(b, 12);
+        System.Buffer.BlockCopy(data, 0, b, 16, w * h * 4);
+        File.WriteAllBytes(path, b);
     }
 
     /// <summary>`FUN_180421170(hwInfo, camId)` → `FUN_18041eea0(profile, cctTint)`: the neutral from the camera's own colour calibration

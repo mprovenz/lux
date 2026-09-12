@@ -403,6 +403,7 @@ With no options specified, `convert` replicates Lumen output exactly: DNG (fmt 2
 | \* | `--jpeg-quality <n>` | libjpeg quality (default 98) |
 | \* | `--jpeg-sub <0\|1\|2>` | chroma subsampling (default 2 = 4:2:0) |
 | \* | `--jpeg-v2` | the renderer+0x64 v2 tone-mapping gate |
+| \* | `--jpeg-sharpening <v>` | the renderer's sharpening property (ParamFloat 13, -100..100; default 5 = Lumen's export state) |
 | \* | `--jpeg-modify <ts>` | Exif 0x0132 ModifyDate, YYYY-MM-DDTHH:MM:SS (default: now) |
 | \* | `--jpeg-comment <s>` | the JPEG COM marker text |
 | \* | `--jpeg-software <s>` | the Exif Software string |

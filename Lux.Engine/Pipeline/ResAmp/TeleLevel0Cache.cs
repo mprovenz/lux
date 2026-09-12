@@ -37,10 +37,13 @@ public sealed class TeleLevel0Cache
     readonly Cache.TileStore<(int, int), ushort[]> _tiles = new();
     readonly float[] _table = WarpResample.BuildTable();
 
+    /// <summary>The module's `lt::StackFusion` result on a stacked capture (`FUN_18020a6d0(stream, cam)` in the cache lambda); null otherwise.</summary>
+    public global::Lux.Engine.Pipeline.BayerFusion.StackFusion? Stacked { get; }
+
     public TeleLevel0Cache(LriFile lri, string moduleName, CameraCalib view, CameraCalib module, (int W, int H) validSize, (float X, float Y) scale,
-                           RendererProfile profile, LumenProfile colour, float cct, float tint)
+                           RendererProfile profile, LumenProfile colour, float cct, float tint, global::Lux.Engine.Pipeline.BayerFusion.StackFusion? stacked = null)
     {
-        Name = moduleName; CamId = (int)lri.Modules[moduleName].Module.Id;
+        Name = moduleName; CamId = (int)lri.Modules[moduleName].Module.Id; Stacked = stacked;
         Dims = ((int)((float)validSize.W * scale.X), (int)((float)validSize.H * scale.Y));
         Grid = (Math.Max(1, (TileSize / 2 + Dims.W) / TileSize), Math.Max(1, (TileSize / 2 + Dims.H) / TileSize));
         Frame = CapturedFrame.Load(lri, moduleName);
@@ -126,10 +129,27 @@ public sealed class TeleLevel0Cache
         var grown = new RectI(ax0 - l, ay0 - t, ax1 + r, ay1 + b);
         if (Environment.GetEnvironmentVariable("LUX_TELE_ONLYRECT") is string orr)   // diagnostic: run the ISP only for one grown rect (x0,y0,x1,y1), zeros elsewhere
         { var q = orr.Split(',').Select(int.Parse).ToArray(); if (grown != new RectI(q[0], q[1], q[2], q[3])) return new Image<Vec4F>(grown).View(srcRect); }
-        var img = SourceOverride?.Invoke(grown) ?? Isp.ProcessBayer(Frame, grown, 0, Log);
+        Image<Vec4F> img;
+        if (SourceOverride?.Invoke(grown) is { } ov) img = ov;
+        else if (Stacked is null) img = Isp.ProcessBayer(Frame, grown, 0, Log);
+        else
+        {
+            // SourceImageCache lambda (1804de1a0 L95–250) on a stacked capture: `FUN_18020a6d0(stream, cam)` non-null → the module's gain map
+            // (`FUN_18020b870`) over the grown rect as the STD plane (`FUN_180209010(gain, 1.0)`) and the BayerFloat runner (`FUN_1803dc980`) on a copy
+            // (`FUN_180012530`) of the stacked float frame's grown window — the same grown rect, no extra margin, then the same crops as the ushort path.
+            var bay = Stacked.BayerImage().View(grown); var sd = Stacked.StdImage(grown);
+            if (Environment.GetEnvironmentVariable("LUX_TELE_ISPDUMP") is string dpi && RectWanted("LUX_TELE_ISPDUMP_RECTS", grown))
+            {   // twins of the oracle's ORACLE_STACK telestk<i>_bayer / _std: the runner's inputs over the grown rect
+                var fb = new float[grown.Width * grown.Height]; for (int y = 0; y < grown.Height; y++) bay.Row(y).CopyTo(fb.AsSpan(y * grown.Width, grown.Width));
+                global::Lux.Engine.Pipeline.BayerFusion.PackedBayerFusion.DumpFloat($"{dpi}_{Name}_stkin_{grown.X0}_{grown.Y0}_{grown.X1}_{grown.Y1}_bayer.bin", fb, grown.Width, grown.Height);
+                var fs = new float[grown.Width * grown.Height]; for (int y = 0; y < grown.Height; y++) sd.Row(y).CopyTo(fs.AsSpan(y * grown.Width, grown.Width));
+                global::Lux.Engine.Pipeline.BayerFusion.PackedBayerFusion.DumpFloat($"{dpi}_{Name}_stkin_{grown.X0}_{grown.Y0}_{grown.X1}_{grown.Y1}_std.bin", fs, grown.Width, grown.Height);
+            }
+            img = Isp.ProcessBayerFloat(Frame, Isp.CurrentStats ?? Isp.ComputeStats(Frame), bay, sd, grown, 0, Log);
+        }
         if (img.Rect != grown) throw new InvalidOperationException($"tele ISP output rect {img.Rect} != grown rect {grown}");
         if (IspOutputs is not null) lock (IspOutputs) IspOutputs.TryAdd(grown, img);
-        if (Environment.GetEnvironmentVariable("LUX_TELE_ISPDUMP") is string dp)   // diagnostic twin of cp.dll's tele-ISP intermediate hook (0x4de3f4): the whole grown-rect ISP output
+        if (Environment.GetEnvironmentVariable("LUX_TELE_ISPDUMP") is string dp && RectWanted("LUX_TELE_ISPDUMP_RECTS", grown))   // diagnostic twin of cp.dll's tele-ISP intermediate hook (0x4de3f4): the whole grown-rect ISP output
         {
             int gw = img.Width, gh = img.Height; var mb = new byte[16 + gw * gh * 16];
             BitConverter.GetBytes(gw).CopyTo(mb, 0); BitConverter.GetBytes(gh).CopyTo(mb, 4); BitConverter.GetBytes(gw).CopyTo(mb, 8); BitConverter.GetBytes(16).CopyTo(mb, 12);
@@ -139,6 +159,17 @@ public sealed class TeleLevel0Cache
         return img.View(new RectI(ax0, ay0, ax1, ay1)).View(srcRect);
     }
 
+    /// <summary>`<env>="x0,y0,x1,y1;..."` restricts a diagnostic dump to the listed rects (unset = every rect).</summary>
+    public static bool RectWanted(string env, RectI r)
+    {
+        if (Environment.GetEnvironmentVariable(env) is not string v) return true;
+        foreach (var part in v.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var q = part.Split(','); if (q.Length != 4) continue;
+            if (int.TryParse(q[0], out int x0) && int.TryParse(q[1], out int y0) && int.TryParse(q[2], out int x1) && int.TryParse(q[3], out int y1) && r == new RectI(x0, y0, x1, y1)) return true;
+        }
+        return false;
+    }
     /// <summary>`ImageLensUndistort&lt;2, vec4x32f, LensUndistortCRA&gt;(calib, rect, source)` (`FUN_180304790`): source rect → generator → `ImageWarpClamped&lt;2&gt;`
     /// with the `((cx + −1) + lu·dx) − x0` kernel (`180305960`), fill (0,0,0,0); an empty source rect yields zeros.</summary>
     public float[] LensUndistort(RectI rect)

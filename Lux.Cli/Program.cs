@@ -386,6 +386,8 @@ namespace Lux.Cli
                     * --jpeg-quality <n>      libjpeg quality (default 98)
                     * --jpeg-sub <0|1|2>      chroma subsampling (default 2 = 4:2:0)
                     * --jpeg-v2               the renderer+0x64 v2 tone-mapping gate
+                    * --jpeg-sharpening <v>   the renderer's sharpening property (ParamFloat 13, -100..100; default 5 =
+                                              Lumen's export state, tone_mapping.sharpening 1.0; 0 = the headless oracle)
                     * --jpeg-modify <ts>      Exif 0x0132 ModifyDate, YYYY-MM-DDTHH:MM:SS (default: now)
                     * --jpeg-comment <s>      the JPEG COM marker text
                     * --jpeg-software <s>     the Exif Software string
@@ -583,7 +585,18 @@ namespace Lux.Cli
                       LUX_MONO_DUMP=<prefix>  mono fusion: the per-stage RGB and float-Bayer images of the mono
                                               module's own ISP, as <prefix>_own_st<i>_<stage>.<kind>.bin
                       LUX_TELE_ISPDUMP=<pre>  the telephoto level-0 cache's whole grown-rect ISP output, as
-                                              <prefix>_<module>_isp_<x0>_<y0>_<x1>_<y1>.bin
+                                              <prefix>_<module>_isp_<x0>_<y0>_<x1>_<y1>.bin (on a stacked capture also
+                                              the runner's inputs, <prefix>_<module>_stkin_<rect>_{bayer,std}.bin);
+                                              LUX_TELE_ISPDUMP_RECTS="x0,y0,x1,y1;..." limits it to those grown rects
+                      LUX_REF_ISPDUMP=<pre>   stacked capture: the reference cache's level ISP output and input of the
+                                              stacked branch, <prefix>_ref_L<level>_src_<rect>_{out,bayer}.bin;
+                                              LUX_REF_ISPDUMP_RECTS limits it to those source rects
+                      LUX_FUSION_DUMP=<pre>   level-1 fusion: every per-source float frame (<prefix>_srcframe_cam<id>.bin),
+                                              the mono sources (<prefix>_mono_src<i>.bin), the fusion tiles listed in
+                                              LUX_FUSION_DUMP_TILES="x0,y0,x1,y1;..." (<prefix>_tile_<rect>_{out,w}.bin) and
+                                              the render inputs of the first 8 renders — or of the grown rect(s) in
+                                              LUX_FUSION_DUMP_RECT — (<prefix>_render_<rect>_{bayer,std,...}.bin); all in
+                                              the oracle's int32{w,h,stride,bpp}+rows format (re/tools/img_dump_cmp.py)
                 """);
             return code;
         }

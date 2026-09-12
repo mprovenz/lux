@@ -42,6 +42,7 @@ public sealed class Options
     public int? JpegQuality { get; private set; }
     public int? JpegSub { get; private set; }
     public bool JpegV2 { get; private set; }
+    public float? JpegSharpening { get; private set; }
     public DateTime? JpegModify { get; private set; }
     public string? JpegComment { get; private set; }
     public string? JpegSoftware { get; private set; }
@@ -166,6 +167,7 @@ public sealed class Options
                     case "--jpeg-quality": o.JpegQuality = int.Parse(Need("1-100"), CultureInfo.InvariantCulture); break;
                     case "--jpeg-sub": o.JpegSub = int.Parse(Need("0, 1 or 2"), CultureInfo.InvariantCulture); break;
                     case "--jpeg-v2": o.JpegV2 = true; break;
+                    case "--jpeg-sharpening": o.JpegSharpening = float.Parse(Need("-100..100"), CultureInfo.InvariantCulture); break;
                     case "--jpeg-modify": o.JpegModify = DateTime.Parse(Need("YYYY-MM-DDTHH:MM:SS"), CultureInfo.InvariantCulture, DateTimeStyles.None); break;
                     case "--jpeg-comment": o.JpegComment = Need("text"); break;
                     case "--jpeg-software": o.JpegSoftware = Need("text"); break;

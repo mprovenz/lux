@@ -91,6 +91,10 @@ public sealed record ExportRequest
     public int? JpegSubsampling { get; init; }
     /// <summary>Select the `renderer+0x64` v2 tone-mapping gate (and its branch-B histogram).</summary>
     public bool JpegV2 { get; init; }
+    /// <summary>The renderer's `ParamFloat 13` (sharpening slider) for the JPEG / JPEG+GDepth display render. Lumen's GUI export renderer
+    /// carries 5.0 (the `CIAPI::ApplyTuning` mode-0 value) → `tone_mapping.sharpening = 1.0`, and that is what its JPGs contain; 0 reproduces
+    /// the headless oracle (no ApplyTuning), which the older reference artefacts were made with. PPM/HDR keep 0: the GUI never exports them.</summary>
+    public float JpegSharpening { get; init; } = DisplayIspTuning.GuiSharpeningProperty;
     /// <summary>Exif/COM ModifyDate override; null = now.</summary>
     public DateTime? JpegModifyTime { get; init; }
     /// <summary>COM marker text; null = "Created with LibCP &lt;version&gt;".</summary>
@@ -213,10 +217,10 @@ public sealed class ExportSession
             _branchBReady = true;
         }
         var tuning = DisplayIspTuning.Build(level, lri.LumenEvOffset, lri.LumenNeutral, State.Capture.LensShadingMultiplier,
-                                            Win.ExportDims[level].W, Win.ExportDims[0].W, req.JpegV2, branchB: _branchB);
+                                            Win.ExportDims[level].W, Win.ExportDims[0].W, req.JpegV2, branchB: _branchB, sharpening: req.JpegSharpening);
         var isp = new SoftIsp(tuning, State.Colour);
         var stats = isp.ComputeStats(frame);
-        if (_v) _log?.Invoke($"  display tuning L{level}: tone_mapping.type {tuning.Type("tone_mapping")} sharpening_scale {tuning.Num("tone_mapping.sharpening_scale"):R} tone_adjust.filter_size {tuning.Num("tone_adjust.filter_size"):R} ev_offset {lri.LumenEvOffset:R} multiplier {State.Capture.LensShadingMultiplier:R}");
+        if (_v) _log?.Invoke($"  display tuning L{level}: tone_mapping.type {tuning.Type("tone_mapping")} sharpening {tuning.Num("tone_mapping.sharpening"):R} (ParamFloat 13 = {req.JpegSharpening:R}) sharpening_scale {tuning.Num("tone_mapping.sharpening_scale"):R} tone_adjust.filter_size {tuning.Num("tone_adjust.filter_size"):R} ev_offset {lri.LumenEvOffset:R} multiplier {State.Capture.LensShadingMultiplier:R}");
         return _ispCache[level] = (isp, stats);
     }
     public (JpegExportRenderer Renderer, byte[] Rgba) Rgba8()

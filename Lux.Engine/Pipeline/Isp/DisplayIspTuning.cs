@@ -43,7 +43,7 @@ public static class DisplayIspTuning
     public static Tuning Build(int level, float evOffset, float[] neutral, float lensShadingMultiplier,
                                int exportW, int exportW0, bool gateV2, bool lowLight = false,
                                bool allCamerasGroup0 = false, int rendererProfile = 3, int profileOffset = L16ProfileOffset,
-                               BranchBLpyr? branchB = null, Tuning? baseTuning = null)
+                               BranchBLpyr? branchB = null, Tuning? baseTuning = null, float sharpening = 0f)
     {
         var t = (baseTuning ?? Tuning.LumenDefaults()).Clone();
         t.Set("demosaicking.type", "none");                                            // 1
@@ -83,11 +83,22 @@ public static class DisplayIspTuning
         }
         // Pipeline-ctor / tuning-tree values the display path leaves alone but that the stages read
         t.Set("tone_mapping.saturation", 1.0).Set("tone_mapping.vibrance", 1.0);
-        t.Set("tone_mapping.grain_power", 1.0).Set("tone_mapping.grain_sigma", 0.0).Set("tone_mapping.sharpening", 0.0);
+        t.Set("tone_mapping.grain_power", 1.0).Set("tone_mapping.grain_sigma", 0.0);
+        // FUN_1804ae7e0 (one of the per-property mappers FUN_18048f330 runs over every renderer+0x650 level tuning before a render/export):
+        // tone_mapping.sharpening = (double)(v / DAT_1806e64f8[0 < v]) with v = ParamFloat 13 (the editor's sharpening slider, RendererBase+0x44)
+        // and the divisor table {33.0, 5.0}. The GUI's export renderer carries v = 5.0 — CIAPI::ApplyTuning's mode-0 value (`setProperty(0xd, 5.0f)`)
+        // — so its JPEGs are sharpened with 1.0; a renderer that never had ApplyTuning (the headless oracle) has v = 0 → 0.0.
+        // Verified 2026-09-12: the oracle export with ParamFloat 13 = 5 is byte-identical to Lumen's fresh full-size JPG (00306) except the timestamp.
+        t.Set("tone_mapping.sharpening", (double)SharpeningFromProperty(sharpening));
         t.Set("contrast_adjust.value", 0.0);
         _ = level;
         return t;
     }
+
+    /// <summary>`FUN_1804ae7e0`: `ParamFloat 13` (sharpening slider, −100..100) → `tone_mapping.sharpening = v / (0 &lt; v ? 5 : 33)` in float.</summary>
+    public static float SharpeningFromProperty(float v) => v / (0f < v ? 5f : 33f);
+    /// <summary>The value `CIAPI::ApplyTuning(0)` writes into `ParamFloat 13` (`setProperty(0xd, 5.0f)`) and the state Lumen's GUI exports carry.</summary>
+    public const float GuiSharpeningProperty = 5f;
 
     /// <summary>`FUN_180398be0(&amp;vec, {lower, higher}, 0.5f)` — branch B's `lpyr_samples`:
     /// `n = clamp(span/0.5, 5, 15)`, `cnt = (int)n`, spacing `d = span/cnt`, then `cnt − 1` samples

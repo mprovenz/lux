@@ -77,9 +77,13 @@ public static class ExportBuild
         // `ReferenceImageCache::processLevel` L145: `FUN_18020a6d0(stream, refCam)` — non-null on a stacked capture, and then the
         // level runs the BayerFloat runner on `lt::StackFusion`'s fused frame with the gain map as its STD plane.
         Lux.Engine.Pipeline.Geometry.AlignedWarp.StackedSource? stacked = null;
+        Lux.Engine.Pipeline.BayerFusion.StackProvider? stacks = null;
         if (lri.StackFrames >= 2)
         {
-            var sf = new Lux.Engine.Pipeline.BayerFusion.StackFusion(lri, lri.ReferenceModule, wb.Cct, wb.Tint, log);
+            // the stream's per-module lt::StackFusion results (FUN_18020a6d0 / FUN_18020b870), shared by every consumer below: the reference cache
+            // levels, the level-1 colour + mono fusions, the fusion render's STD plane and the telephoto level-0 caches
+            stacks = new Lux.Engine.Pipeline.BayerFusion.StackProvider(lri, wb.Cct, wb.Tint, log, sourceFrameBlackEstimate: maxLevel != 0, lri.ReferenceModule);
+            var sf = stacks.Get(lri.ReferenceModule);
             int margin = Lux.Engine.Pipeline.BayerFusion.PackedBayerFusion.Halo(frame.Info.AnalogGain);   // ReferenceImageCache+0xbc = FUN_18050cbf0
             if (Environment.GetEnvironmentVariable("LUX_STACK_MARGIN") is string mo && int.TryParse(mo, out int mv)) { margin = mv; Console.Error.WriteLine($"[diagnostic] LUX_STACK_MARGIN: ISP tile margin {margin} instead of {Lux.Engine.Pipeline.BayerFusion.PackedBayerFusion.Halo(frame.Info.AnalogGain)}"); }
             stacked = new Lux.Engine.Pipeline.Geometry.AlignedWarp.StackedSource(sf.BayerImage(), sf.StdImage, margin);
@@ -91,7 +95,7 @@ public static class ExportBuild
         {
             // The fusion reference is the capture's OWN reference module, not a hardcoded A1: `refId` is 0 for every
             // A-reference capture (the whole verified corpus) but 8 for the B4-reference 149 mm captures.
-            var fus = new Lux.Engine.Pipeline.BayerFusion.PackedBayerFusion(lri, refId, wb.Cct, wb.Tint, log, sourceFrameBlackEstimate: maxLevel != 0, threads: threads, progress: pr);
+            var fus = new Lux.Engine.Pipeline.BayerFusion.PackedBayerFusion(lri, refId, wb.Cct, wb.Tint, log, sourceFrameBlackEstimate: maxLevel != 0, threads: threads, progress: pr, stacks: stacks);
             fc = new Lux.Engine.Pipeline.BayerFusion.FusionCacheBayer(lri, frame, fus, (RendererProfile)3, wb.Cct, wb.Tint, log);
             fc.Progress = pr;
             var fcl = fc;
@@ -110,7 +114,8 @@ public static class ExportBuild
             {
                 int x0 = tx * 512, y0 = ty * 512, x1 = tx == rnx - 1 ? W : x0 + 512, y1 = ty == rny - 1 ? H : y0 + 512;
                 var rect = new RectI(x0, y0, x1, y1);
-                var img = Lux.Engine.Pipeline.Geometry.AlignedWarp.ProcessLevel(Isp(0), frame, calib, 0, rect, new float[4]);
+                // ReferenceImageCache::processLevel takes its stacked branch at EVERY level (FUN_18020a6d0 non-null), level 0 included
+                var img = Lux.Engine.Pipeline.Geometry.AlignedWarp.ProcessLevel(Isp(0), frame, calib, 0, rect, new float[4], null, stacked);
                 var hbuf = new ushort[rect.Width * rect.Height * 3];
                 for (int y = 0; y < rect.Height; y++) { var row = img.Row(y); for (int x = 0; x < rect.Width; x++) { var q = row[x]; int i = (y * rect.Width + x) * 3; hbuf[i] = Lux.Engine.Imaging.Half16.FromFloat(q.R); hbuf[i + 1] = Lux.Engine.Imaging.Half16.FromFloat(q.G); hbuf[i + 2] = Lux.Engine.Imaging.Half16.FromFloat(q.B); } }
                 log?.Invoke($"ref cache: level-0 tile ({tx},{ty}) {rect.Width}x{rect.Height}");
@@ -150,7 +155,7 @@ public static class ExportBuild
                 // `api+0x3a8[id].view/.module`: the online-calibration pair the renderer hands the tele SourceImageCache — always from the
                 // ported registration state.
                 var (v2, m2) = reg.Pairs[id];
-                var cache = new Lux.Engine.Pipeline.ResAmp.TeleLevel0Cache(lri, camNames[id], v2, m2, reg.Sizes[id], sc, (RendererProfile)3, colour, wb.Cct, wb.Tint);
+                var cache = new Lux.Engine.Pipeline.ResAmp.TeleLevel0Cache(lri, camNames[id], v2, m2, reg.Sizes[id], sc, (RendererProfile)3, colour, wb.Cct, wb.Tint, stacks?.Get(camNames[id]));
                 var wf = Lux.Engine.Pipeline.ResAmp.TeleWarpFieldBuilder.BuildFromPoses(reg.Cams[id].Pose, reg.Cams[id].Slot, reg.Cams[refId].Pose, reg.Cams[refId].Slot, sc, depth, depthW, depthH);
                 teleCaches[i] = cache; teleModules[i] = new Lux.Engine.Pipeline.ResAmp.ResAmpModule(cache.ToGenerator(), wf);
                 pr.Tick();

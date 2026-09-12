@@ -29,8 +29,9 @@ namespace Lux.Engine.Pipeline.BayerFusion;
 /// <item>`cN` is 1.0 (not `gain/NStack`), and the result gets the reference black added back (`FUN_180207930`) with no
 /// vignetting re-applied.</item>
 /// </list>
-/// The colour path only: a mono module would take `FUN_180202120` / `StackFusion::lambda_0`, which no export reaches (the
-/// reference module is always colour) and which is left unported rather than guessed.
+/// The mono branch (`(redx|redy) &lt; 0`, reached by the mono module of the reference group on every level-0/1 render of a stacked capture) is
+/// <see cref="InitializeMono"/>: full-resolution ushort frames, a 5-level flow, the panchromatic noise lane and the ushort mono merge kernel
+/// `FUN_1801ef920` in 16×16 tiles (`StackFusion::lambda_1`), with `StackFusion::lambda_0` as the weight function.
 /// </summary>
 public sealed class StackFusion
 {
@@ -77,7 +78,12 @@ public sealed class StackFusion
     /// plane with `k = 1.0` (`1804d8c50`: `movss xmm2, [0x180681c78]`).</summary>
     public byte[] Gain8 { get; private set; } = null!;
 
-    public StackFusion(LriFile lri, string moduleName, float cct, float tint, Action<string>? log = null, int refIndex = 0)
+    /// <summary>`true`: the reference frame is a colour module (the wavelet path); `false`: the mono path.</summary>
+    public bool IsColour { get; }
+    /// <summary>Whether frame 0 carries its per-frame black estimate (`CapturedImage+0xb4`) or the sensor DB black — see <see cref="StackProvider"/>.</summary>
+    public bool RefFrameBlackEstimate { get; }
+
+    public StackFusion(LriFile lri, string moduleName, float cct, float tint, Action<string>? log = null, int refIndex = 0, bool refFrameBlackEstimate = true)
     {
         _lri = lri; Module = moduleName; Log = log; RefIndex = refIndex;
         var frames = lri.Frames[moduleName];
@@ -92,8 +98,13 @@ public sealed class StackFusion
         var neutral = WhiteBalance.NeutralFromTempTint(cct, tint, profile);
 
         RefFrame = CapturedFrame.Load(lri, frames[refIndex]);
+        // frame 0's CapturedImage+0xb4: the estimate when FUN_18020b0b0 decoded the frame itself, the sensor DB black when an earlier path
+        // (the registration / tele decoder of the level-0 flow) had already decoded it — StackProvider decides per module
+        if (!refFrameBlackEstimate)
+            RefFrame = new CapturedFrame { Raw = RefFrame.Raw, Width = RefFrame.Width, Height = RefFrame.Height, Info = RefFrame.Info with { FrameBlack = float.NaN }, Module = RefFrame.Module, Header = RefFrame.Header };
+        RefFrameBlackEstimate = refFrameBlackEstimate;
         var info = RefFrame.Info;
-        if (!info.IsColour) throw new NotSupportedException("mono stack fusion (StackFusion::lambda_0 / FUN_180202120) is not ported");
+        IsColour = info.IsColour;
         var noise = info.Noise ?? throw new InvalidOperationException($"{moduleName}: no sensor noise model");
         if (info.HasHotPixelLeakageCalibration) throw new NotSupportedException("HotpixelCalibration::correctHotpixelLeakage is not ported");
         Width = RefFrame.Width; Height = RefFrame.Height;
@@ -107,25 +118,25 @@ public sealed class StackFusion
         A[0] = m.R.A * k; A[1] = m.G.A * k; A[2] = m.Bl.A * k; A[3] = m.G.A * k;
         B[0] = m.R.B * k; B[1] = m.G.B * k; B[2] = m.Bl.B * k; B[3] = m.G.B * k;
 
-        Initialize(frames, neutral);
+        if (IsColour) Initialize(frames, neutral); else InitializeMono(frames, neutral);
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
     // FUN_1802067f0 — the per-frame preparation: hot-pixel patch, then (colour only) highlight restore. No black, no gain.
     // ---------------------------------------------------------------------------------------------------------------------------------
-    (ushort[] Prep, float Black, float White) PrepareFrame(LriFile.ModuleRef mref, float[] neutral)
+    (ushort[] Prep, float Black, float White) PrepareFrame(LriFile.ModuleRef mref, float[] neutral, bool estimateBlack = true)
     {
         var f = CapturedFrame.Load(_lri, mref);
         int w = f.Width, h = f.Height;
         if (w != Width || h != Height) throw new InvalidOperationException("stack frames must all have the module's frame size");
         var noise = f.Info.Noise ?? throw new InvalidOperationException("stack frame has no sensor noise model");
-        float black = float.IsNaN(f.Info.FrameBlack) ? noise.Black : f.Info.FrameBlack;   // CapturedImage+0xb4 (FUN_180125d10)
+        float black = (!estimateBlack || float.IsNaN(f.Info.FrameBlack)) ? noise.Black : f.Info.FrameBlack;   // CapturedImage+0xb4 (FUN_180125d10)
         var red = f.Module.SensorBayerRedOverride;
         int rx = red?.X ?? 0, ry = red?.Y ?? 0;
         var full = new RectI(0, 0, w, h);
         var lut = noise.SigmaTables(f.Info.AnalogGain);
         var hp = new ushort[w * h];
-        HotPixelKernel.RunInto(f.Raw, w, h, full, rx, ry, One, lut[0], lut[1], lut[2], hp, w, 0);   // FUN_18039f640
+        HotPixelKernel.RunInto(f.Raw, w, h, full, rx, ry, One, lut[0], lut.Length > 1 ? lut[1] : lut[0], lut.Length > 2 ? lut[2] : lut[0], hp, w, 0);   // FUN_18039f640 (a mono sensor has one sigma table)
         if (!f.Info.IsColour) return (hp, black, noise.White);
         var hr = new ushort[w * h];
         HighlightRestoreKernel.Run(hp, w, 0, full, hr, w, 0, full, rx, ry, neutral, black, noise.White);
@@ -218,7 +229,7 @@ public sealed class StackFusion
     void Initialize(IReadOnlyList<LriFile.ModuleRef> frames, float[] neutral)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var (refPrep, refBlack, refWhite) = PrepareFrame(frames[RefIndex], neutral);
+        var (refPrep, refBlack, refWhite) = PrepareFrame(frames[RefIndex], neutral, RefFrameBlackEstimate);
         if (refBlack != Black || refWhite != White) throw new InvalidOperationException("reference frame black/white mismatch");
 
         // FastCollapse of the prepared ushort frame — with NO sqrt LUT (1801d6c80 is called only from ColorFusionBayer::initialize)
@@ -276,6 +287,64 @@ public sealed class StackFusion
         _normRef = null!; _normSrc.Clear();
         Log?.Invoke($"stack fusion {Module}: done in {sw.Elapsed.TotalSeconds:F1}s");
     }
+
+    // ---------------------------------------------------------------------------------------------------------------------------------
+    // 180203c90, the mono branch ((redx|redy) < 0): the ushort mono merge kernel FUN_1801ef920 (StackFusion::lambda_1) in 16×16 tiles
+    // ---------------------------------------------------------------------------------------------------------------------------------
+    /// <summary>The mono path of `lt::StackFusion`: `prep = FUN_1802067f0` (hot-pixel patch only, no highlight restore), the reference COPIED
+    /// (`FUN_180012530`, elem 2) instead of collapsed, `FUN_1801d9e20(ref, ((redx|redy) &gt;&gt; 31) | 4 = 5)` pyramid levels and
+    /// `ComputeFlowFieldWithOverlap&lt;ushort,16,2,0&gt;` per frame on the full-resolution prepared ushorts (no sqrt LUT, empty validity); then
+    /// `Tiler::Run(out, (16,16), lambda_1)` where lambda_1 (`1802070d0`) runs `FUN_1801ef920(out, gainOut, ref, empty vign, srcs, flows, tile, prm)` — the
+    /// ushort instantiation of the mono merge kernel `FUN_1801ee0b0` (<see cref="MonoFusion.MergeCore"/>) — with
+    /// `prm = {w0 = 1/n, scale = 8.0, A_pan·k, B_pan·k, black, white, fn = lambda_0 (180207010): (1/n)²·((cnt + 1)² + q2)}`: `n` = frames
+    /// (`fVar24 = 1/((float)nSrc + 1)`, captured at lambda_0+8), the PANCHROMATIC lane of the reference frame's noise model at its analog gain
+    /// (`FUN_180120bf0(model + 0xb0)` +0x30/+0x34, "Panchromatic noise model doesn't exist!"), `k` = the `param_5` noise scale, `black/white` =
+    /// ref+0xb4/+0xb8. The output images are written by the kernel directly: no black is added back (the mono frames are never normalised) and the
+    /// weight image is the gain map as is (`FUN_1802092b0` in the driver).</summary>
+    void InitializeMono(IReadOnlyList<LriFile.ModuleRef> frames, float[] neutral)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var (refPrep, refBlack, refWhite) = PrepareFrame(frames[RefIndex], neutral, RefFrameBlackEstimate);
+        if (refBlack != Black || refWhite != White) throw new InvalidOperationException("reference frame black/white mismatch");
+        const int levels = 5;   // ((redx|redy) >> 31) | 4
+        var refPyr = BlockFlow.Pyramid(refPrep, Width, Height, levels, out var pdims);
+        var srcs = new List<float[]>(); var flows = new List<Vec2S[]>(); var flowDims = new List<(int W, int H)>();
+        for (int i = 0; i < frames.Count; i++)
+        {
+            if (i == RefIndex) continue;
+            var (prep, black, _) = PrepareFrame(frames[i], neutral);
+            var flow = BlockFlow.ComputeFlow(refPyr, pdims, prep, Width, Height, levels, null, out int fw, out int fh);
+            flows.Add(flow); flowDims.Add((fw, fh));
+            srcs.Add(ToFloat(prep));
+            Log?.Invoke($"stack fusion {Module}: mono frame {i} black {black:R} flow {fw}x{fh}");
+        }
+        var noise = RefFrame.Info.Noise!;
+        var model = noise.ModelForGain(RefFrame.Info.AnalogGain);
+        var pan = model.Pan ?? throw new InvalidOperationException("Panchromatic noise model doesn't exist!");
+        float k = NoiseScaleK(RefFrame.Info.IsHalfScale);
+        float A1 = pan.A * k, B1 = k * pan.B;
+        float invN = One / ((float)srcs.Count + One);
+        Func<float, float, float> fn = (cnt, q2) => invN * invN * ((cnt + One) * (cnt + One) + q2);
+        var refF = ToFloat(refPrep);
+        refPrep = null!;
+        Log?.Invoke($"stack fusion {Module}: {NStack} mono frames, ref {RefIndex}, black {Black:R} white {White:R}, A' {A1:R} B' {B1:R}, prep+flow {sw.Elapsed.TotalSeconds:F1}s");
+        int W = Width, H = Height;
+        var fused = new float[W * H]; var weight = new float[W * H];
+        var frameRect = new RectI(0, 0, W, H);
+        var tiles = new List<RectI>();
+        for (int ty = 0; ty < H; ty += 16) for (int tx = 0; tx < W; tx += 16) tiles.Add(new RectI(tx, ty, Math.Min(tx + 16, W), Math.Min(ty + 16, H)));
+        System.Threading.Tasks.Parallel.ForEach(tiles, t =>
+        {
+            var (o, wo) = MonoFusion.MergeCore(refF, W, frameRect, null, t, srcs, W, H, flows, flowDims, invN, MonoStackScale, A1, B1, Black, White, fn);
+            int tw = t.Width;
+            for (int y = 0; y < t.Height; y++) { Array.Copy(o, y * tw, fused, (t.Y0 + y) * W + t.X0, tw); Array.Copy(wo, y * tw, weight, (t.Y0 + y) * W + t.X0, tw); }
+        });
+        Fused = fused;
+        Gain8 = PackedBayerFusion.WeightToByte(weight);
+        Log?.Invoke($"stack fusion {Module}: mono merged {W}x{H} in {tiles.Count} 16x16 tiles, done in {sw.Elapsed.TotalSeconds:F1}s");
+    }
+    static float[] ToFloat(ushort[] v) { var o = new float[v.Length]; for (int i = 0; i < o.Length; i++) o[i] = (float)v[i]; return o; }
+    static readonly float MonoStackScale = BitConverter.Int32BitsToSingle(0x41000000);   // 8.0: prm[1] (the shrink scale) of the mono stack kernel
 
     /// <summary>`PackBayerImageProtoType&lt;vec4x16ui, unsigned short&gt;` alone (the input of `FUN_1801d6e30`).</summary>
     static ushort[] PackRaw(ushort[] src, int W, int H)

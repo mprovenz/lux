@@ -122,7 +122,11 @@ public static class AlignedWarp
             // with an EMPTY std image; every other level takes the gain-map branch below.
             if (isp.Tuning.Type("denoising") == "none")
             {
-                ispImg = isp.ProcessBayerFloat(frame, stats, stacked.Bayer.View(src0), null, src0, level, log);
+                // `FUN_1803dc980(isp, out, srcView(roi), cap, roi, empty)`: srcView is a VIEW of the whole stacked frame (rect fields still span
+                // (0,0,W,H), only w/h are the ROI's) and nothing is copied, so the runner's available region is the entire frame — the stages read
+                // real neighbours past the ROI. Verified on 00431 level 0 (oracle ORACLE_STACK refstk dumps): with the view clipped to the ROI the
+                // ISP output differed on 99.9 % of the pixels (max |d| 4.9e-4); with the whole frame it is bit-exact.
+                ispImg = isp.ProcessBayerFloat(frame, stats, stacked.Bayer, null, src0, level, log);
                 srcOff = (src0.X0 / fc, src0.Y0 / fc);
             }
             else
@@ -145,6 +149,15 @@ public static class AlignedWarp
                 srcOff = (ispImg.Rect.X0, ispImg.Rect.Y0);
                 log?.Invoke($"processLevel L{level}: stacked grown {grown} (margin {stacked.Margin}) → crop ({cx0},{cy0})-({cx1},{cy1}) at {srcOff}");
             }
+        }
+        if (stacked is not null && Environment.GetEnvironmentVariable("LUX_REF_ISPDUMP") is string dp && ResAmp.TeleLevel0Cache.RectWanted("LUX_REF_ISPDUMP_RECTS", src0))
+        {   // diagnostic twin of the oracle's ORACLE_STACK refstk/refstkg dumps: the level ISP output of the stacked branch, rect in the name (level-L pixels)
+            var r = ispImg.Rect; int gw = ispImg.Width, gh = ispImg.Height; var mb = new byte[16 + (long)gw * gh * 16];
+            BitConverter.GetBytes(gw).CopyTo(mb, 0); BitConverter.GetBytes(gh).CopyTo(mb, 4); BitConverter.GetBytes(gw).CopyTo(mb, 8); BitConverter.GetBytes(16).CopyTo(mb, 12);
+            for (int y = 0; y < gh; y++) System.Runtime.InteropServices.MemoryMarshal.AsBytes(ispImg.Row(y)).CopyTo(mb.AsSpan(16 + y * gw * 16, gw * 16));
+            File.WriteAllBytes($"{dp}_ref_L{level}_src_{src0.X0}_{src0.Y0}_{src0.X1}_{src0.Y1}_out.bin", mb);
+            var bv = stacked.Bayer.View(src0); var fb = new float[src0.Width * src0.Height]; for (int y = 0; y < src0.Height; y++) bv.Row(y).CopyTo(fb.AsSpan(y * src0.Width, src0.Width));
+            BayerFusion.PackedBayerFusion.DumpFloat($"{dp}_ref_L{level}_src_{src0.X0}_{src0.Y0}_{src0.X1}_{src0.Y1}_bayer.bin", fb, src0.Width, src0.Height);
         }
         if (calib is null) return ispImg;
         return WarpToRoi(calib, level, ispImg, srcOff, roiL, fill);
