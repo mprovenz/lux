@@ -39,7 +39,12 @@ internal sealed class GPhoto2Device : IMtpDevice
         {
             string folder = stack.Pop();
             foreach (var file in ListFolder(folder, files: true))
-                yield return new MtpItem(folder, file, 0, null); // size/mtime deferred (see interop notes)
+            {
+                // size and modification time from gp_camera_file_get_info (the PTP object info's size and date); the `--since`/`--until`
+                // filters need the date — without it every file was filtered out (found 2026-09-12)
+                var (size, modified) = Gp.FileInfo(_cam, folder, file, _ctx);
+                yield return new MtpItem(folder, file, size, modified);
+            }
             foreach (var sub in ListFolder(folder, files: false))
                 stack.Push(folder.TrimEnd('/') + "/" + sub);
         }

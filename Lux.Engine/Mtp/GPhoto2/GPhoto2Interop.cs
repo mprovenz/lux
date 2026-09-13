@@ -50,6 +50,33 @@ internal static class Gp
     [DllImport(Lib)] public static extern int gp_file_free(IntPtr file);
     [DllImport(Lib)] public static extern int gp_file_save(IntPtr file, [MarshalAs(UnmanagedType.LPUTF8Str)] string filename);
 
+    // per-file info (size, modification time): gp_camera_file_get_info(camera, folder, file, CameraFileInfo*, context)
+    [DllImport(Lib)] public static extern int gp_camera_file_get_info(IntPtr camera, [MarshalAs(UnmanagedType.LPUTF8Str)] string folder, [MarshalAs(UnmanagedType.LPUTF8Str)] string file, out CameraFileInfo info, IntPtr context);
+
+    public const uint GP_FILE_INFO_SIZE = 1 << 1, GP_FILE_INFO_MTIME = 1 << 6;   // CameraFileInfoFields bits
+
+    /// <summary>libgphoto2 2.5 `CameraFileInfoPreview`: fields, status, uint64 size, char type[64], width, height (88 bytes).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CameraFileInfoPreview { public uint Fields; public int Status; public ulong Size; [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)] public byte[] Type; public uint Width, Height; }
+    /// <summary>libgphoto2 2.5 `CameraFileInfoFile`: preview's fields + permissions (int) and `time_t mtime` (64-bit here; 104 bytes).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CameraFileInfoFile { public uint Fields; public int Status; public ulong Size; [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)] public byte[] Type; public uint Width, Height; public int Permissions; public long Mtime; }
+    /// <summary>libgphoto2 2.5 `CameraFileInfoAudio`: fields, status, uint64 size, char type[64] (80 bytes).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CameraFileInfoAudio { public uint Fields; public int Status; public ulong Size; [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)] public byte[] Type; }
+    /// <summary>libgphoto2 2.5 `CameraFileInfo` = { preview, file, audio } (272 bytes on x86-64/arm64 Linux and macOS).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CameraFileInfo { public CameraFileInfoPreview Preview; public CameraFileInfoFile File; public CameraFileInfoAudio Audio; }
+
+    /// <summary>The (size, modification time) of one file, or (0, null) for whatever the driver does not report.</summary>
+    public static (long Size, DateTimeOffset? Modified) FileInfo(IntPtr camera, string folder, string file, IntPtr context)
+    {
+        if (gp_camera_file_get_info(camera, folder, file, out var info, context) != GP_OK) return (0, null);
+        long size = (info.File.Fields & GP_FILE_INFO_SIZE) != 0 ? (long)info.File.Size : 0;
+        DateTimeOffset? modified = (info.File.Fields & GP_FILE_INFO_MTIME) != 0 && info.File.Mtime > 0 ? DateTimeOffset.FromUnixTimeSeconds(info.File.Mtime) : null;
+        return (size, modified);
+    }
+
     public static string? Utf8(IntPtr p) => p == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(p);
 
     /// <summary>Read a CameraList into a managed string list.</summary>
