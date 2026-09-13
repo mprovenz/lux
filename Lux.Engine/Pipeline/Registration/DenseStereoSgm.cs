@@ -257,7 +257,13 @@ public sealed class DenseLayer
         }
         _RangeS[cur * _halfR + slot] = (ushort)start; _RangeC[cur * _halfR + slot] = (ushort)cap;
     }
-    int Rd(int i) => i >= 0 && i < _L.Length ? _L[i] : 2000;
+    // Neighbour-block reads run up to 8 lanes past a path block (§7.3: `Lp = N[q+1..q+8]`, "whatever is in the buffer"). Inside the
+    // allocation that is the next block / the next half (the array is laid out exactly like Lumen's, so the same words are read); past the
+    // END of the allocation — the margin slot w+1 of half B, i.e. the up-right neighbour of the last column on an odd row whose padding
+    // lanes (count..cap) reach beyond maxHi — Lumen reads the zero-filled pages behind its buffer, so `m = 0` and the lane's path cost
+    // saturates to 0. Returning the 2000 guard there gave `L = raw` instead (+255 per visit; the last column is visited twice in pass 1) and
+    // moved the WTA of the cells the up-right path feeds (L16_00448 / 00549, layer 1, right border; a-dense-stereo-race-closure.md §8).
+    int Rd(int i) => i < 0 ? 2000 : i < _L.Length ? _L[i] : 0;
 }
 
 /// <summary>The six-layer pyramid driver (`FUN_18030cd00` per layer, memory-mode choice `FUN_18030caf0`).</summary>

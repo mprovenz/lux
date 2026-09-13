@@ -311,6 +311,11 @@ public static class Homography
             return (double)MathF.Acos(cos) * 57.295780490442965;
         }
         double d1 = Deg(E1, E1.Item1, -0.5f), d2 = Deg(E2, E2.Item2, -0.5f), d3 = Deg(E3, E3.Item1, 0.5f), d4 = Deg(E4, E4.Item2, 0.5f);
-        return d4 < 20.0 && d3 < 20.0 && d2 < 20.0 && d1 < 20.0;
+        // 180300022–180300044: each `deg < 20.0` is compiled as `ucomisd deg, 20.0; setb` — the UNORDERED result (CF = 1) counts as
+        // "less than". An edge that lies exactly on its axis rounds its cosine one ulp above 1.0 (`q·D·comp` with the rsqrt Newton
+        // step), `acosf` returns NaN, and Lumen accepts the homography; C#'s `<` would reject it. Seen on L16_00524 (A5, WIDE level 2)
+        // and L16_00467 (B4, TELE level 2): the view was disabled, the driver aborted, and the camera lost all its observations.
+        static bool LtNan(double a, double b) => !(a >= b);
+        return LtNan(d4, 20.0) && LtNan(d3, 20.0) && LtNan(d2, 20.0) && LtNan(d1, 20.0);
     }
 }

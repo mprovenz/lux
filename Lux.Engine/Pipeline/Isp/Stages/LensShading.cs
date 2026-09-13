@@ -30,15 +30,23 @@ public static class LensShadingKernel
         }
         // movable mirror: neighbouring hall codes around the capture's mirror position (FUN_18013cd40 L26–300)
         int hall = m.MirrorPosition;   // CapturedImage+0x50 = CameraModule.mirror_position (NOT af_info.mirror_position: B1/B2/B3 of 00466 differ between the two — verified by the B stereo images 2026-08-27)
+        // FUN_18013cd40 L70–160 on the std::map<hallCode, model>: hall ≤ min key → the min model; hall ≥ max key → the max model;
+        // otherwise `hi = lower_bound(hall)` (the first model with code ≥ hall; == hall → that model alone) and `lo = the model
+        // before it`, then `t = ((float)hall − (float)hi) / (float)(lo − hi)`, `u = 1 − t`, grid = g_hi·u + g_lo·t (L324–338).
+        // That is the same interpolation as (hall − lo)/(hi − lo) but ROUNDED the other way round: the lower model's weight is
+        // the direct division here, the upper model's is `1 − t`. Porting it as (hall − lo)/(hi − lo) with `1 − t` on the lower
+        // model gave grids one ulp off for some hall codes (L16_00425/00426/00453: B5 at 544/544/681 between the models) and
+        // telephoto ISP outputs one ulp off in a third of the pixels (a-dense-stereo-race-closure.md §8).
         var sorted = models.OrderBy(x => x.HallCode).ToList();
-        var lo = sorted.LastOrDefault(x => (int)x.HallCode <= hall) ?? sorted[0];
-        var hi = sorted.FirstOrDefault(x => (int)x.HallCode >= hall) ?? sorted[^1];
-        var g0 = lo.Vignetting; var g1 = hi.Vignetting;
-        if (lo == hi || g0.Data.Count == 0) return ((int)g0.Width, (int)g0.Height, g0.Data.ToArray());
-        float t = ((float)hall - (float)(int)lo.HallCode) / (float)((int)hi.HallCode - (int)lo.HallCode), u = 1f - t;
-        var d = new float[g0.Data.Count];
-        for (int i = 0; i < d.Length; i++) d[i] = g0.Data[i] * u + g1.Data[i] * t;
-        return ((int)g0.Width, (int)g0.Height, d);
+        int hiIdx = sorted.FindIndex(x => (int)x.HallCode >= hall);
+        if (hiIdx < 0) { var mx = sorted[^1].Vignetting; return ((int)mx.Width, (int)mx.Height, mx.Data.ToArray()); }
+        if (hiIdx == 0 || (int)sorted[hiIdx].HallCode == hall || sorted[hiIdx].Vignetting.Data.Count == 0) { var m0 = sorted[hiIdx].Vignetting; return ((int)m0.Width, (int)m0.Height, m0.Data.ToArray()); }
+        var hi = sorted[hiIdx]; var lo = sorted[hiIdx - 1];
+        var gHi = hi.Vignetting; var gLo = lo.Vignetting;
+        float t = ((float)hall - (float)(int)hi.HallCode) / (float)((int)lo.HallCode - (int)hi.HallCode), u = 1f - t;
+        var d = new float[gHi.Data.Count];
+        for (int i = 0; i < d.Length; i++) d[i] = gHi.Data[i] * u + gLo.Data[i] * t;
+        return ((int)gHi.Width, (int)gHi.Height, d);
     }
 
     /// <summary>`FUN_18013cd40` tail: `(g + (−1))·m + 1`, or `((g + (−1))·m + 1)/g` when inverse.</summary>

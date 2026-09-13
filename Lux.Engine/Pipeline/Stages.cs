@@ -315,6 +315,14 @@ public static class PipelineRunner
             p.OriginX = ox; p.OriginY = oy;
             if (Environment.GetEnvironmentVariable("LUX_ISP_DEBUG") == "1") Console.Error.WriteLine($"[runner rect] {j} {stages[j].Stage} need {n} int ({p.IntRect.X0} {p.IntRect.Y0} {p.IntRect.X1} {p.IntRect.Y1}) scaled ({p.ScaledRect.X0} {p.ScaledRect.Y0} {p.ScaledRect.X1} {p.ScaledRect.Y1}) float ({p.FloatRect.X0} {p.FloatRect.Y0} {p.FloatRect.X1} {p.FloatRect.Y1}) origin ({ox} {oy})");
             stages[j].Apply(p);
+            // Diagnostic: `LUX_STAGE_DUMP=<prefix>` writes the RGB working image after every stage as raw RGBA float rows,
+            // `{prefix}_st_er<exposureRatio>_o<x>_<y>_<j>_<stage>_<w>x<h>.f32` (the twin of cp.dll's per-stage payload dumps).
+            if (Environment.GetEnvironmentVariable("LUX_STAGE_DUMP") is string sdp && p.Rgb is { } rimg)
+            {
+                var bytes = new byte[rimg.Width * rimg.Height * 16];
+                for (int y = 0; y < rimg.Height; y++) System.Runtime.InteropServices.MemoryMarshal.AsBytes(rimg.Row(y)).CopyTo(bytes.AsSpan(y * rimg.Width * 16, rimg.Width * 16));
+                System.IO.File.WriteAllBytes($"{sdp}_st_er{p.Frame.ExposureRatio:R}_o{ox}_{oy}_{j:D2}_{stages[j].Stage}_{rimg.Width}x{rimg.Height}.f32", bytes);
+            }
             // what the stage produced, in its output coordinates, relative to the (scaled) ROI origin
             ax0 = -(int)(s * gl); ay0 = -(int)(s * gt);
             w = (int)(s * w); h = (int)(s * h);

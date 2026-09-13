@@ -52,8 +52,24 @@ public static class ExportBuild
         {
             log?.Invoke("export: dense L5 depth computed in-process (self-contained)");
             var swReg = System.Diagnostics.Stopwatch.StartNew();
-            api = Lux.Engine.Pipeline.Registration.StereoAsyncApi.Run(lri, log, runHigher: true, runDense: true, depthOverride: null, progress: pr);
+            // LUX_DENSE_OVERRIDE=<file>: inject a top-layer (L5) dense depth from an oracle `_dense_L5_depth.f32` dump instead of computing it — the
+            // race-closure test (a-dense-stereo-race-closure.md): with Lumen's own depth of a given run, the DNG must equal that run's DNG.
+            float[]? depthOverride = null;
+            if (Environment.GetEnvironmentVariable("LUX_DENSE_OVERRIDE") is string dov)
+            {
+                var (d, dw, dh) = Lux.Engine.Pipeline.Registration.StereoAsyncApi.LoadF32(dov);
+                depthOverride = d; log?.Invoke($"export: dense depth OVERRIDE from {dov} ({dw}x{dh}) — output is Lumen's schedule, not Lux's");
+                Console.Error.WriteLine($"[diagnostic] LUX_DENSE_OVERRIDE: dense L5 depth injected from {dov} ({dw}x{dh})");
+            }
+            string? densePrefix = Environment.GetEnvironmentVariable("LUX_DENSE_DUMP") is string ddp ? ddp + "_" + Path.GetFileNameWithoutExtension(lriPath) : null;
+            api = Lux.Engine.Pipeline.Registration.StereoAsyncApi.Run(lri, log, runHigher: true, runDense: true, depthOverride: depthOverride, progress: pr, dumpPrefix: densePrefix);
             log?.Invoke($"export: registration state ready in {swReg.Elapsed.TotalSeconds:F1}s");
+            if (densePrefix is not null)   // the telephoto pairs (api+0x3a8[id].view/.module) in the oracle's 0xa8 CalibData layout (K @0, t @0x24, R @0x30), for the tdrv<i>_calib{Ref,Cam} comparison
+                foreach (var kv in api.Pairs)
+                {
+                    void W(string path, Lux.Engine.Pipeline.Geometry.CameraCalib c) { var b = new byte[0xa8]; Buffer.BlockCopy(c.K, 0, b, 0, 36); Buffer.BlockCopy(c.T, 0, b, 0x24, 12); Buffer.BlockCopy(c.R, 0, b, 0x30, 36); File.WriteAllBytes(path, b); }
+                    W($"{densePrefix}_tele{kv.Key}_view.bin", kv.Value.First); W($"{densePrefix}_tele{kv.Key}_module.bin", kv.Value.Second);
+                }
         }
         Lux.Engine.Pipeline.Geometry.CameraCalib view, module;
         {   // the reference pair straight out of the registration state (ctor loop 2 of `StereoAsyncAPI`)

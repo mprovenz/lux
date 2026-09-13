@@ -387,7 +387,7 @@ namespace Lux.Cli
                     * --jpeg-sub <0|1|2>      chroma subsampling (default 2 = 4:2:0)
                     * --jpeg-v2               the renderer+0x64 v2 tone-mapping gate
                     * --jpeg-sharpening <v>   the renderer's sharpening property (ParamFloat 13, -100..100; default 5 =
-                                              Lumen's export state, tone_mapping.sharpening 1.0; 0 = the headless oracle)
+                                              Lumen's export state, tone_mapping.sharpening 1.0; 0 = Lumen's headless API export)
                     * --jpeg-modify <ts>      Exif 0x0132 ModifyDate, YYYY-MM-DDTHH:MM:SS (default: now)
                     * --jpeg-comment <s>      the JPEG COM marker text
                     * --jpeg-software <s>     the Exif Software string
@@ -591,12 +591,29 @@ namespace Lux.Cli
                       LUX_REF_ISPDUMP=<pre>   stacked capture: the reference cache's level ISP output and input of the
                                               stacked branch, <prefix>_ref_L<level>_src_<rect>_{out,bayer}.bin;
                                               LUX_REF_ISPDUMP_RECTS limits it to those source rects
+                      LUX_DENSE_DUMP=<pre>    dense stereo (level-0 builds): the six pyramid depths, the full depth, the
+                                              layer-0 inputs and (layers <= LUX_DENSE_DUMP_CV, default 2) the cost volumes,
+                                              as raw dumps (int32 {w,h,stride,bpp} header + rows; cost volumes packed as
+                                              in StereoAsyncApi.DumpCostVolume), <prefix>_<stem>_dense_L<i>_*; plus the
+                                              registration stages as raw binary records (<prefix>_<stem>_{refpts,
+                                              drv<i>_match<l>, flt<i>_cam<c>_{pre,post}, tri_*_points, bac<i>_{in,out},
+                                              final<i>_slots, calibwrite<i>_{before,after}, tdrv<i>_*}.bin; layouts in
+                                              RegDump.cs)
+                      LUX_DENSE_OVERRIDE=<f>  inject a Lumen layer-5 depth dump (<out>_dense_L5_depth.f32) instead of
+                                              computing the dense stereo (race-closure test; output is Lumen's schedule)
+                      LUX_HYB_DUMP=<pre>      module ISP hybrid denoiser: every intermediate of every call as raw RGBA float
+                                              rows, <prefix>_hyb_<tag>_<w>x<h>.f32 (the size keeps calls apart)
+                      LUX_PP_DUMP=<pre>       module ISP PostProcessing: input, companion and output of every call as raw
+                                              RGBA float rows, <prefix>_pp_{src,comp,out}_er<ratio>_<x0>_<y0>_<w>x<h>.f32,
+                                              plus the parameters on stderr
+                      LUX_STAGE_DUMP=<pre>    module ISP: the RGB working image after every stage as raw RGBA float rows,
+                                              <prefix>_st_er<ratio>_o<x>_<y>_<index>_<stage>_<w>x<h>.f32
                       LUX_FUSION_DUMP=<pre>   level-1 fusion: every per-source float frame (<prefix>_srcframe_cam<id>.bin),
                                               the mono sources (<prefix>_mono_src<i>.bin), the fusion tiles listed in
                                               LUX_FUSION_DUMP_TILES="x0,y0,x1,y1;..." (<prefix>_tile_<rect>_{out,w}.bin) and
                                               the render inputs of the first 8 renders — or of the grown rect(s) in
                                               LUX_FUSION_DUMP_RECT — (<prefix>_render_<rect>_{bayer,std,...}.bin); all in
-                                              the oracle's int32{w,h,stride,bpp}+rows format (re/tools/img_dump_cmp.py)
+                                              int32 {w,h,stride,bpp} header + rows
                 """);
             return code;
         }

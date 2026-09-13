@@ -48,7 +48,18 @@ public sealed class PostProcessingStage : IStage
                 for (int y = 0; y < er.Height; y++) MemoryMarshal.Cast<Vec4F, float>(ci.Row(er.Y0 - ci.Rect.Y0 + y).Slice(er.X0 - ci.Rect.X0, er.Width)).CopyTo(compExt.AsSpan(y * er.Width * 4, er.Width * 4));
             }
         }
+        // Diagnostic: `LUX_PP_DUMP=<prefix>` writes the stage's input, companion and output of every call as raw RGBA float rows,
+        // `{prefix}_pp_{src,comp,out}_er<exposureRatio>_<x0>_<y0>_{w}x{h}.f32`, and prints the parameters at full precision (twin of cp.dll's PostProcessing hook).
+        string? ppd = Environment.GetEnvironmentVariable("LUX_PP_DUMP");
+        if (ppd is not null)
+        {
+            Console.Error.WriteLine($"[pp] er{p.Frame.ExposureRatio:R} rect ({abs.X0} {abs.Y0} {abs.X1} {abs.Y1}) gain {p.Frame.AnalogGain:R} grain_power {a:R} grain_sigma {b:R} sharpening {c:R} sharpening_scale {d:R} saturation {sat:R} vibrance {vib:R} comp {(comp is null ? "none" : "yes")}");
+            string key = $"er{p.Frame.ExposureRatio:R}_{abs.X0}_{abs.Y0}_{w}x{h}";   // the frame info carries no module id: gain + exposure ratio identify the module
+            File.WriteAllBytes($"{ppd}_pp_src_{key}.f32", MemoryMarshal.AsBytes(buf.AsSpan()).ToArray());
+            if (comp is not null) File.WriteAllBytes($"{ppd}_pp_comp_{key}.f32", MemoryMarshal.AsBytes(comp.AsSpan()).ToArray());
+        }
         PostProcessingLumen.Run(buf, w, h, p.Frame.AnalogGain, a, b, c, d, sat, vib, comp, ext, compExt);
+        if (ppd is not null) File.WriteAllBytes($"{ppd}_pp_out_er{p.Frame.ExposureRatio:R}_{abs.X0}_{abs.Y0}_{w}x{h}.f32", MemoryMarshal.AsBytes(buf.AsSpan()).ToArray());
         for (int y = 0; y < h; y++)
             buf.AsSpan(y * w * 4, w * 4).CopyTo(MemoryMarshal.Cast<Vec4F, float>(img.Row(abs.Y0 - img.Rect.Y0 + y).Slice(abs.X0 - img.Rect.X0, w)));
     }

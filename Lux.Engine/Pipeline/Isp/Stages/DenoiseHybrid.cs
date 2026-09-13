@@ -71,12 +71,12 @@ public sealed class DenoiseHybridStage : IStage
 
 public static class HybridDenoise
 {
-    /// <summary>Diagnostic: `LUX_HYB_DUMP=&lt;prefix&gt;` writes every intermediate as `{prefix}_hyb_{tag}.f32` (header w,h,stride,16) like cp.dll's hybrid-denoise intermediate hooks.</summary>
+    /// <summary>Diagnostic: `LUX_HYB_DUMP=&lt;prefix&gt;` writes every intermediate as `{prefix}_hyb_{tag}_{w}x{h}.f32` (header w,h,stride,16) like cp.dll's hybrid-denoise intermediate hooks.</summary>
     static readonly string? DumpPrefix = Environment.GetEnvironmentVariable("LUX_HYB_DUMP");
     static void Dump(string tag, Vec4F[] img, int w, int h)
     {
         if (DumpPrefix is null) return;
-        using var fo = File.Create($"{DumpPrefix}_hyb_{tag}.f32"); fo.Write(BitConverter.GetBytes(w)); fo.Write(BitConverter.GetBytes(h)); fo.Write(BitConverter.GetBytes(w)); fo.Write(BitConverter.GetBytes(16));
+        using var fo = File.Create($"{DumpPrefix}_hyb_{tag}_{w}x{h}.f32");   // the size keeps calls of different ISPs (tiles vs a telephoto grown rect) from overwriting each other fo.Write(BitConverter.GetBytes(w)); fo.Write(BitConverter.GetBytes(h)); fo.Write(BitConverter.GetBytes(w)); fo.Write(BitConverter.GetBytes(16));
         var bytes = new byte[img.Length * 16]; System.Runtime.InteropServices.MemoryMarshal.AsBytes(img.AsSpan()).CopyTo(bytes); fo.Write(bytes);
     }
     internal static void DumpStd(Vec4F[] img, int w, int h) => Dump("stdmul_out", img, w, h);

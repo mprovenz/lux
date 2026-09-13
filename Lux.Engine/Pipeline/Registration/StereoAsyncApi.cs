@@ -39,9 +39,11 @@ public sealed class StereoAsyncApi
     /// <summary>Progress of <see cref="Run"/>: the "registration" phase, one unit per state or per camera image.</summary>
     public ProgressReporter Progress { get; set; } = ProgressReporter.None;
 
-    public static StereoAsyncApi Run(LriFile lri, Action<string>? log = null, bool runHigher = true, bool runDense = true, float[]? depthOverride = null, ProgressReporter? progress = null)
+    /// <summary>Per-run dense-dump prefix (`LUX_DENSE_DUMP` + the capture stem, set by the CLI so a batch does not overwrite itself); null = no dumps.</summary>
+    public string? DumpPrefix;
+    public static StereoAsyncApi Run(LriFile lri, Action<string>? log = null, bool runHigher = true, bool runDense = true, float[]? depthOverride = null, ProgressReporter? progress = null, string? dumpPrefix = null)
     {
-        var api = new StereoAsyncApi { Lri = lri, Log = log, Progress = progress ?? ProgressReporter.None }; api.Setup();
+        var api = new StereoAsyncApi { Lri = lri, Log = log, DumpPrefix = dumpPrefix, Progress = progress ?? ProgressReporter.None }; api.Setup();
         int refGroup = api.RefGroupCams().Count(), higher = api.Cdp.Higher.Count;
         // guide + one per reference-group image + sparse wide + dense + upsample + one per higher image + coarse/tele
         api.Progress.Begin("registration", 1 + refGroup + 1 + 2 + higher + 1);
@@ -84,7 +86,7 @@ public sealed class StereoAsyncApi
             Pairs[c.Id] = (CdpCamera.ToCamera(c.View()), Pairs[c.Id].Second);
             Log?.Invoke($"ctor cam {c.Id} ({c.Name}): crop ({rect.X0},{rect.Y0},{rect.X1},{rect.Y1}) shift1 {sh} scale1 {sc}");
         }
-        Cdp.Log = Log; Cdp.CamsType = 0; Cdp.Ref = Cams[RefId];
+        Cdp.Log = Log; Cdp.CamsType = 0; Cdp.Ref = Cams[RefId]; Cdp.Dump = DumpPrefix is string rdp ? new RegDump(rdp) : null;
         foreach (var c in RefGroupCams()) if (c.Id != RefId) Cdp.RefGroup.Add(c);
         foreach (var c in Cams.Values) if (Group(c.Id) > Group(RefId)) Cdp.Higher.Add(c);
         Cdp.Z = CdpInputs.PlaneDepth(Lri.Modules[refName].Module, Cdp.ZRange.Min); Cdp.WideFlag = CdpInputs.WideFlag(Lri.Header, Lri.Modules[refName].Module.Id);
@@ -153,15 +155,79 @@ public sealed class StereoAsyncApi
             var images = cams.Select(c => c.Image).ToArray(); var gray = cams.Select(c => c.Gray).ToArray(); var calibs = cams.Select(c => c.View().Basic()).ToList();
             Dense = DenseStereoPyramid.Run(images, gray, calibs, Cdp.ZRange.Min, Cdp.ZRange.Max, Log);
             var top = Dense[^1]; Cdp.Depth = top.Depth; Cdp.DepthW = top.W; Cdp.DepthH = top.H;
+            if (DumpPrefix is string dp)   // twins of the oracle's ORACLE_DEPTH `<out>_dense_L<i>_depth.f32` (WTA hook per layer)
+            {
+                for (int i = 0; i < Dense.Length; i++) DumpF32($"{dp}_dense_L{i}_depth.f32", Dense[i].Depth, Dense[i].W, Dense[i].H);
+                // `_dense_calibs.bin`: the layer-0 CalibData vector in the oracle's 0xa8 layout (K @0x00, t @0x24, R @0x30, the rest zero — Lux's Basic() carries only these)
+                { var cb = new byte[calibs.Count * 0xa8]; for (int c = 0; c < calibs.Count; c++) { Buffer.BlockCopy(calibs[c].K, 0, cb, c * 0xa8, 36); Buffer.BlockCopy(calibs[c].T, 0, cb, c * 0xa8 + 0x24, 12); Buffer.BlockCopy(calibs[c].R, 0, cb, c * 0xa8 + 0x30, 36); } File.WriteAllBytes($"{dp}_dense_calibs.bin", cb); }
+                // the layer-0 inputs and the small layers' cost volumes in the oracle's exact layouts (sinputs_wrap / wta_wrap / pass2_wrap dumps)
+                for (int k = 0; k < images.Length; k++) { DumpRgba8($"{dp}_dense_img{k}.img", images[k]); DumpRgba8($"{dp}_dense_filt{k}.img", Dense[0].Images[k]); }
+                int cvMax = int.TryParse(Environment.GetEnvironmentVariable("LUX_DENSE_DUMP_CV"), out int cm) ? cm : 2;
+                for (int i = 0; i < Dense.Length; i++)
+                {
+                    var L = Dense[i]; var pl = new byte[L.Planes.Length * 4]; Buffer.BlockCopy(L.Planes, 0, pl, 0, pl.Length); File.WriteAllBytes($"{dp}_dense_L{i}_planes.f32", pl);
+                    var sk = new byte[16 + L.W * L.H]; BitConverter.GetBytes(L.W).CopyTo(sk, 0); BitConverter.GetBytes(L.H).CopyTo(sk, 4); BitConverter.GetBytes(L.W).CopyTo(sk, 8); BitConverter.GetBytes(1).CopyTo(sk, 12); Buffer.BlockCopy(L.Skip, 0, sk, 16, L.W * L.H); File.WriteAllBytes($"{dp}_dense_L{i}_skip.u8", sk);
+                    if (i == 0) DumpRgba8($"{dp}_dense_L0_guidance.img", L.Guidance);
+                    if (i <= cvMax) DumpCostVolume($"{dp}_dense_L{i}", L);
+                }
+            }
         }
         else { Cdp.Depth = depthOverride; Cdp.DepthW = Cams[RefId].Image.W; Cdp.DepthH = Cams[RefId].Image.H; }
         Progress.Tick();
         UpsampleFullDepth();
+        if (FullDepth is not null && DumpPrefix is string dp2) DumpF32($"{dp2}_fulldepth.f32", FullDepth.Depth, FullDepth.W, FullDepth.H);
         Progress.Tick();
     }
 
     /// <summary>State 5, last layer (`FUN_18030cd00` mode 0): `UpsampleLayer::slot(0x08)(layers[5])` → `FullDepth` (W0×H0) when the guide (`api+0x1f8`) is available.
     /// LayerStack size = (W0/2, H0/2) with (W0, H0) = the level-0 reference frame (`FUN_18030be70`, `StereoAsyncAPI::start`).</summary>
+    /// <summary>Oracle `dump_image` format for an RGBA8 image: int32 {w, h, stride(px), 4} then `h` rows of `w·4` bytes.</summary>
+    public static void DumpRgba8(string path, Rgba8Image im)
+    {
+        var b = new byte[16 + (long)im.W * im.H * 4];
+        BitConverter.GetBytes(im.W).CopyTo(b, 0); BitConverter.GetBytes(im.H).CopyTo(b, 4); BitConverter.GetBytes(im.W).CopyTo(b, 8); BitConverter.GetBytes(4).CopyTo(b, 12);
+        for (int y = 0; y < im.H; y++) Buffer.BlockCopy(im.Data, im.Offset(0, y), b, 16 + y * im.W * 4, im.W * 4);
+        File.WriteAllBytes(path, b);
+    }
+    /// <summary>The oracle's cost-volume layout (`layer+0x118` buffer + `layer+0x128` offsets image): per pixel an 8-byte header
+    /// `{start u16, count u16, 1, cap u16}` then `cap` u16 aggregates then (computed pixels only) `cap` u8 raw costs. Writes
+    /// `<prefix>_offsets.u32` (int32 header + u32 per pixel), `<prefix>_costvol.bin` (final aggregates) and `<prefix>_costvol_pass1.bin`
+    /// (the pass-1 copy, when kept).</summary>
+    public static void DumpCostVolume(string prefix, DenseLayer L)
+    {
+        int npx = L.W * L.H; var off = new uint[npx]; long total = 0;
+        for (int i = 0; i < npx; i++) { off[i] = (uint)total; total += 8 + (long)L.Cap[i] * (L.Skip[i] == 0 ? 3 : 2); }
+        var ob = new byte[16 + npx * 4]; BitConverter.GetBytes(L.W).CopyTo(ob, 0); BitConverter.GetBytes(L.H).CopyTo(ob, 4); BitConverter.GetBytes(L.W).CopyTo(ob, 8); BitConverter.GetBytes(4).CopyTo(ob, 12);
+        Buffer.BlockCopy(off, 0, ob, 16, npx * 4); File.WriteAllBytes($"{prefix}_offsets.u32", ob);
+        void Write(string path, ushort[][] agg)
+        {
+            var buf = new byte[total];
+            for (int i = 0; i < npx; i++)
+            {
+                int o = (int)off[i]; int cap = L.Cap[i];
+                BitConverter.GetBytes(L.Start[i]).CopyTo(buf, o); BitConverter.GetBytes(L.Count[i]).CopyTo(buf, o + 2); BitConverter.GetBytes((ushort)1).CopyTo(buf, o + 4); BitConverter.GetBytes(L.Cap[i]).CopyTo(buf, o + 6);
+                Buffer.BlockCopy(agg[i], 0, buf, o + 8, cap * 2);
+                if (L.Skip[i] == 0 && L.Raw[i] is not null) Buffer.BlockCopy(L.Raw[i], 0, buf, o + 8 + cap * 2, cap);
+            }
+            File.WriteAllBytes(path, buf);
+        }
+        Write($"{prefix}_costvol.bin", L.Agg);
+        if (L.AggPass1 is not null) Write($"{prefix}_costvol_pass1.bin", L.AggPass1);
+    }
+    /// <summary>Diagnostic dump in the oracle's image format: int32 {w, h, stride, bpp=4} then the rows.</summary>
+    public static void DumpF32(string path, float[] data, int w, int h)
+    {
+        var b = new byte[16 + (long)w * h * 4];
+        BitConverter.GetBytes(w).CopyTo(b, 0); BitConverter.GetBytes(h).CopyTo(b, 4); BitConverter.GetBytes(w).CopyTo(b, 8); BitConverter.GetBytes(4).CopyTo(b, 12);
+        Buffer.BlockCopy(data, 0, b, 16, w * h * 4); File.WriteAllBytes(path, b);
+    }
+    /// <summary>Read a dump written by <see cref="DumpF32"/> / the oracle (`int32 {w, h, stride, bpp}` + rows of `w` floats).</summary>
+    public static (float[] Data, int W, int H) LoadF32(string path)
+    {
+        var b = File.ReadAllBytes(path); int w = BitConverter.ToInt32(b, 0), h = BitConverter.ToInt32(b, 4), bpp = BitConverter.ToInt32(b, 12);
+        if (bpp != 4) throw new InvalidOperationException($"{path}: expected a 4-byte float dump, bpp {bpp}");
+        var d = new float[w * h]; Buffer.BlockCopy(b, 16, d, 0, w * h * 4); return (d, w, h);
+    }
     public void UpsampleFullDepth()
     {
         if (ReferenceGuide is null || Cdp.Depth.Length == 0) return;

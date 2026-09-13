@@ -40,9 +40,10 @@ public static class WideSparseDriver
     }
 
     public static (float X, float Y)[] Run(PaddedRgba8[] refPyr, FeaturePoint[][] feats, int nRefPts, Rgba8Image B, CalibData calibA, CalibData calibB,
-        float planeDepth, bool bidir, float satLevel, bool mono, int mode, (float X, float Y) refCentre, (float X, float Y) camCentre, Action<string>? log = null)
+        float planeDepth, bool bidir, float satLevel, bool mono, int mode, (float X, float Y) refCentre, (float X, float Y) camCentre, Action<string>? log = null, RegDump? dump = null)
     {
         int n = feats.Length;
+        int di = dump is null ? -1 : dump.Drv++;
         var pyrB = SparseLnrPyramid.Build(Dense(B), B.W, B.H, n, 8);
         var guess = (refCentre.X - camCentre.X, refCentre.Y - camCentre.Y);   // this+0x10 − this+0x254
         var (offs, ok) = SparseLnrPyramid.Align(refPyr, pyrB, refCentre, guess, mono ? SparseLnrPyramid.AlignWeightsMono : SparseLnrPyramid.AlignWeightsColour);
@@ -53,6 +54,11 @@ public static class WideSparseDriver
         var viewB = new MatchView { Id = 2, Enabled = true };
         var ptsA = new SparseLnrRansac.ViewPoints(n); var ptsB = new SparseLnrRansac.ViewPoints(n);
         var perLevel = new MatchedPoint[n][]; int minInl = 8; int top = n - 1;
+        (float X, float Y)[] Finish((float X, float Y)[] res)
+        {
+            if (dump is not null) { for (int l = 0; l < n; l++) dump.Bytes($"drv{di}_match{l}", RegDump.Matches(perLevel[l])); dump.Bytes($"drv{di}_out", RegDump.Vec2(res)); }
+            return res;
+        }
         for (int l = top; l >= 0; l--)
         {
             var mask = SparseLnrPyramid.SaturationMask(pyrB[l], satLevel);
@@ -77,13 +83,16 @@ public static class WideSparseDriver
                 log($"  L{l} {(l != top ? "match" : mode == 0 ? "initA" : "initB")}: {m.Length} feats → fail {f1} lowtex {s0} weak {s3} good {s4a + s4b} (A {s4a} B {s4b}), minInl {minInl}");
             }
             SparseLnrRansac.Gate(m, viewA, viewB, feats[l], thrA, thrB, minInl);
-            SparseLnrRansac.UpdateView(viewA, ptsA, l, feats[l], m, l != top);
-            SparseLnrRansac.UpdateView(viewB, ptsB, l, feats[l], m, l != top);
             perLevel[l] = m;
-            if (!viewA.Enabled && !viewB.Enabled) { log?.Invoke("  both views disabled → abort"); return Enumerable.Repeat((-1f, -1f), nRefPts).ToArray(); }
+            if (l != 0)   // 1802e8946–1802e8991: the view updates and the both-disabled abort run for levels > 0 only (level 0 goes straight to finalize)
+            {
+                SparseLnrRansac.UpdateView(viewA, ptsA, l, feats[l], m, l != top);
+                SparseLnrRansac.UpdateView(viewB, ptsB, l, feats[l], m, l != top);
+                if (!viewA.Enabled && !viewB.Enabled) { log?.Invoke("  both views disabled → abort"); return Finish(Enumerable.Repeat((-1f, -1f), nRefPts).ToArray()); }
+            }
             minInl = (int)((double)minInl * 1.5);
         }
-        return SparseLnrRansac.Finalize(perLevel, nRefPts);
+        return Finish(SparseLnrRansac.Finalize(perLevel, nRefPts));
     }
 }
 
@@ -102,6 +111,7 @@ public sealed class CalibDataProcessor
     public int CamsType;                          // FUN_180111c40(cams): 0 on the L16
     public (float Min, float Max) ZRange => CamsType == 1 ? (70f, 40000f) : (200f, 640000f);
     public Action<string>? Log;
+    public RegDump? Dump;                         // LUX_DENSE_DUMP: regdump-layout stage dumps (see RegDump)
 
     public PaddedRgba8[] RefPyr = null!; public FeaturePoint[][] RefFeats = null!; public (float X, float Y)[] RefPts = null!;
     public TriPoint[] Points = Array.Empty<TriPoint>();                                    // CDP+0x40
@@ -136,6 +146,7 @@ public sealed class CalibDataProcessor
         RefPts = pts.ToArray();
         Points = RefPts.Select(p => new TriPoint { U = p.X, V = p.Y }).ToArray();
         Log?.Invoke($"  reference features {string.Join("/", RefFeats.Select(f => f.Length))} → {RefPts.Length} points");
+        Dump?.Bytes("refpts", RegDump.Vec2(RefPts));
     }
 
     /// <summary>λ2 (state 3) for one camera: the WIDE sparse driver on `Apply(pose[ref], calib(ref))` / `Apply(pose[c], calib(c))`.</summary>
@@ -146,7 +157,7 @@ public sealed class CalibDataProcessor
         // `mode = (ref == 8) ? 1 : (ref == 14) ? 2 : 0`, i.e. B4 → 1, C5 → 2, everything else (including C1–C4/C6) → 0.
         int mode = Ref.Id == 8 ? 1 : Ref.Id == 14 ? 2 : 0;
         var refView = Ref.View().Basic(); var camView = c.View().Basic();
-        var res = WideSparseDriver.Run(RefPyr, RefFeats, RefPts.Length, c.Image, refView, camView, Z, true, c.SatLevel, c.Gray, mode, Ref.Centre, c.Centre, Log);
+        var res = WideSparseDriver.Run(RefPyr, RefFeats, RefPts.Length, c.Image, refView, camView, Z, true, c.SatLevel, c.Gray, mode, Ref.Centre, c.Centre, Log, Dump);
         Obs[c.Id] = res;
         return res;
     }
@@ -158,8 +169,10 @@ public sealed class CalibDataProcessor
         foreach (var c in RefGroup)
         {
             var o = Obs[c.Id]; var flat = new float[o.Length * 2]; for (int i = 0; i < o.Length; i++) { flat[2 * i] = o[i].X; flat[2 * i + 1] = o[i].Y; }
+            int fi = Dump is null ? -1 : Dump.Flt++; Dump?.Bytes($"flt{fi}_cam{c.Id}_pre", RegDump.Vec2(o));
             FundamentalMatrixFilter.Filter(refFlat, flat);
             for (int i = 0; i < o.Length; i++) o[i] = (flat[2 * i], flat[2 * i + 1]);
+            Dump?.Bytes($"flt{fi}_cam{c.Id}_post", RegDump.Vec2(o));
         }
     }
 
@@ -173,7 +186,7 @@ public sealed class CalibDataProcessor
             var o = Obs[c.Id]; var flat = new float[o.Length * 2]; for (int i = 0; i < o.Length; i++) { flat[2 * i] = o[i].X; flat[2 * i + 1] = o[i].Y; }
             var r = SparseMirrorAngleOptimizer.Optimize(c.Mirror!, c.Slot, c.Pose, refCam, flat, Points, 0, 0, -1.0, (0f, 0f), Z, WideFlag, c.Map, c.Hall);
             Log?.Invoke($"  fine optimizer cam {c.Id}: accepted {r.Accepted} θ {r.Theta:R}");
-            if (r.Accepted && r.Written != null) { c.Slot.K = (float[])r.Written.K.Clone(); c.Slot.R = (float[])r.Written.R.Clone(); c.Slot.T = (float[])r.Written.T.Clone(); }
+            if (r.Accepted && r.Written != null) CalibWrite(c, r.Written.K, r.Written.R, r.Written.T, "wide fine");
         }
     }
 
@@ -184,10 +197,13 @@ public sealed class CalibDataProcessor
         var ids = Obs.Keys.ToArray();
         var cams = ids.Select(id => RefGroup.First(c => c.Id == id).View().Basic()).ToArray();
         var obs = ids.Select(id => { var o = Obs[id]; var f = new float[o.Length * 2]; for (int i = 0; i < o.Length; i++) { f[2 * i] = o[i].X; f[2 * i + 1] = o[i].Y; } return f; }).ToArray();
+        Dump?.Bytes("tri_before_points", RegDump.Tri(Points));
         var (P, _, near, far) = Triangulator.Triangulate(Points, refCam, cams, obs);
         Points = P;
+        Dump?.Bytes("tri_after_points", RegDump.Tri(Points));
         Snapshot("1. init");
         Points = DepthRefine.Refine(Points, refCam, cams, obs, ZRange.Min, ZRange.Max);
+        Dump?.Bytes("tri_refined_points", RegDump.Tri(Points));
         Snapshot("2. point BA");
     }
 
@@ -213,9 +229,22 @@ public sealed class CalibDataProcessor
     {
         var cams = new Dictionary<int, SparseBaCaller.CamInput>();
         foreach (var c in members) cams[c.Id] = new() { Cam = c.Id, Pose = c.Pose, Slot = c.Slot };
+        int bi = Dump is null ? -1 : Dump.Bac++;
+        Log?.Invoke($"  BA caller {bi}: ref {Ref.Id} isHigher {(isHigher ? 1 : 0)} mask 0x{mask:x} b8 {(b8 ? 1 : 0)} b9 {(b9 ? 1 : 0)} obs cams {Obs.Count} excluded {exclusion.Count} points {Points.Length}");
+        Dump?.Slots($"bac{bi}_in", members.Where(c => c.Id == Ref.Id || Obs.ContainsKey(c.Id)), true);
         var res = SparseBaCaller.Run(Points, Obs, Ref.Id, cams, isHigher, mask, exclusion, b8, b9, Log);
         foreach (var kv in res.Written) { var c = members.First(x => x.Id == kv.Key); c.Slot.K = (float[])kv.Value.K.Clone(); c.Slot.R = (float[])kv.Value.R.Clone(); c.Slot.T = (float[])kv.Value.T.Clone(); }
+        Dump?.Slots($"bac{bi}_out", members.Where(c => c.Id == Ref.Id || Obs.ContainsKey(c.Id)), false);
         return res;
+    }
+
+    /// <summary>`FUN_180125740(module, K, R, t, stage 1)`: an optimiser's in-place write of the CURRENT slot (dumped like the oracle's `calibwrite&lt;i&gt;`).</summary>
+    void CalibWrite(CdpCamera c, float[] K, float[] R, float[] T, string stage)
+    {
+        int wi = Dump is null ? -1 : Dump.Cw++; Dump?.Bytes($"calibwrite{wi}_before", RegDump.Slot54(c.Slot));
+        c.Slot.K = (float[])K.Clone(); c.Slot.R = (float[])R.Clone(); c.Slot.T = (float[])T.Clone();
+        Dump?.Bytes($"calibwrite{wi}_after", RegDump.Slot54(c.Slot));
+        Log?.Invoke($"  calib write {wi}: module id {c.Id} ({stage}) K[{K[0]:G6} {K[1]:G6} {K[2]:G6}; {K[3]:G6} {K[4]:G6} {K[5]:G6}; {K[6]:G6} {K[7]:G6} {K[8]:G6}] t({T[0]:G6} {T[1]:G6} {T[2]:G6})");
     }
 
     static float Dist(float[] a, float[] b)
@@ -260,6 +289,7 @@ public sealed class CalibDataProcessor
             if (!keep) { var s = saved[c.Id]; c.Slot.K = (float[])s.K.Clone(); c.Slot.R = (float[])s.R.Clone(); c.Slot.T = (float[])s.T.Clone(); }
         }
         Snapshot("3. Camera BA");
+        if (Dump is not null) Dump.Slots($"final{Dump.Final++}_slots", AllCams(), false);
     }
 
     /// <summary>`runReferenceGroupCams` (states 0 → 2 → 3×N → 6×N → 4×N → 7 → 8).</summary>
@@ -319,7 +349,7 @@ public sealed class CalibDataProcessor
             double theta0 = c.Map!.Angle(c.Hall);
             var r = MirrorAngleOptimizerCoarse.Optimize(Coarse!, c.Mirror!, c.Slot, c.Pose, c.Image, theta0);
             ThetaMap[c.Id] = r.Theta; CMap[c.Id] = (r.Cx, r.Cy);
-            c.Slot.K = (float[])r.Written.K.Clone(); c.Slot.R = (float[])r.Written.R.Clone(); c.Slot.T = (float[])r.Written.T.Clone();
+            CalibWrite(c, r.Written.K, r.Written.R, r.Written.T, "coarse");
             Log?.Invoke($"  coarse cam {c.Id} ({c.Name}): θ0 {theta0:R} → θ {r.Theta:R} c ({r.Cx:R},{r.Cy:R})");
         }
     }
@@ -332,7 +362,14 @@ public sealed class CalibDataProcessor
         var refView = Ref.View().Basic(); var camView = c.View().Basic();
         var M = Mat4D.FlowMatrix(refView, camView);
         var prior = TeleSparseDriver.PriorPoints(Points, Depth, DepthW, DepthH, M, c.Image.W, c.Image.H);
-        var res = TeleSparseDriver.Run(RefPyr, RefFeats, RefPts.Length, WideSparseDriver.Dense(c.Image), c.Image.W, c.Image.H, prior, Depth, DepthW, DepthH, M, 1f, 1f, Z, Z > 6000f, c.SatLevel, Log).Out;
+        var tr = TeleSparseDriver.Run(RefPyr, RefFeats, RefPts.Length, WideSparseDriver.Dense(c.Image), c.Image.W, c.Image.H, prior, Depth, DepthW, DepthH, M, 1f, 1f, Z, Z > 6000f, c.SatLevel, Log);
+        var res = tr.Out;
+        if (Dump is not null)
+        {
+            int ti = Dump.TDrv++; Dump.Bytes($"tdrv{ti}_p2", RegDump.Vec2(prior));
+            if (tr.PerLevel is not null) for (int l = 0; l < tr.PerLevel.Length; l++) Dump.Bytes($"tdrv{ti}_match{l}", RegDump.Matches(tr.PerLevel[l]));
+            Dump.Bytes($"tdrv{ti}_out", RegDump.Vec2(res));
+        }
         Obs[c.Id] = res;
         return res;
     }
@@ -349,8 +386,10 @@ public sealed class CalibDataProcessor
         foreach (var c in Higher)
         {
             var o = Obs[c.Id]; var flat = new float[o.Length * 2]; for (int i = 0; i < o.Length; i++) { flat[2 * i] = o[i].X; flat[2 * i + 1] = o[i].Y; }
+            int fi = Dump is null ? -1 : Dump.Flt++; Dump?.Bytes($"flt{fi}_cam{c.Id}_pre", RegDump.Vec2(o));
             FundamentalMatrixFilter.Filter(refFlat, flat);
             for (int i = 0; i < o.Length; i++) o[i] = (flat[2 * i], flat[2 * i + 1]);
+            Dump?.Bytes($"flt{fi}_cam{c.Id}_post", RegDump.Vec2(o));
         }
         SnapshotTele("1. MirrorOpt");
         foreach (var c in Higher) Saved[c.Id] = (Snapshots["1. MirrorOpt"].GetValueOrDefault(c.Id, 0f), c.Slot.Clone());
@@ -378,7 +417,7 @@ public sealed class CalibDataProcessor
             var o = Obs[c.Id]; var flat = new float[o.Length * 2]; for (int i = 0; i < o.Length; i++) { flat[2 * i] = o[i].X; flat[2 * i + 1] = o[i].Y; }
             var r = SparseMirrorAngleOptimizer.Optimize(c.Mirror!, c.Slot, c.Pose, refCam, flat, Points, 2, 1, seedT, seedC, Z, WideFlag, c.Map, c.Hall);
             Log?.Invoke($"  fine cam {c.Id} ({c.Name}): accepted {r.Accepted} θ {r.Theta:R} δ {r.Delta:R} c ({r.Cx:R},{r.Cy:R})");
-            if (r.Accepted && r.Written != null) { FineWritten[c.Id] = r.Written; c.Slot.K = (float[])r.Written.K.Clone(); c.Slot.R = (float[])r.Written.R.Clone(); c.Slot.T = (float[])r.Written.T.Clone(); }
+            if (r.Accepted && r.Written != null) { FineWritten[c.Id] = r.Written; CalibWrite(c, r.Written.K, r.Written.R, r.Written.T, "tele fine"); }
         }
         SnapshotTele("2. ReprojOpt");
         foreach (var c in Higher)
@@ -405,6 +444,7 @@ public sealed class CalibDataProcessor
             Log?.Invoke($"  BA acceptance cam {c.Id} ({c.Name}): new {nw:G6} lim {lim:G6} → {(restore ? "RESTORE" : "keep")}");
             if (restore) { c.Slot.K = (float[])s.Slot.K.Clone(); c.Slot.R = (float[])s.Slot.R.Clone(); c.Slot.T = (float[])s.Slot.T.Clone(); }
         }
+        if (Dump is not null) Dump.Slots($"final{Dump.Final++}_slots", AllCams(), false);
     }
 
     /// <summary>`runHigherGroupCams` (states 0 → 1×N → 3×N → 6×N → 5×N → 8). Returns false when there is no higher-group camera.</summary>
