@@ -22,10 +22,12 @@ public sealed class ExportTransform
         return new ExportTransform { AspectW = dims0.W / g, AspectH = dims0.H / g };
     }
 
-    /// <summary>The rotation Lumen bakes into the DNG (`Orientation` stays 1). The matrix is inferred, not observed: cp.dll was only ever driven with the
-    /// identity Transform, so this is the matrix that makes `GetExportTransformOutput`'s affine come out as the exact 90°/180°/270° remap of the
-    /// level-0 export window — for 90° CW `u = y`, `v = H0 − x` (the mapping recovered from Lumen's own portrait export of L16_00466,
-    /// `portrait[Y][X] = landscape[H0 − X][Y]`). `m6/m7` are stored pre-scaled by `aspectW/W` because `MatrixForSize` multiplies them by `W/aspectW`.</summary>
+    /// <summary>The rotation Lumen bakes into the DNG (`Orientation` stays 1). This matrix makes `GetExportTransformOutput`'s affine come out as the
+    /// exact 90°/180°/270° remap of the level-0 export window — for 90° `u = y`, `v = H0 − x` (the mapping recovered from Lumen's own portrait export
+    /// of L16_00466, `portrait[Y][X] = landscape[H0 − X][Y]`). `m6/m7` are stored pre-scaled by `aspectW/W` because `MatrixForSize` multiplies them by
+    /// `W/aspectW`. cp.dll's own `CIAPI::Transform::rotate90(k)` parametrises the same rotation differently (aspect stays 4:3, matrix
+    /// `[0 ±1 0 | ∓1 0 0 | …]` plus a rotated crop rect), but reduces to the same per-block affine: verified pixel-identical for all three angles on
+    /// L16_00435 (2026-09-12; 90 = rotate90(−1), 180 = rotate90(2), 270 = rotate90(1)).</summary>
     public static ExportTransform Rotate(int degrees, (int W, int H) dims0)
     {
         var t = Identity(dims0);
