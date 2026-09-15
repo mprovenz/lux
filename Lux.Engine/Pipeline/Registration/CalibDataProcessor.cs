@@ -40,10 +40,10 @@ public static class WideSparseDriver
     }
 
     public static (float X, float Y)[] Run(PaddedRgba8[] refPyr, FeaturePoint[][] feats, int nRefPts, Rgba8Image B, CalibData calibA, CalibData calibB,
-        float planeDepth, bool bidir, float satLevel, bool mono, int mode, (float X, float Y) refCentre, (float X, float Y) camCentre, Action<string>? log = null, RegDump? dump = null)
+        float planeDepth, bool bidir, float satLevel, bool mono, int mode, (float X, float Y) refCentre, (float X, float Y) camCentre, Action<string>? log = null, RegDump? dump = null, int dumpIndex = -1)
     {
         int n = feats.Length;
-        int di = dump is null ? -1 : dump.Drv++;
+        int di = dump is null ? -1 : dumpIndex >= 0 ? dumpIndex : dump.Drv++;
         var pyrB = SparseLnrPyramid.Build(Dense(B), B.W, B.H, n, 8);
         var guess = (refCentre.X - camCentre.X, refCentre.Y - camCentre.Y);   // this+0x10 − this+0x254
         var (offs, ok) = SparseLnrPyramid.Align(refPyr, pyrB, refCentre, guess, mono ? SparseLnrPyramid.AlignWeightsMono : SparseLnrPyramid.AlignWeightsColour);
@@ -112,6 +112,23 @@ public sealed class CalibDataProcessor
     public (float Min, float Max) ZRange => CamsType == 1 ? (70f, 40000f) : (200f, 640000f);
     public Action<string>? Log;
     public RegDump? Dump;                         // LUX_DENSE_DUMP: regdump-layout stage dumps (see RegDump)
+    /// <summary>Workers for the per-camera work (sparse drivers, mirror optimisers): each camera's computation is independent, so they run in
+    /// parallel and their results, slot writes, dumps and log lines are applied in list order afterwards — bit-identical to the sequential run.</summary>
+    public int Threads = 1;
+
+    /// <summary>Run <paramref name="body"/> for every camera of <paramref name="cams"/> (in parallel when <see cref="Threads"/> &gt; 1); the results
+    /// come back in list order and each camera's log lines are emitted, in list order, once all are done.</summary>
+    T[] ForEachCam<T>(IReadOnlyList<CdpCamera> cams, Func<CdpCamera, int, Action<string>?, T> body)
+    {
+        var res = new T[cams.Count]; var logs = new List<string>[cams.Count];
+        void One(int i) { var sb = new List<string>(); res[i] = body(cams[i], i, Log is null ? null : s => { lock (sb) sb.Add(s); }); logs[i] = sb; }
+        if (Threads > 1 && cams.Count > 1) Parallel.For(0, cams.Count, new ParallelOptions { MaxDegreeOfParallelism = Threads }, One);
+        else for (int i = 0; i < cams.Count; i++) One(i);
+        if (Log is not null) foreach (var l in logs) foreach (var line in l) Log(line);
+        return res;
+    }
+    /// <summary>The oracle counts driver calls, not cameras: the dump index of each camera that actually calls a driver, in list order.</summary>
+    static int[] DriverIndices(IReadOnlyList<CdpCamera> cams) { var ix = new int[cams.Count]; int k = 0; for (int i = 0; i < cams.Count; i++) ix[i] = cams[i].StoredResult ? -1 : k++; return ix; }
 
     public PaddedRgba8[] RefPyr = null!; public FeaturePoint[][] RefFeats = null!; public (float X, float Y)[] RefPts = null!;
     public TriPoint[] Points = Array.Empty<TriPoint>();                                    // CDP+0x40
@@ -150,16 +167,16 @@ public sealed class CalibDataProcessor
     }
 
     /// <summary>λ2 (state 3) for one camera: the WIDE sparse driver on `Apply(pose[ref], calib(ref))` / `Apply(pose[c], calib(c))`.</summary>
-    public (float X, float Y)[] SparseWide(CdpCamera c)
+    public (float X, float Y)[] SparseWide(CdpCamera c) { var r = SparseWideCore(c, -1, Log); Obs[c.Id] = r; return r; }
+    /// <summary>The driver call alone (no `Obs` write): the parallel path stores the results in list order.</summary>
+    (float X, float Y)[] SparseWideCore(CdpCamera c, int dumpIndex, Action<string>? log)
     {
-        if (c.StoredResult) { var none = Enumerable.Repeat((-1f, -1f), Points.Length).ToArray(); Obs[c.Id] = none; return none; }
+        if (c.StoredResult) return Enumerable.Repeat((-1f, -1f), Points.Length).ToArray();
         // λ1 step 1 (`1802be477–1802be48d`): the mode is a function of the reference module's *identity*, not its group —
         // `mode = (ref == 8) ? 1 : (ref == 14) ? 2 : 0`, i.e. B4 → 1, C5 → 2, everything else (including C1–C4/C6) → 0.
         int mode = Ref.Id == 8 ? 1 : Ref.Id == 14 ? 2 : 0;
         var refView = Ref.View().Basic(); var camView = c.View().Basic();
-        var res = WideSparseDriver.Run(RefPyr, RefFeats, RefPts.Length, c.Image, refView, camView, Z, true, c.SatLevel, c.Gray, mode, Ref.Centre, c.Centre, Log, Dump);
-        Obs[c.Id] = res;
-        return res;
+        return WideSparseDriver.Run(RefPyr, RefFeats, RefPts.Length, c.Image, refView, camView, Z, true, c.SatLevel, c.Gray, mode, Ref.Centre, c.Centre, log, Dump, dumpIndex);
     }
 
     /// <summary>λ3 (state 6): `FundamentalMatrixFilter::filter` per camera in list order (reset at the first camera).</summary>
@@ -180,14 +197,17 @@ public sealed class CalibDataProcessor
     public void FineAll()
     {
         var refCam = Ref.View().Basic();
-        foreach (var c in RefGroup)
+        // the optimiser reads the shared points/reference and the camera's own slot/pose/observations: independent per camera; the slot
+        // writes (which feed the next camera's… nothing — but the dumps and log lines) are applied in list order afterwards
+        var results = ForEachCam(RefGroup, (c, i, log) =>
         {
-            if (c.SensorType != 2) { Log?.Invoke($"  fine optimizer: cam {c.Id} sensor type {c.SensorType} → skipped"); continue; }
-            var o = Obs[c.Id]; var flat = new float[o.Length * 2]; for (int i = 0; i < o.Length; i++) { flat[2 * i] = o[i].X; flat[2 * i + 1] = o[i].Y; }
+            if (c.SensorType != 2) { log?.Invoke($"  fine optimizer: cam {c.Id} sensor type {c.SensorType} → skipped"); return null; }
+            var o = Obs[c.Id]; var flat = new float[o.Length * 2]; for (int k = 0; k < o.Length; k++) { flat[2 * k] = o[k].X; flat[2 * k + 1] = o[k].Y; }
             var r = SparseMirrorAngleOptimizer.Optimize(c.Mirror!, c.Slot, c.Pose, refCam, flat, Points, 0, 0, -1.0, (0f, 0f), Z, WideFlag, c.Map, c.Hall);
-            Log?.Invoke($"  fine optimizer cam {c.Id}: accepted {r.Accepted} θ {r.Theta:R}");
-            if (r.Accepted && r.Written != null) CalibWrite(c, r.Written.K, r.Written.R, r.Written.T, "wide fine");
-        }
+            log?.Invoke($"  fine optimizer cam {c.Id}: accepted {r.Accepted} θ {r.Theta:R}");
+            return r;
+        });
+        for (int i = 0; i < RefGroup.Count; i++) { var r = results[i]; var c = RefGroup[i]; if (r is not null && r.Accepted && r.Written != null) CalibWrite(c, r.Written.K, r.Written.R, r.Written.T, "wide fine"); }
     }
 
     /// <summary>λ5 (state 7): `Triangulator::triangulate` then `refine3dPoints`, evaluator snapshots "1. init" / "2. point BA" in between.</summary>
@@ -297,7 +317,7 @@ public sealed class CalibDataProcessor
     {
         if (RefGroup.Count == 0) throw new InvalidOperationException("no lower src cams are enabled. cannot compute depth");
         ReferenceFeatures();
-        foreach (var c in RefGroup) SparseWide(c);
+        { var ix = DriverIndices(RefGroup); var obs = ForEachCam(RefGroup, (c, i, log) => SparseWideCore(c, ix[i], log)); for (int i = 0; i < RefGroup.Count; i++) Obs[RefGroup[i].Id] = obs[i]; }
         FilterAll();
         FineAll();
         TriangulateAndRefine();
@@ -343,11 +363,16 @@ public sealed class CalibDataProcessor
     /// <summary>λ8 (state 1): the coarse `MirrorAngleOptimizer` per type-2 camera; θ/c seeds kept for the fine pass; the slot is written by the optimizer.</summary>
     public void CoarseAll()
     {
-        foreach (var c in Higher)
+        // the coarse optimiser reads the shared context (reference images, depth) and the camera's own image/slot/pose: independent per camera
+        var results = ForEachCam(Higher, (c, i, log) =>
         {
-            if (c.SensorType != 2) { Log?.Invoke($"  coarse: cam {c.Id} sensor type {c.SensorType} → skipped"); continue; }
+            if (c.SensorType != 2) { log?.Invoke($"  coarse: cam {c.Id} sensor type {c.SensorType} → skipped"); return (null, 0.0); }
             double theta0 = c.Map!.Angle(c.Hall);
-            var r = MirrorAngleOptimizerCoarse.Optimize(Coarse!, c.Mirror!, c.Slot, c.Pose, c.Image, theta0);
+            return (MirrorAngleOptimizerCoarse.Optimize(Coarse!, c.Mirror!, c.Slot, c.Pose, c.Image, theta0), theta0);
+        });
+        for (int i = 0; i < Higher.Count; i++)
+        {
+            var (r, theta0) = results[i]; if (r is null) continue; var c = Higher[i];
             ThetaMap[c.Id] = r.Theta; CMap[c.Id] = (r.Cx, r.Cy);
             CalibWrite(c, r.Written.K, r.Written.R, r.Written.T, "coarse");
             Log?.Invoke($"  coarse cam {c.Id} ({c.Name}): θ0 {theta0:R} → θ {r.Theta:R} c ({r.Cx:R},{r.Cy:R})");
@@ -356,21 +381,21 @@ public sealed class CalibDataProcessor
 
     /// <summary>λ9 (state 3): prior points (`FUN_1802b4c40`) + the TELE sparse driver (`FUN_1802ea1c0`) on `Apply(pose[ref], calib(ref))` / `Apply(pose[c], calib(c))`.
     /// `planeDepth`/`farScene` are the values the last WIDE driver call left on the shared SparseLNR.</summary>
-    public (float X, float Y)[] SparseTele(CdpCamera c)
+    public (float X, float Y)[] SparseTele(CdpCamera c) { var r = SparseTeleCore(c, -1, Log); Obs[c.Id] = r; return r; }
+    (float X, float Y)[] SparseTeleCore(CdpCamera c, int dumpIndex, Action<string>? log)
     {
-        if (c.StoredResult) { var none = Enumerable.Repeat((-1f, -1f), Points.Length).ToArray(); Obs[c.Id] = none; return none; }
+        if (c.StoredResult) return Enumerable.Repeat((-1f, -1f), Points.Length).ToArray();
         var refView = Ref.View().Basic(); var camView = c.View().Basic();
         var M = Mat4D.FlowMatrix(refView, camView);
         var prior = TeleSparseDriver.PriorPoints(Points, Depth, DepthW, DepthH, M, c.Image.W, c.Image.H);
-        var tr = TeleSparseDriver.Run(RefPyr, RefFeats, RefPts.Length, WideSparseDriver.Dense(c.Image), c.Image.W, c.Image.H, prior, Depth, DepthW, DepthH, M, 1f, 1f, Z, Z > 6000f, c.SatLevel, Log);
+        var tr = TeleSparseDriver.Run(RefPyr, RefFeats, RefPts.Length, WideSparseDriver.Dense(c.Image), c.Image.W, c.Image.H, prior, Depth, DepthW, DepthH, M, 1f, 1f, Z, Z > 6000f, c.SatLevel, log);
         var res = tr.Out;
         if (Dump is not null)
         {
-            int ti = Dump.TDrv++; Dump.Bytes($"tdrv{ti}_p2", RegDump.Vec2(prior));
+            int ti = dumpIndex >= 0 ? dumpIndex : Dump.TDrv++; Dump.Bytes($"tdrv{ti}_p2", RegDump.Vec2(prior));
             if (tr.PerLevel is not null) for (int l = 0; l < tr.PerLevel.Length; l++) Dump.Bytes($"tdrv{ti}_match{l}", RegDump.Matches(tr.PerLevel[l]));
             Dump.Bytes($"tdrv{ti}_out", RegDump.Vec2(res));
         }
-        Obs[c.Id] = res;
         return res;
     }
     public (float X, float Y)[] PriorPoints(CdpCamera c)
@@ -410,15 +435,16 @@ public sealed class CalibDataProcessor
     public void FineTele()
     {
         var refCam = Ref.View().Basic();
-        foreach (var c in Higher)
+        var results = ForEachCam(Higher, (c, i, log) =>
         {
-            if (c.SensorType != 2) { Log?.Invoke($"  fine: cam {c.Id} sensor type {c.SensorType} → skipped"); continue; }
+            if (c.SensorType != 2) { log?.Invoke($"  fine: cam {c.Id} sensor type {c.SensorType} → skipped"); return null; }
             var seedC = CMap.GetValueOrDefault(c.Id, (0f, 0f)); double seedT = ThetaMap.GetValueOrDefault(c.Id, 0.0);
-            var o = Obs[c.Id]; var flat = new float[o.Length * 2]; for (int i = 0; i < o.Length; i++) { flat[2 * i] = o[i].X; flat[2 * i + 1] = o[i].Y; }
+            var o = Obs[c.Id]; var flat = new float[o.Length * 2]; for (int k = 0; k < o.Length; k++) { flat[2 * k] = o[k].X; flat[2 * k + 1] = o[k].Y; }
             var r = SparseMirrorAngleOptimizer.Optimize(c.Mirror!, c.Slot, c.Pose, refCam, flat, Points, 2, 1, seedT, seedC, Z, WideFlag, c.Map, c.Hall);
-            Log?.Invoke($"  fine cam {c.Id} ({c.Name}): accepted {r.Accepted} θ {r.Theta:R} δ {r.Delta:R} c ({r.Cx:R},{r.Cy:R})");
-            if (r.Accepted && r.Written != null) { FineWritten[c.Id] = r.Written; CalibWrite(c, r.Written.K, r.Written.R, r.Written.T, "tele fine"); }
-        }
+            log?.Invoke($"  fine cam {c.Id} ({c.Name}): accepted {r.Accepted} θ {r.Theta:R} δ {r.Delta:R} c ({r.Cx:R},{r.Cy:R})");
+            return r;
+        });
+        for (int i = 0; i < Higher.Count; i++) { var r = results[i]; var c = Higher[i]; if (r is not null && r.Accepted && r.Written != null) { FineWritten[c.Id] = r.Written; CalibWrite(c, r.Written.K, r.Written.R, r.Written.T, "tele fine"); } }
         SnapshotTele("2. ReprojOpt");
         foreach (var c in Higher)
         {
@@ -452,7 +478,7 @@ public sealed class CalibDataProcessor
     {
         if (Higher.Count == 0) return false;
         CoarseAll();
-        foreach (var c in Higher) SparseTele(c);
+        { var ix = DriverIndices(Higher); var obs = ForEachCam(Higher, (c, i, log) => SparseTeleCore(c, ix[i], log)); for (int i = 0; i < Higher.Count; i++) Obs[Higher[i].Id] = obs[i]; }
         FilterTele();
         FineTele();
         BundleAdjustTele();

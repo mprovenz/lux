@@ -41,9 +41,13 @@ public sealed class StereoAsyncApi
 
     /// <summary>Per-run dense-dump prefix (`LUX_DENSE_DUMP` + the capture stem, set by the CLI so a batch does not overwrite itself); null = no dumps.</summary>
     public string? DumpPrefix;
-    public static StereoAsyncApi Run(LriFile lri, Action<string>? log = null, bool runHigher = true, bool runDense = true, float[]? depthOverride = null, ProgressReporter? progress = null, string? dumpPrefix = null)
+    /// <summary>Worker threads for the per-module and per-tile work of the registration (stereo images, guide tiles, sparse drivers, the
+    /// optimisers, the dense matching costs). Every parallel section produces exactly the sequential result — results are applied and
+    /// logged in the sequential order, the dense aggregation sweep itself stays serial — so 1 (the default) and N are bit-identical.</summary>
+    public int Threads = 1;
+    public static StereoAsyncApi Run(LriFile lri, Action<string>? log = null, bool runHigher = true, bool runDense = true, float[]? depthOverride = null, ProgressReporter? progress = null, string? dumpPrefix = null, int threads = 1)
     {
-        var api = new StereoAsyncApi { Lri = lri, Log = log, DumpPrefix = dumpPrefix, Progress = progress ?? ProgressReporter.None }; api.Setup();
+        var api = new StereoAsyncApi { Lri = lri, Log = log, DumpPrefix = dumpPrefix, Progress = progress ?? ProgressReporter.None, Threads = Math.Max(1, threads) }; api.Cdp.Threads = api.Threads; api.Setup();
         int refGroup = api.RefGroupCams().Count(), higher = api.Cdp.Higher.Count;
         // guide + one per reference-group image + sparse wide + dense + upsample + one per higher image + coarse/tele
         api.Progress.Begin("registration", 1 + refGroup + 1 + 2 + higher + 1);
@@ -108,24 +112,33 @@ public sealed class StereoAsyncApi
         if (ReferenceGuide is null && Environment.GetEnvironmentVariable("LUX_NO_GUIDE") != "1") ReferenceGuide = BuildReferenceGuide(refFrame).Guide;
         Progress.Tick();
         RefStats = StereoImageBuilder.Isp(refFrame, Profile, null).ComputeStats(refFrame);
-        foreach (var c in RefGroupCams())
+        // The reference image first (it yields RefYuv, which every other module's colour transfer reads), then the other reference-group
+        // modules — independent of each other — on Threads workers; their views/images/logs are applied in capture order.
+        var group = RefGroupCams().ToList();
+        string StereoOne(CdpCamera c, CapturedFrame frame, Geometry.CameraCalib refView)
         {
-            var frame = c.Id == RefId ? refFrame : CapturedFrame.Load(Lri, c.Name);
-            var refView = CdpCamera.ToCamera(Cams[RefId].View());
             c.Pose.Scale2 = (0.5f, 0.5f); c.Pose.Shift2 = (0.5f, 0.5f);
             var view = CdpCamera.ToCamera(c.View());
             var mp = Clone(c.Pose); mp.Scale1 = (1f, 1f); mp.Shift1 = (0f, 0f);
             var module = CdpCamera.ToCamera(ViewTransform.Apply(mp, c.Slot));
-            var size = (c.FrameW / 2, c.FrameH / 2); State2Views[c.Id] = (view, module);
+            var size = (c.FrameW / 2, c.FrameH / 2); lock (State2Views) State2Views[c.Id] = (view, module);
             var isp = StereoImageBuilder.Isp(frame, Profile, RefStats);
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var r = StereoImageBuilder.Create(frame, refFrame, isp, view, module, size, neutral, c.Id == RefId ? null : RefYuv, refView, c.Id == RefId, true, Dist[c.Id]);
             if (c.Id == RefId) RefYuv = r.RefYuv;
             c.Image = new Rgba8Image(r.Rgba8, r.W, r.H, r.W); c.SatLevel = r.Val;
             c.Centre = CdpInputs.WideCentre(c, Lri.Modules[c.Name].Module);
-            Log?.Invoke($"state 2 cam {c.Id} ({c.Name}): {r.W}x{r.H} val {r.Val:R} centre {c.Centre} {sw.Elapsed.TotalSeconds:F1}s");
             Progress.Tick();
+            return $"state 2 cam {c.Id} ({c.Name}): {r.W}x{r.H} val {r.Val:R} centre {c.Centre} {sw.Elapsed.TotalSeconds:F1}s";
         }
+        // the reference's own view is taken BEFORE its pose gets scale2/shift2 (the sequential loop computed refView first), the others' after
+        var refLine = StereoOne(group[0], refFrame, CdpCamera.ToCamera(Cams[RefId].View()));   // never inside `Log?.Invoke(...)`: a null Log would skip the call
+        Log?.Invoke(refLine);
+        var others = group.Skip(1).ToList(); var refViewAfter = CdpCamera.ToCamera(Cams[RefId].View());
+        var lines = new string[others.Count];
+        void One(int i) => lines[i] = StereoOne(others[i], CapturedFrame.Load(Lri, others[i].Name), refViewAfter);
+        if (Threads > 1 && others.Count > 1) Parallel.For(0, others.Count, new ParallelOptions { MaxDegreeOfParallelism = Threads }, One); else for (int i = 0; i < others.Count; i++) One(i);
+        foreach (var l in lines) Log?.Invoke(l);
     }
     /// <summary>State 1 (`FUN_1804ed3d0`): `GetReferenceImage(img, img, FUN_180307b30(img) = the reference module's CURRENT slot, FUN_1802e1580(pose[ref], slot) = its view, api+0x1b8)`.
     /// Must run before state 2 sets scale2/shift2 on the pose.</summary>
@@ -137,7 +150,7 @@ public sealed class StereoAsyncApi
         var module = CdpCamera.ToCamera(c.Slot);
         var view = CdpCamera.ToCamera(c.View());
         Log?.Invoke($"state 1 guide: view K [{string.Join(" ", view.K.Select(v => v.ToString("R")))}] off ({view.ViewOffX:R},{view.ViewOffY:R}) crop ({view.CropX:R},{view.CropY:R}); module K [{string.Join(" ", module.K.Select(v => v.ToString("R")))}]");
-        return Registration.ReferenceGuide.Build(refFrame, Profile, Neutral, view, module, Dist[RefId], Log, keepFloat, maxTiles);
+        return Registration.ReferenceGuide.Build(refFrame, Profile, Neutral, view, module, Dist[RefId], Log, keepFloat, maxTiles, Threads);
     }
 
     static ViewPose Clone(ViewPose p) => new() { P = (float[])p.P.Clone(), U = (float[])p.U.Clone(), Q = (float[])p.Q.Clone(), Scale1 = p.Scale1, Shift1 = p.Shift1, Scale2 = p.Scale2, Shift2 = p.Shift2, Shift3 = p.Shift3, Scale3 = p.Scale3 };
@@ -153,7 +166,7 @@ public sealed class StereoAsyncApi
         if (depthOverride is null)
         {
             var images = cams.Select(c => c.Image).ToArray(); var gray = cams.Select(c => c.Gray).ToArray(); var calibs = cams.Select(c => c.View().Basic()).ToList();
-            Dense = DenseStereoPyramid.Run(images, gray, calibs, Cdp.ZRange.Min, Cdp.ZRange.Max, Log);
+            Dense = DenseStereoPyramid.Run(images, gray, calibs, Cdp.ZRange.Min, Cdp.ZRange.Max, Log, Threads);
             var top = Dense[^1]; Cdp.Depth = top.Depth; Cdp.DepthW = top.W; Cdp.DepthH = top.H;
             if (DumpPrefix is string dp)   // twins of the oracle's ORACLE_DEPTH `<out>_dense_L<i>_depth.f32` (WTA hook per layer)
             {
@@ -240,19 +253,28 @@ public sealed class StereoAsyncApi
     public void State6()
     {
         var refFrame = CapturedFrame.Load(Lri, Names[RefId]);
-        foreach (var c in Cdp.Higher)
+        // the canvas poses in order (they log through the processor), then the canvas stereo images — independent per module — on Threads workers
+        var poses = new (Geometry.CameraCalib Aligned, Geometry.CameraCalib Module, (int W, int H) Size)[Cdp.Higher.Count];
+        for (int i = 0; i < Cdp.Higher.Count; i++)
         {
-            var (aligned, module, size) = Cdp.CanvasPose(c);
+            var c = Cdp.Higher[i]; poses[i] = Cdp.CanvasPose(c); var (aligned, module, size) = poses[i];
             Sizes[c.Id] = (2 * size.W, 2 * size.H);
             Pairs[c.Id] = (Shifted(aligned.Scaled(2f, 2f), -0.5f, -0.5f), Shifted(module.Scaled(2f, 2f), -0.5f, -0.5f));
+        }
+        var lines = new string[Cdp.Higher.Count];
+        void One(int i)
+        {
+            var c = Cdp.Higher[i]; var (aligned, module, size) = poses[i];
             var frame = CapturedFrame.Load(Lri, c.Name);
             var isp = StereoImageBuilder.Isp(frame, Profile, RefStats);
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var r = StereoImageBuilder.Create(frame, refFrame, isp, aligned, module, size, Neutral, RefYuv, null, false, false, Dist[c.Id]);
             c.Image = new Rgba8Image(r.Rgba8, r.W, r.H, r.W); c.SatLevel = r.Val;
-            Log?.Invoke($"state 6 cam {c.Id} ({c.Name}): canvas {r.W}x{r.H} val {r.Val:R} {sw.Elapsed.TotalSeconds:F1}s");
+            lines[i] = $"state 6 cam {c.Id} ({c.Name}): canvas {r.W}x{r.H} val {r.Val:R} {sw.Elapsed.TotalSeconds:F1}s";
             Progress.Tick();
         }
+        if (Threads > 1 && Cdp.Higher.Count > 1) Parallel.For(0, Cdp.Higher.Count, new ParallelOptions { MaxDegreeOfParallelism = Threads }, One); else for (int i = 0; i < Cdp.Higher.Count; i++) One(i);
+        foreach (var l in lines) Log?.Invoke(l);
     }
 
     /// <summary>State 7: coarse optimizer init on the depth image, then `runHigherGroupCams`.</summary>

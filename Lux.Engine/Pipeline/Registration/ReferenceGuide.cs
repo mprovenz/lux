@@ -51,7 +51,7 @@ public static class ReferenceGuide
     /// <summary>Build the guide. <paramref name="view"/> = `FUN_1802e1580(pose[ref], calib(img))`, <paramref name="module"/> = `FUN_180307b30(img)` (the reference
     /// module's CURRENT slot); <paramref name="keepFloat"/> keeps the pre-quantisation float image for comparisons.</summary>
     public static Result Build(CapturedFrame frame, LumenProfile profile, float[] neutral, CameraCalib view, CameraCalib module, StereoImageBuilder.Distortion dist,
-                               Action<string>? log = null, bool keepFloat = false, int maxTiles = int.MaxValue)
+                               Action<string>? log = null, bool keepFloat = false, int maxTiles = int.MaxValue, int threads = 1)
     {
         int W = frame.Width, H = frame.Height;
         var isp = new SoftIsp(BuildTuning(neutral, frame.Info.HasHotPixelLeakageCalibration), profile);
@@ -62,10 +62,12 @@ public static class ReferenceGuide
         var v255 = Vector128.Create(255.0f);
         int tiles = 0;
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        foreach (var tile in Tiler.Rects(new RectI(0, 0, W, H), 256, 256))   // Tiler::Run(size, {256,256}) — lambda 180329610
+        // the tiles are independent (disjoint output regions; SoftIsp serialises its lazy stage graph internally), so on threads > 1 they run in
+        // parallel — the pixels are identical, only the "guide: N tiles" progress lines are dropped
+        var tileList = Tiler.Rects(new RectI(0, 0, W, H), 256, 256).Take(maxTiles).ToList();   // Tiler::Run(size, {256,256}) — lambda 180329610
+        void Tile(RectI tile, bool quiet)
         {
-            if (tiles++ >= maxTiles) break;
-            var img = isp.ProcessBayer(frame, tile, 0, log);   // FUN_1803d88e0(isp, dst(tile size), raw ∩ tile, img, tile, empty)
+            var img = isp.ProcessBayer(frame, tile, 0, quiet ? null : log);   // FUN_1803d88e0(isp, dst(tile size), raw ∩ tile, img, tile, empty)
             if (img.Width != tile.Width || img.Height != tile.Height) throw new InvalidOperationException("guide tile size");
             for (int y = 0; y < img.Height; y++)
             {
@@ -82,8 +84,10 @@ public static class ReferenceGuide
                     pre[o] = b8.GetElement(0); pre[o + 1] = b8.GetElement(1); pre[o + 2] = b8.GetElement(2); pre[o + 3] = b8.GetElement(3);
                 }
             }
-            if (tiles % 16 == 0) log?.Invoke($"guide: {tiles} tiles {sw.Elapsed.TotalSeconds:F0}s");
+            if (!quiet) { tiles++; if (tiles % 16 == 0) log?.Invoke($"guide: {tiles} tiles {sw.Elapsed.TotalSeconds:F0}s"); }
         }
+        if (threads > 1 && tileList.Count > 1) Parallel.ForEach(tileList, new ParallelOptions { MaxDegreeOfParallelism = threads }, t => Tile(t, true));
+        else foreach (var t in tileList) Tile(t, false);
         var ac = AlignedCalib.Build(view, module, 1f, 1f, 1f, 1f, dist.PpX, dist.PpY, dist.Poly, dist.Pix, dist.Pix);   // FUN_180185030(ac, module, view, I, img, (1,1), 0)
         var warped = Rgba8Warp.Warp(pre, W, H, W, H, ac);   // FUN_180326240(out, img8, &img8.size, &ac)
         log?.Invoke($"guide: {W}x{H} in {sw.Elapsed.TotalSeconds:F1}s");

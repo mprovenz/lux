@@ -166,12 +166,39 @@ public sealed class DenseLayer
 
     static readonly float[] ExpPoly = { BitConverter.Int32BitsToSingle(0x3d9fcb52), BitConverter.Int32BitsToSingle(0x3e677e26), BitConverter.Int32BitsToSingle(0x3f322226), BitConverter.Int32BitsToSingle(0x3f7ffb19) };
 
-    /// <summary>`compute` (this+0x54): `runPass(+1)`, `runPass(−1)` (each = raster order over the sheared wavefront tiles), then WTA.</summary>
+    /// <summary>Workers for the raw matching costs (see <see cref="Compute"/>); the aggregation sweep is serial whatever the value.</summary>
+    public int Threads = 1;
+    bool _rawReady;
+
+    /// <summary>`compute` (this+0x54): `runPass(+1)`, `runPass(−1)` (each = raster order over the sheared wavefront tiles), then WTA.
+    /// The raw matching cost of a pixel depends only on the images, planes and the pixel's plane range, so with <see cref="Threads"/> &gt; 1
+    /// the costs of every computed pixel are produced row-parallel first (into `Raw`, exactly the bytes pass 1 would store) and pass 1
+    /// then reads them like pass 2 does — same values, same aggregation order.</summary>
     public void Compute()
     {
         var gw = Vector128.Create(P.Guidance[0], P.Guidance[1], P.Guidance[2], P.Guidance[3]);
         var costTmp = new ushort[Planes.Length]; var raw = new byte[Planes.Length + 8];
         int T = P.Tile;
+        if (Threads > 1 && H > 1)
+        {
+            int W0 = Images[0].W, H0 = Images[0].H, sc = P.Scale, half = (sc + (sc >> 31)) >> 1, nOthers = Ctx.Others.Length;
+            Parallel.For(0, H, new ParallelOptions { MaxDegreeOfParallelism = Threads },
+                () => (cost: new ushort[Planes.Length], raw: new byte[Planes.Length + 8]),
+                (y, _, scratch) =>
+                {
+                    for (int x = 0; x < W; x++)
+                    {
+                        int pi = y * W + x; if (Skip[pi] != 0) continue;
+                        int start = Start[pi], count = Count[pi], cap = Cap[pi];
+                        int xImg = Math.Min(sc * x + half, W0 - 1), yImg = Math.Min(sc * y + half, H0 - 1);
+                        DenseStereo.MatchingCost(Ctx, xImg, yImg, start, count, scratch.cost);
+                        DenseStereo.Normalise(scratch.cost, count, cap, nOthers, scratch.raw);
+                        Array.Copy(scratch.raw, Raw[pi], cap);
+                    }
+                    return scratch;
+                }, _ => { });
+            _rawReady = true;
+        }
         foreach (int dir in new[] { 1, -1 })
         {
             int gwN = (W + T + T - 1) / T, ghN = (H + T - 1) / T;
@@ -209,7 +236,7 @@ public sealed class DenseLayer
         int start = Start[pi], count = Count[pi], cap = Cap[pi];
         // raw costs for this pixel: pass 1 computes and stores the u8 copy, pass 2 reloads it; skipped pixels are 0
         if (Skip[pi] != 0) { Array.Clear(raw, 0, cap); for (int k = count; k < cap; k++) raw[k] = 255; }
-        else if (dir > 0)
+        else if (dir > 0 && !_rawReady)
         {
             int W0 = Images[0].W, H0 = Images[0].H, sc = P.Scale, half = (sc + (sc >> 31)) >> 1;
             int xImg = Math.Min(sc * x + half, W0 - 1), yImg = Math.Min(sc * y + half, H0 - 1);
@@ -270,7 +297,7 @@ public sealed class DenseLayer
 public static class DenseStereoPyramid
 {
     public const long Budget = 0x40000000;   // FUN_18030be60(pyr, 1 GiB)
-    public static DenseLayer[] Run(Rgba8Image[] images, bool[] gray, IReadOnlyList<CalibData> calibs, float near = DenseStereo.Near, float far = DenseStereo.Far, Action<string>? log = null)
+    public static DenseLayer[] Run(Rgba8Image[] images, bool[] gray, IReadOnlyList<CalibData> calibs, float near = DenseStereo.Near, float far = DenseStereo.Far, Action<string>? log = null, int threads = 1)
     {
         var pars = StereoParams.L16Pyramid();
         var filtered = new Rgba8Image[images.Length];
@@ -285,6 +312,7 @@ public static class DenseStereoPyramid
                 if (est8 >= Budget) { long est2 = DenseLayer.MemoryEstimate(pars[i], filtered, calibs, near, far, 2, prev); if (est2 >= Budget) throw new NotSupportedException("StereoLayer memory budget exceeded: the BilateralUpsample fallback (mode 0) is not ported"); align = 2; }
             }
             var L = DenseLayer.Init(pars[i], i, filtered, gray, calibs, near, far, align, prev);
+            L.Threads = threads;
             var sw = System.Diagnostics.Stopwatch.StartNew();
             L.Compute();
             log?.Invoke($"layer {i}: {L.W}x{L.H}, {L.Planes.Length} planes, align {align}, minLo {L.MinLo} maxHi {L.MaxHi}, {sw.Elapsed.TotalSeconds:F1}s");

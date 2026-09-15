@@ -62,7 +62,7 @@ public static class ExportBuild
                 Console.Error.WriteLine($"[diagnostic] LUX_DENSE_OVERRIDE: dense L5 depth injected from {dov} ({dw}x{dh})");
             }
             string? densePrefix = Environment.GetEnvironmentVariable("LUX_DENSE_DUMP") is string ddp ? ddp + "_" + Path.GetFileNameWithoutExtension(lriPath) : null;
-            api = Lux.Engine.Pipeline.Registration.StereoAsyncApi.Run(lri, log, runHigher: true, runDense: true, depthOverride: depthOverride, progress: pr, dumpPrefix: densePrefix);
+            api = Lux.Engine.Pipeline.Registration.StereoAsyncApi.Run(lri, log, runHigher: true, runDense: true, depthOverride: depthOverride, progress: pr, dumpPrefix: densePrefix, threads: threads);
             log?.Invoke($"export: registration state ready in {swReg.Elapsed.TotalSeconds:F1}s");
             if (densePrefix is not null)   // the telephoto pairs (api+0x3a8[id].view/.module) in the oracle's 0xa8 CalibData layout (K @0, t @0x24, R @0x30), for the tdrv<i>_calib{Ref,Cam} comparison
                 foreach (var kv in api.Pairs)
