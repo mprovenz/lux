@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using Lux.Engine.Lri;
 
@@ -53,7 +54,7 @@ public sealed class CaptureState
     }
     private static float RcpNr(float x)
     {
-        float r = System.Runtime.Intrinsics.X86.Sse.IsSupported ? System.Runtime.Intrinsics.X86.Sse.ReciprocalScalar(System.Runtime.Intrinsics.Vector128.CreateScalar(x)).GetElement(0) : 1f / x;
+        float r = IntelApprox.ReciprocalScalar(System.Runtime.Intrinsics.Vector128.CreateScalar(x)).GetElement(0);
         return ((1f - x * r) * r + r) * 1f;
     }
 

@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using Lux.Engine.Pipeline.Geometry;
@@ -31,8 +32,8 @@ public static class PostProcessingLumen
     private static readonly float AScale = BitConverter.Int32BitsToSingle(0x3b03126f), BScale = BitConverter.Int32BitsToSingle(0x3ba3d70a);   // 0.002, 0.005
     /// <summary>Row·vector with Lumen's association `(m0·a + m1·b) + m2·c` (both the forward and the inverse product; verified bit-exact).</summary>
     private static float Dot3(float m0, float a, float m1, float b, float m2, float c) => (m0 * a + m1 * b) + m2 * c;
-    private static float Rcp(float x) => Sse.IsSupported ? Sse.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar() : 1f / x;
-    private static float Rsqrt(float x) => Sse.IsSupported ? Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar() : 1f / MathF.Sqrt(x);
+    private static float Rcp(float x) => IntelApprox.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar();
+    private static float Rsqrt(float x) => IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar();
 
     /// <summary>`FUN_1800ce5a0`: white XYZ from xy (X = x·(1/y), Y = 1, Z = ((1 − y) − x)·(1/y)).</summary>
     public static (float X, float Y, float Z) WhiteXyz(float x, float y) { float iy = 1f / y; return (x * iy, 1f, ((1f - y) - x) * iy); }

@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using Lux.Engine.Pipeline.Geometry;
@@ -129,7 +130,7 @@ public static class StereoImage
 
     static float InvSqrtNR(float x)
     {
-        float rs = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar();
+        float rs = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar();
         float S = x * rs;
         return ((S * rs) + (-3.0f)) * (S * (-0.5f));   // = sqrt-style NR? no: this is the "kv" form: ((S·rs + (−3))·(S·(−0.5)))
     }
@@ -144,15 +145,15 @@ public static class StereoImage
         float u0 = (b * (-b) - s * c) * invx, u1 = ((a - c) * b) * invy, u2 = (s * a - b * (-b)) * invz;
         float t0 = invx * (-b), t1 = invy * s, t2 = invz * (-b);
         float v2 = c * c + (b * b + a * a);
-        float rs = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(v2)).ToScalar();
+        float rs = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(v2)).ToScalar();
         float S = v2 * rs;
         float kv = ((S * rs + (-3.0f)) * (S * (-0.5f)));
         if (v2 == 0f) kv = 0f;
         float u2n = u2 * u2 + (u1 * u1 + u0 * u0);
-        float rsu = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(u2n)).ToScalar();
+        float rsu = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(u2n)).ToScalar();
         float ku = ((rsu * (-0.5f)) * kv) * ((u2n * rsu) * rsu + (-3.0f));
         float t2n = t2 * t2 + (t1 * t1 + t0 * t0);
-        float rst = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(t2n)).ToScalar();
+        float rst = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(t2n)).ToScalar();
         float kt = ((rst * (-0.5f)) * kv) * ((t2n * rst) * rst + (-3.0f));
         return new[] { new[] { a, b, c, 0f }, new[] { u0 * ku, u1 * ku, ku * u2, 0f }, new[] { t0 * kt, t1 * kt, kt * t2, 0f }, new float[4] };
     }
@@ -246,7 +247,7 @@ public static class StereoImage
                 float dx = w * Xn - cx, dy = w * Yn - cy;
                 float r2 = (sy * dy) * (sy * dy) + (sx * dx) * (sx * dx);
                 float r;
-                if (r2 == 0f) r = 0f; else { float rs = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(r2)).ToScalar(); float S = r2 * rs; r = ((S * rs) + (-3.0f)) * (S * (-0.5f)); }
+                if (r2 == 0f) r = 0f; else { float rs = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(r2)).ToScalar(); float S = r2 * rs; r = ((S * rs) + (-3.0f)) * (S * (-0.5f)); }
                 int idx = (int)r; if (idx >= 0x1000) idx = 0xfff;
                 float lu = lut[idx];
                 int px = (int)(((cx + (-2.0f)) + lu * dx) * 64.0f), py = (int)(((cy + (-2.0f)) + dy * lu) * 64.0f);

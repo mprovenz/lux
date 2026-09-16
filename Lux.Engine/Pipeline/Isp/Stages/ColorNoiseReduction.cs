@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -246,7 +247,7 @@ public static class ColorNoiseReductionKernel
         float varScale = e * pm;
         var n = new[] { neutral[0], neutral[1], neutral[2], 1f };
         var n2 = Vector128.Create(n[0] * n[0], n[1] * n[1], n[2] * n[2], n[3] * n[3]);
-        var r = Sse.IsSupported ? Sse.Reciprocal(n2) : Vector128.Create(1f / n2[0], 1f / n2[1], 1f / n2[2], 1f / n2[3]);
+        var r = IntelApprox.Reciprocal(n2);
         var one = Vector128.Create(1f);
         var rr = Sse.Add(Sse.Multiply(Sse.Subtract(one, Sse.Multiply(n2, r)), r), r);
         var inv = new[] { rr[0], rr[1], rr[2], rr[3] };
@@ -286,7 +287,7 @@ public static class ColorNoiseReductionKernel
         }
         var vv = Vector128.Create(var[0], var[1], var[2], var[3]);
         var sq = Sse.IsSupported ? Sse.Sqrt(vv) : Vector128.Create(MathF.Sqrt(var[0]), MathF.Sqrt(var[1]), MathF.Sqrt(var[2]), MathF.Sqrt(var[3]));
-        var rs = Sse.IsSupported ? Sse.ReciprocalSqrt(vv) : Vector128.Create(1f / MathF.Sqrt(var[0]), 1f / MathF.Sqrt(var[1]), 1f / MathF.Sqrt(var[2]), 1f / MathF.Sqrt(var[3]));
+        var rs = IntelApprox.ReciprocalSqrt(vv);
         var D = Diag(sq[0], sq[1], sq[2]); var Dinv = Diag(rs[0], rs[1], rs[2]);
         var C = new float[] { mRR, mRG, mBR, mRG, mGG, mGB, mBR, mGB, mBB };   // column-major, symmetric
         var M1 = Mul3(C, Dinv); var M2 = Mul3(Dinv, M1);

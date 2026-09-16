@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using Lux.Engine.Pipeline.Registration;
@@ -80,7 +81,7 @@ public sealed class ToneAdjustLaplacianStage : IStage
         }
     }
 
-    static float Rcp(float x) => Sse.IsSupported ? Sse.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar() : 1f / x;
+    static float Rcp(float x) => IntelApprox.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar();
 
     static readonly float Ln2 = BitConverter.Int32BitsToSingle(0x3f317218);
     static readonly float Log2E = BitConverter.Int32BitsToSingle(0x3fb8aa3b);

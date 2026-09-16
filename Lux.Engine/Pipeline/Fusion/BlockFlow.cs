@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using Lux.Engine.Pipeline.Isp;
@@ -62,7 +63,7 @@ public static class BlockFlow
     /// <summary>`minss/minps dst=a, src=b`: a &lt; b ? a : b (NaN → b).</summary>
     static float Min(float a, float b) => a < b ? a : b;
     static int Clamp(int v, int lo, int hi) { if (v < lo) v = lo; if (v > hi) v = hi; return v; }
-    static float Rsqrt(float v) => Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(v)).ToScalar();
+    static float Rsqrt(float v) => IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(v)).ToScalar();
 
     // ---------------------------------------------------------------------------------------------------------------------------------
     // 1. Float → ushort row converter FUN_18001f080(3,7) → 0x180093eb0 (called per row by FUN_1801f8380)

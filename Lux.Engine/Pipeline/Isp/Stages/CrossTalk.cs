@@ -116,7 +116,7 @@ public static class CrossTalkKernel
     public static float[] Reciprocals(float[] n)
     {
         var v = System.Runtime.Intrinsics.Vector128.Create(n[0], n[1], n[2], n[3]);
-        var r = System.Runtime.Intrinsics.X86.Sse.IsSupported ? System.Runtime.Intrinsics.X86.Sse.Reciprocal(v) : System.Runtime.Intrinsics.Vector128.Create(1f / n[0], 1f / n[1], 1f / n[2], 1f / n[3]);
+        var r = IntelApprox.Reciprocal(v);
         var one = System.Runtime.Intrinsics.Vector128.Create(1f);
         var rr = System.Runtime.Intrinsics.X86.Sse.Add(System.Runtime.Intrinsics.X86.Sse.Multiply(System.Runtime.Intrinsics.X86.Sse.Subtract(one, System.Runtime.Intrinsics.X86.Sse.Multiply(v, r)), r), r);
         return new[] { rr[0], rr[1], rr[2], rr[3] };

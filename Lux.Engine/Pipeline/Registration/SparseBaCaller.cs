@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -79,7 +80,7 @@ public static class SparseBaCaller
             float inv = 1.0f / ww;
             float du = nu * inv - u, dv = inv * nv - w;
             float d2 = dv * dv + du * du;
-            float rs = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(d2)).ToScalar(), h = d2 * rs;
+            float rs = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(d2)).ToScalar(), h = d2 * rs;
             float d = d2 == 0f ? 0f : ((h * rs) + (-3.0f)) * (h * (-0.5f));
             err += d; n++;
         }

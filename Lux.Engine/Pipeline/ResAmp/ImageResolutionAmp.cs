@@ -31,7 +31,7 @@ public sealed class ImageResolutionAmp
         for (int i = 0; i < N; i++)
         {
             float v = ((float)i + 0.5f) * c;
-            float w = MathF.Cos(v);                       // CRT cosf (UNCERTAIN 1 — verified against cp.dll's window dump)
+            float w = Lux.Engine.Pipeline.Registration.MuslMath.Cosf(v);   // the CRT cosf Lumen runs (musl); glibc's differs by an ulp on some N (34 on a 75 mm capture)
             Window[i] = 0.5f - w * 0.5f;
         }
         for (int i = 0; i < N; i++)

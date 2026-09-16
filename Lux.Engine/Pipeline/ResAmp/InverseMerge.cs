@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
@@ -12,7 +13,7 @@ namespace Lux.Engine.Pipeline.ResAmp;
 /// 0x25d0–0x26cf = 256-byte slot table (one u8 per (row, col), read here via <see cref="MemoryMarshal.AsBytes{T}(Span{T})"/>,
 /// i.e. the bytes must live in the <c>float[]</c>'s memory exactly as in the native workspace).</para>
 /// <para>Fidelity: every lane op is one IEEE-single op in the machine's association; constants are loaded by bit pattern;
-/// <c>rcpps</c> is the raw host <see cref="Sse.Reciprocal(Vector128{float})"/> with no Newton step.</para></summary>
+/// <c>rcpps</c> is the modelled <see cref="IntelApprox.Reciprocal(Vector128{float})"/> with no Newton step.</para></summary>
 internal static class InverseMerge
 {
     // Lifting constants (each a 4-lane splat in the DLL; one lane shown).
@@ -38,7 +39,7 @@ internal static class InverseMerge
         for (int k = 0; k < 5; k++)
         {
             int i = Wsum + k * 4;
-            Vector128<float> v = Sse.Reciprocal(Vector128.Create(ws[i], ws[i + 1], ws[i + 2], ws[i + 3]));
+            Vector128<float> v = IntelApprox.Reciprocal(Vector128.Create(ws[i], ws[i + 1], ws[i + 2], ws[i + 3]));
             v.CopyTo(ws, i);
         }
 

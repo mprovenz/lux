@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
@@ -262,7 +263,7 @@ public static class RadianceHdrWriter
         var expWord = Sse2.Add(Sse2.And(Sse2.Add(mi, mi), Vector128.Create(unchecked((int)ExpByteMask))),
                                Vector128.Create(unchecked((int)ExpBias2)));                         // paddd/pand/paddd
         var E = Sse41.BlendVariable(Vector128.Create(unchecked((int)SignBit)).AsSingle(), expWord.AsSingle(), isNormal.AsSingle()).AsInt32();
-        var rcp = Sse.Reciprocal(m);                                                                // rcpps xmm6,xmm4
+        var rcp = IntelApprox.Reciprocal(m);                                                                // rcpps xmm6,xmm4
         var isDenorm = Sse2.And(Sse2.CompareGreaterThan(Vector128.Create(unchecked((int)MinNormal)), mag), finite);
         var mant = Sse41.BlendVariable(m, Vector128<float>.Zero, isDenorm.AsSingle());               // blendvps xmm4,xmm10,xmm0
         mant = Sse41.BlendVariable(mant,
@@ -288,7 +289,7 @@ public static class RadianceHdrWriter
     {
         float m = MaxSs(MaxSs(r, b), g);
         var (mant, expWord) = Split(m);
-        float r0 = Sse.IsSupported ? Sse.ReciprocalScalar(Vector128.CreateScalar(m)).ToScalar() : 1f / m;
+        float r0 = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(m)).ToScalar();
         float nr = ((1f - m * r0) * r0) + r0;
         return Pack(r, g, b, (mant * Two56) * nr, expWord);
     }

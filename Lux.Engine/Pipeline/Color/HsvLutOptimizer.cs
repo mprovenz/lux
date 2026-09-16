@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using Ltpb;
 using static Lux.Engine.Pipeline.Color.LumenColorTables;
 
@@ -342,7 +343,7 @@ public static class HsvLutOptimizer
     public static float RsqrtSqrt(float x)
     {
         if (x == 0f) return 0f;
-        float rs = System.Runtime.Intrinsics.Vector128.ToScalar(System.Runtime.Intrinsics.X86.Sse.ReciprocalSqrt(System.Runtime.Intrinsics.Vector128.CreateScalar(x)));
+        float rs = System.Runtime.Intrinsics.Vector128.ToScalar(IntelApprox.ReciprocalSqrt(System.Runtime.Intrinsics.Vector128.CreateScalar(x)));
         float t = x * rs;
         return ((t * rs + -3.0f) * t) * -0.5f;
     }

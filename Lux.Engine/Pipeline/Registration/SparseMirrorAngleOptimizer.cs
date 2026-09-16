@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -58,7 +59,7 @@ public static class SparseMirrorAngleOptimizer
             float u = w * ((K[2] * xc2 + K[1] * xc1) + K[0] * xc0) - mx;
             float v = w * ((K[5] * xc2 + K[4] * xc1) + K[3] * xc0) - my;
             float d2 = v * v + u * u;
-            float r = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(d2)).ToScalar();
+            float r = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(d2)).ToScalar();
             float s = d2 * r;
             float d = d2 == 0f ? 0f : ((s * r + (-3.0f)) * (-0.5f)) * s;
             float dc = d; if (ReproClamp <= d) dc = ReproClamp;
@@ -81,7 +82,7 @@ public static class SparseMirrorAngleOptimizer
             float u = pts[i].U, v = pts[i].V;
             float l0 = (F[1] * v + F[0] * u) + F[2], l1 = (F[4] * v + F[3] * u) + F[5], l2 = (v * F[7] + u * F[6]) + F[8];
             float n2 = l1 * l1 + l0 * l0;
-            float rr = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(n2)).ToScalar();
+            float rr = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(n2)).ToScalar();
             float sc = (rr * (-0.5f)) * (((n2 * rr) * rr) + (-3.0f));
             float a = l0 * sc, b = l1 * sc, c = sc * l2;
             float d = MathF.Abs((a * mx + c) + b * my);

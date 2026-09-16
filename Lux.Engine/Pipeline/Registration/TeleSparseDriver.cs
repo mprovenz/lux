@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -13,8 +14,8 @@ public static class TeleSparseDriver
     static readonly float Sc432 = BitConverter.Int32BitsToSingle(0x3b17b426);
     const double RatioEps = 1e-7;
 
-    static float Rcp(float x) { float r0 = Sse.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar(); return ((1.0f - x * r0) * r0) + r0; }
-    static float SqrtNR(float s) { if (s == 0f) return 0f; float rs = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(s)).ToScalar(); float t = s * rs; return ((t * rs) + (-3.0f)) * ((-0.5f) * t); }
+    static float Rcp(float x) { float r0 = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar(); return ((1.0f - x * r0) * r0) + r0; }
+    static float SqrtNR(float s) { if (s == 0f) return 0f; float rs = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(s)).ToScalar(); float t = s * rs; return ((t * rs) + (-3.0f)) * ((-0.5f) * t); }
 
     /// <summary>WarpField projection `v = ((z·col2 + col3) + X·col0) + Y·col1`, `w = 1/v2` (column-major M).</summary>
     static (float X, float Y) Proj(float[] M, float X, float Y, float z)
@@ -61,7 +62,7 @@ public static class TeleSparseDriver
         }
         return outp;
     }
-    static float SqrtPs(float s) { if (s == 0f) return 0f; float rs = Sse.ReciprocalSqrt(Vector128.Create(s)).ToScalar(); float t = s * rs; return ((t * rs) + (-3.0f)) * ((-0.5f) * t); }
+    static float SqrtPs(float s) { if (s == 0f) return 0f; float rs = IntelApprox.ReciprocalSqrt(Vector128.Create(s)).ToScalar(); float t = s * rs; return ((t * rs) + (-3.0f)) * ((-0.5f) * t); }
     static float MaxSs(float a, float b) => (a > b) ? a : b;
 
     /// <summary>`lt::ImageCircleFilter&lt;float&gt;(r = 1)`: sign of the plus-shaped 5-tap sum (clamp-to-edge) is all that is consumed.</summary>
@@ -172,7 +173,7 @@ public static class TeleSparseDriver
             }
         float var = m2 * inv;
         if (var == 0f) return 0f;
-        float rs = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(var)).ToScalar();
+        float rs = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(var)).ToScalar();
         float s = var * rs;
         return (-0.5f * s) * ((s * rs) - 3.0f);
     }

@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -32,8 +33,8 @@ public static class DenseStereo
 {
     public const float Near = 200f, Far = 640000f;   // DAT_1806eb2f8/300 [module type 0]
 
-    static float RcpNr(float a) { float x0 = Sse.ReciprocalScalar(Vector128.CreateScalar(a)).ToScalar(); return x0 + x0 * (1.0f - a * x0); }
-    static Vector128<float> RcpNr4(Vector128<float> a) { var x0 = Sse.Reciprocal(a); return x0 + x0 * (Vector128.Create(1.0f) - a * x0); }
+    static float RcpNr(float a) { float x0 = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(a)).ToScalar(); return x0 + x0 * (1.0f - a * x0); }
+    static Vector128<float> RcpNr4(Vector128<float> a) { var x0 = IntelApprox.Reciprocal(a); return x0 + x0 * (Vector128.Create(1.0f) - a * x0); }
 
     /// <summary>`FUN_18033d960` + `FUN_18033de60`: the metric plane depths (plane 0 = far … n−1 = near), n a multiple of align, ≤ 4096.</summary>
     public static float[] Planes(float near, float far, IReadOnlyList<CalibData> calibs, float density, int align)

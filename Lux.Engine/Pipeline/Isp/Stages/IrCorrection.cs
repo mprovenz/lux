@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -97,7 +98,7 @@ public static class IrCorrection
                 {
                     float magB = dyB2 + dxB2;
                     var v = Vector128.Create(magA, magB, 0f, 0f);
-                    var r = Sse.IsSupported ? Sse.ReciprocalSqrt(v) : Vector128.Create(1f / MathF.Sqrt(magA), 1f / MathF.Sqrt(magB), 0f, 0f);
+                    var r = IntelApprox.ReciprocalSqrt(v);
                     float tA = magA * r[0], tB = magB * r[1];
                     rA = magA != 0f ? ((tA * r[0] + -3f) * tA) * -0.5f : 0f;
                     rB = magB != 0f ? ((tB * r[1] + -3f) * tB) * -0.5f : 0f;
@@ -134,7 +135,7 @@ public static class IrCorrection
     static float RcpNr(int n)
     {
         var v = Vector128.CreateScalar((float)n);
-        var r = Sse.IsSupported ? Sse.ReciprocalScalar(v) : Vector128.CreateScalar(1f / (float)n);
+        var r = IntelApprox.ReciprocalScalar(v);
         float rr = r.ToScalar(); return (1f - (float)n * rr) * rr + rr;
     }
 

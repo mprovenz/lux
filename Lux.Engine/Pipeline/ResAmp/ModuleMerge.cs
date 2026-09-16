@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
@@ -743,15 +744,15 @@ internal static class ModuleMerge
     /// <summary><c>rcpps</c> (4 lanes, raw host approximation).</summary>
     static V4 Rcp(V4 v)
     {
-        Vector128<float> r = Sse.Reciprocal(Vector128.Create(v.X, v.Y, v.Z, v.W));
+        Vector128<float> r = IntelApprox.Reciprocal(Vector128.Create(v.X, v.Y, v.Z, v.W));
         return new(r.GetElement(0), r.GetElement(1), r.GetElement(2), r.GetElement(3));
     }
     /// <summary><c>rcpss</c> (raw host approximation).</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static float RcpS(float x) => Sse.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar();
+    static float RcpS(float x) => IntelApprox.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar();
     /// <summary><c>rsqrtss</c> (raw host approximation).</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static float RsqrtS(float x) => Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar();
+    static float RsqrtS(float x) => IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar();
 
     /// <summary><c>blendps dst, src, 0xe</c>: lane 0 from <paramref name="a"/>, lanes 1..3 from <paramref name="b"/>.</summary>
     static V4 Blend0xE(V4 a, V4 b) => new(a.X, b.Y, b.Z, b.W);

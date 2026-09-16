@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
@@ -111,8 +112,8 @@ public static class MonoMerge
     static readonly float MinusHalf = BitConverter.Int32BitsToSingle(unchecked((int)0xbf000000));
     static readonly float MinusThree = BitConverter.Int32BitsToSingle(unchecked((int)0xc0400000));
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)] static float Rcp(float d) => Sse.ReciprocalScalar(Vector128.CreateScalar(d)).ToScalar();
-    [MethodImpl(MethodImplOptions.AggressiveInlining)] static float Rsqrt(float d) => Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(d)).ToScalar();
+    [MethodImpl(MethodImplOptions.AggressiveInlining)] static float Rcp(float d) => IntelApprox.ReciprocalScalar(Vector128.CreateScalar(d)).ToScalar();
+    [MethodImpl(MethodImplOptions.AggressiveInlining)] static float Rsqrt(float d) => IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(d)).ToScalar();
     /// <summary>`rsqrtss` + Newton: `t = n·r; k = ((t·r) + (−3))·((−0.5)·t)`; 0 when n == 0.</summary>
     public static float RsqrtNR(float n)
     {
@@ -135,7 +136,7 @@ public static class MonoMerge
             var d = rw - s;
             var d2 = d * d;
             var den = Vector128.Create(T[i], T[i + 1], T[i + 2], T[i + 3]) * nzV + d2;
-            var r = Sse.Reciprocal(den);
+            var r = IntelApprox.Reciprocal(den);
             var t = r * d2;
             var o = rw * t + (Vector128.Create(1f) - t) * s;
             S[i] = o.GetElement(0); S[i + 1] = o.GetElement(1); S[i + 2] = o.GetElement(2); S[i + 3] = o.GetElement(3);

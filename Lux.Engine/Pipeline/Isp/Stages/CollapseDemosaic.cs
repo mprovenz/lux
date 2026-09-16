@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -49,7 +50,7 @@ public static class CollapseDemosaicKernel
                     sR = Sum(by, bx, ry, rx, cols, rows); sG1 = Sum(by, bx, ry, 1 - rx, cols, rows);
                     sG2 = Sum(by, bx, 1 - ry, rx, cols, rows); sB = Sum(by, bx, 1 - ry, 1 - rx, cols, rows);
                 }
-                float inv = Sse.ReciprocalScalar(Vector128.CreateScalar((float)(rows * cols))).ToScalar();
+                float inv = IntelApprox.ReciprocalScalar(Vector128.CreateScalar((float)(rows * cols))).ToScalar();
                 float tR = inv * sR, tG1 = inv * sG1, tG2 = inv * sG2, tB = inv * sB;
                 dst.Data[by * ow + bx] = new Vec4F(tG1 * 0f + tR * 1f, tG2 * 0.5f + tG1 * 0.5f, tB * 1f + tG2 * 0f, 1f);
             }

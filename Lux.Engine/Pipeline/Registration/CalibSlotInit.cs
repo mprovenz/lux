@@ -31,7 +31,7 @@ public static class CalibSlotInit
         return map;
     }
 
-    static float Rcp(float d) { float r = Sse.ReciprocalScalar(Vector128.CreateScalar(d)).ToScalar(); return ((1.0f - d * r) * r) + r; }
+    static float Rcp(float d) { float r = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(d)).ToScalar(); return ((1.0f - d * r) * r) + r; }
 
     /// <summary>`FUN_180251a40` + `FUN_1802682b0`: the module K (double) for `lensPosition`.</summary>
     public static double[] Intrinsics(GeometricCalibration g, int lensPosition)

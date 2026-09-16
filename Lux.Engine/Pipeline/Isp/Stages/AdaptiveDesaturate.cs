@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -33,7 +34,7 @@ public static class AdaptiveDesaturateKernel
         return k;
     }
 
-    private static float RsqrtS(float x) => Sse.IsSupported ? Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar() : 1f / MathF.Sqrt(x);
+    private static float RsqrtS(float x) => IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar();
 
     /// <summary>Process <paramref name="rect"/> (parent coordinates) of <paramref name="src"/> into a new image of the
     /// same rect. Neighbourhood reads clamp at the source image's bounds (Lumen's grown tile view is clamped to the

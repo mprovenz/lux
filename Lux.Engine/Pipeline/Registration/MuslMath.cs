@@ -51,6 +51,34 @@ public static class MuslMath
         switch (n & 3) { case 0: return Sindf(yy); case 1: return Cosdf(yy); case 2: return Sindf(-yy); default: return -Cosdf(yy); }
     }
 
+    /// <summary>musl `cosf` (Wine's msvcrt/UCRT `cosf`), the sibling of <see cref="Sinf"/>: same kernels, the cosine branch table.
+    /// Needed because glibc's `cosf` differs by one ulp on some arguments — first seen on a 75 mm B4-reference capture, whose
+    /// super-resolution Hann window (N = 34) took two such arguments and drifted the whole patch merge by an ulp.</summary>
+    public static float Cosf(float x)
+    {
+        uint ix = (uint)BitConverter.SingleToInt32Bits(x); bool sign = (ix >> 31) != 0; ix &= 0x7fffffff;
+        if (ix <= 0x3f490fda)   // |x| ~<= π/4
+        {
+            if (ix < 0x39800000) return 1.0f;   // |x| < 2^-12
+            return Cosdf(x);
+        }
+        if (ix <= 0x407b53d1)   // |x| ~<= 5π/4
+        {
+            if (ix > 0x4016cbe3)   // |x| ~> 3π/4
+                return -Cosdf(sign ? x + 2 * Pio2 : x - 2 * Pio2);
+            return sign ? Sindf(x + Pio2) : Sindf(Pio2 - x);
+        }
+        if (ix <= 0x40e231d5)   // |x| ~<= 9π/4
+        {
+            if (ix > 0x40afeddf)   // |x| ~> 7π/4
+                return Cosdf(sign ? x + 4 * Pio2 : x - 4 * Pio2);
+            return sign ? Sindf(-x - 3 * Pio2) : Sindf(x - 3 * Pio2);
+        }
+        if (ix >= 0x7f800000) return x - x;
+        int n = RemPio2f(x, out double yy);
+        switch (n & 3) { case 0: return Cosdf(yy); case 1: return Sindf(-yy); case 2: return -Cosdf(yy); default: return Sindf(yy); }
+    }
+
     // ---- powf (musl / ARM optimized-routines, as Wine's msvcrt powf; TOINT_INTRINSICS = 0, POWF_SCALE = 1) ----
     static readonly double[] PowInvc = { BitConverter.Int64BitsToDouble(unchecked((long)0x3ff661ec79f8f3be)), BitConverter.Int64BitsToDouble(unchecked((long)0x3ff571ed4aaf883d)), BitConverter.Int64BitsToDouble(unchecked((long)0x3ff49539f0f010b0)), BitConverter.Int64BitsToDouble(unchecked((long)0x3ff3c995b0b80385)), BitConverter.Int64BitsToDouble(unchecked((long)0x3ff30d190c8864a5)), BitConverter.Int64BitsToDouble(unchecked((long)0x3ff25e227b0b8ea0)), BitConverter.Int64BitsToDouble(unchecked((long)0x3ff1bb4a4a1a343f)), BitConverter.Int64BitsToDouble(unchecked((long)0x3ff12358f08ae5ba)), BitConverter.Int64BitsToDouble(unchecked((long)0x3ff0953f419900a7)), BitConverter.Int64BitsToDouble(unchecked((long)0x3ff0000000000000)), BitConverter.Int64BitsToDouble(unchecked((long)0x3fee608cfd9a47ac)), BitConverter.Int64BitsToDouble(unchecked((long)0x3feca4b31f026aa0)), BitConverter.Int64BitsToDouble(unchecked((long)0x3feb2036576afce6)), BitConverter.Int64BitsToDouble(unchecked((long)0x3fe9c2d163a1aa2d)), BitConverter.Int64BitsToDouble(unchecked((long)0x3fe886e6037841ed)), BitConverter.Int64BitsToDouble(unchecked((long)0x3fe767dcf5534862)) };
     static readonly double[] PowLogc = { BitConverter.Int64BitsToDouble(unchecked((long)0xbfdefec65b963019)), BitConverter.Int64BitsToDouble(unchecked((long)0xbfdb0b6832d4fca4)), BitConverter.Int64BitsToDouble(unchecked((long)0xbfd7418b0a1fb77b)), BitConverter.Int64BitsToDouble(unchecked((long)0xbfd39de91a6dcf7b)), BitConverter.Int64BitsToDouble(unchecked((long)0xbfd01d9bf3f2b631)), BitConverter.Int64BitsToDouble(unchecked((long)0xbfc97c1d1b3b7af0)), BitConverter.Int64BitsToDouble(unchecked((long)0xbfc2f9e393af3c9f)), BitConverter.Int64BitsToDouble(unchecked((long)0xbfb960cbbf788d5c)), BitConverter.Int64BitsToDouble(unchecked((long)0xbfaa6f9db6475fce)), 0.0, BitConverter.Int64BitsToDouble(unchecked((long)0x3fb338ca9f24f53d)), BitConverter.Int64BitsToDouble(unchecked((long)0x3fc476a9543891ba)), BitConverter.Int64BitsToDouble(unchecked((long)0x3fce840b4ac4e4d2)), BitConverter.Int64BitsToDouble(unchecked((long)0x3fd40645f0c6651c)), BitConverter.Int64BitsToDouble(unchecked((long)0x3fd88e9c2c1b9ff8)), BitConverter.Int64BitsToDouble(unchecked((long)0x3fdce0a44eb17bcc)) };

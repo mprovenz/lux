@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using Lux.Engine.Pipeline.Color;
@@ -54,7 +55,7 @@ public sealed class ToneMappingAcrStage : IStage
         }
     }
 
-    static float Rcp(float x) => Sse.IsSupported ? Sse.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar() : 1f / x;
+    static float Rcp(float x) => IntelApprox.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar();
 
     /// <summary>The exposure ramp: `t = (0.0075 ≤ v) ? (v − 0.005)·slope : (v ≤ 0.0025) ? 0 : ((v − 0.0025)²)·qScale`
     /// — the square is `(v+c)·(v+c)` then `·qScale`, never re-associated. `cmpleps` is ordered, so NaN takes neither mask.</summary>

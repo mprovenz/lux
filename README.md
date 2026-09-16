@@ -112,7 +112,10 @@ formats. All formats share one `PipelineCache`; the fusion render is ~74 % of wa
 costs barely more than one.
 
 Verification status: DNG, JPEG, PPM and Radiance HDR are byte-identical to Lumen apart from the export timestamp;
-JPEG+GDepth is byte-identical including the embedded depth map.
+JPEG+GDepth is byte-identical including the embedded depth map. The output does not depend on the CPU: the approximate
+reciprocal and reciprocal square root that Lumen's kernels rely on (SSE `rcpps`/`rsqrtps`, whose result tables differ between
+CPU vendors) are computed from a fixed table model, so an AMD host produces the same bytes as an Intel one, and the same
+bytes as Lumen running on Intel hardware.
 
 ---
 

@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -253,7 +254,7 @@ public static class FundamentalMatrixFilter
             else
             {
                 float s2 = (l1 * l1) + (l0 * l0);
-                float r = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(s2)).ToScalar();
+                float r = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(s2)).ToScalar();
                 float t = ((s2 * r) * r) + (-3.0f);
                 r = (r * -0.5f) * t;
                 float n0 = l0 * r, n1 = l1 * r, n2 = r * l2;

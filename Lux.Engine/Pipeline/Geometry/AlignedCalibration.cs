@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -155,7 +156,7 @@ public sealed class AlignedCalib
     /// c = crop_mod·pp − viewOffset_mod, s = 1/(camScale·crop_mod), LUT from the module's polynomial distortion.</summary>
     public static AlignedCalib Build(CameraCalib view, CameraCalib module, float viewScaleX, float viewScaleY,
                                      float camScaleX, float camScaleY, float ppX, float ppY,
-                                     RatPolyMapping poly, float pixCurve, float pixLut)
+                                     RatPolyMapping poly, float pixCurve, float pixLut, float[]? M = null)
     {
         var a = view.Scaled(viewScaleX, viewScaleY);
         var c = new AlignedCalib
@@ -165,7 +166,9 @@ public sealed class AlignedCalib
             Cx = module.CropX * ppX - module.ViewOffX,
             Cy = module.CropY * ppY - module.ViewOffY,
         };
-        var m = Mat3F.MulABt(a.R, module.R);
+        // `M` is the caller's rotation argument of FUN_180185030: the cache builders pass R_view·R_modᵀ, the reference guide passes I₃
+        // outright — with the reference's own (≈identity) rotations a float product would leave 1e-8 residues in H that Lumen does not have.
+        var m = M ?? Mat3F.MulABt(a.R, module.R);
         var mi = Mat3F.Inverse(m);
         var ki = Mat3F.Inverse(a.K);
         var t = Mat3F.Mul(module.K, mi);
@@ -190,7 +193,7 @@ public sealed class AlignedCalib
         if (r2 == 0f) r = 0f;
         else
         {
-            float rs = Sse.IsSupported ? Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(r2)).ToScalar() : 1.0f / MathF.Sqrt(r2);
+            float rs = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(r2)).ToScalar();
             float s = r2 * rs;
             r = ((s * rs + -3.0f) * -0.5f) * s;
         }
@@ -216,7 +219,7 @@ public sealed class AlignedCalib
         if (r2 == 0f) r = 0f;
         else
         {
-            float rs = Sse.IsSupported ? Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(r2)).ToScalar() : 1.0f / MathF.Sqrt(r2);
+            float rs = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(r2)).ToScalar();
             float s = r2 * rs;
             r = ((s * rs + -3.0f) * -0.5f) * s;
         }
@@ -248,7 +251,7 @@ public static class AlignedCalibrationScan
 
     static float Rcp(float d)
     {
-        float r0 = Sse.IsSupported ? Sse.ReciprocalScalar(Vector128.CreateScalar(d)).ToScalar() : 1.0f / d;
+        float r0 = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(d)).ToScalar();
         return ((1.0f - d * r0) * r0) + r0;   // rcpps + one Newton step (P2/P3 corners only)
     }
 

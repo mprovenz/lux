@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -7,7 +8,7 @@ namespace Lux.Engine.Pipeline.Isp.Stages;
 /// `lt::Internal::A::DemosaickLightV1&lt;rx,ry&gt;` (dispatcher `1803a2400`, tile lambda `1803a57f0` for &lt;1,0&gt;,
 /// row functions `FUN_1803a3d50` (source rows × per-site neutral), `FUN_1803a34d0` (guide planes) and
 /// `FUN_1803a5250` (colour-difference plane)). Halide-style pipeline, ported plane by plane with the binary's
-/// float operation order and SSE `rcpss/rcpps` approximations (`Sse.Reciprocal*`, i.e. this CPU's table — Lumen's
+/// float operation order and SSE `rcpss/rcpps` approximations (`IntelApprox.Reciprocal*`, the reference CPU's table — Lumen's
 /// own output is CPU-dependent at that level):
 ///   S(x,y)  = src(clamp-by-parity) · neutral[site]                       (FUN_1803a3d50)
 ///   C       = 5×5 filter of S at G sites (weights 56, 6, −4, −2, 1; /64)   (FUN_1803a34d0 inner)
@@ -22,8 +23,8 @@ public static class DemosaicLightV1
     public const float Eps1Scale = 0.009765625f, Eps2Scale = 0.0009765625f;
     private const float K56 = 56f, K6 = 6f, Km4 = -4f, K1_64 = 0.015625f, Half = 0.5f;
 
-    private static float Rcp(float x) => Sse.IsSupported ? Sse.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar() : 1f / x;
-    private static Vector128<float> Rcp4(Vector128<float> v) => Sse.IsSupported ? Sse.Reciprocal(v) : Vector128.Create(1f / v[0], 1f / v[1], 1f / v[2], 1f / v[3]);
+    private static float Rcp(float x) => IntelApprox.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar();
+    private static Vector128<float> Rcp4(Vector128<float> v) => IntelApprox.Reciprocal(v);
     private static float Abs(float x) => MathF.Abs(x);
 
     /// <summary>Demosaic <paramref name="src"/> (w×h float Bayer, 0..1 normalised) over <paramref name="roi"/> into

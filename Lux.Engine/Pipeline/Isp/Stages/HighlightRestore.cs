@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -17,9 +18,9 @@ public static class HighlightRestoreKernel
 {
     public const int Pad = 9, Align = 2;   // live slot meta (cp.dll's live ISP-stage listing: slot 2 docall 4168d0 pad 9 align 2); the kernel itself is pointwise, the pad only sets the runner geometry
 
-    static float RcpNr(float x) { var r = Sse.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar(); return ((1f - x * r) * r + r) * 1f; }
-    static float Rcp(float x) => Sse.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar();
-    static float Rsqrt(float x) => Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar();
+    static float RcpNr(float x) { var r = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar(); return ((1f - x * r) * r + r) * 1f; }
+    static float Rcp(float x) => IntelApprox.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar();
+    static float Rsqrt(float x) => IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar();
     static float MaxSs(float a, float b) => a > b ? a : b;   // maxss dst,src → dst > src ? dst : src
     static float MinSs(float a, float b) => a < b ? a : b;
 
@@ -34,11 +35,11 @@ public static class HighlightRestoreKernel
     {
         var f = new Frame();
         // rcpps + Newton on (nG, nB) and (nR, white−black), ×1.0
-        var v = Vector128.Create(n[1], n[2], 0f, 0f); var r = Sse.Reciprocal(v);
+        var v = Vector128.Create(n[1], n[2], 0f, 0f); var r = IntelApprox.Reciprocal(v);
         var nr = Sse.Multiply(Sse.Add(Sse.Multiply(Sse.Subtract(Vector128.Create(1f), Sse.Multiply(v, r)), r), r), Vector128.Create(1f));
         f.RG = nr[0]; f.RB = nr[1];
         float wb = white - black;
-        v = Vector128.Create(n[0], wb, 0f, 0f); r = Sse.Reciprocal(v);
+        v = Vector128.Create(n[0], wb, 0f, 0f); r = IntelApprox.Reciprocal(v);
         nr = Sse.Multiply(Sse.Add(Sse.Multiply(Sse.Subtract(Vector128.Create(1f), Sse.Multiply(v, r)), r), r), Vector128.Create(1f));
         f.RR = nr[0]; f.RWB = nr[1];
         f.SR = f.RR * f.RWB; f.SG = f.RG * f.RWB; f.SB = f.RWB * f.RB;
@@ -128,7 +129,7 @@ public static class HighlightRestoreKernel
             gD[i] = (float)EstG(P, x + dx[i], y + dy[i], kDiag, f.Floor) * 0.25f;
             c[i] = (float)P(x + dx[i], y + dy[i]) * diagToG - gD[i];
         }
-        var wv = Sse.Reciprocal(Vector128.Create(Abs(gD[0] - gEst) * f.RWB + 0.009765625f, Abs(gD[1] - gEst) * f.RWB + 0.009765625f, Abs(gD[2] - gEst) * f.RWB + 0.009765625f, Abs(gD[3] - gEst) * f.RWB + 0.009765625f));
+        var wv = IntelApprox.Reciprocal(Vector128.Create(Abs(gD[0] - gEst) * f.RWB + 0.009765625f, Abs(gD[1] - gEst) * f.RWB + 0.009765625f, Abs(gD[2] - gEst) * f.RWB + 0.009765625f, Abs(gD[3] - gEst) * f.RWB + 0.009765625f));
         for (int i = 0; i < 4; i++) w[i] = wv[i];
         float sumW = (w[3] + w[1]) + (w[2] + w[0]);
         float invW = Rcp(sumW);

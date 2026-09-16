@@ -158,8 +158,14 @@ public static class ExportBuild
                 for (int y = 0; y < r.Height; y++) System.Runtime.InteropServices.MemoryMarshal.AsBytes(img.Row(y)).CopyTo(System.Runtime.InteropServices.MemoryMarshal.AsBytes(o.AsSpan(y * r.Width * 4, r.Width * 4)));
                 return o;
             });
-            var camNames = new[] { "A1", "A2", "A3", "A4", "A5", "B1", "B2", "B3", "B4", "B5" };
-            var teleIds = reg.Sizes.Keys.Where(k => k >= 5 && k <= 9).OrderBy(k => k).ToArray();
+            // The telephoto set is the registration's higher group — every camera that has an online-calibration pair (Lumen's
+            // initResAmp builds one tele generator per `api+0x3a8[id]`): B1–B5 for an A-reference capture, C1–C6 for a B-reference
+            // (75 mm) one. `reg.Sizes` is filled per higher-group camera by State6, so its keys are exactly that set.
+            // A monochrome module (bayer red position (−1,−1), e.g. C6) cannot feed super-resolution — Lumen's SourceImageCache
+            // ctor throws "Super-res does not support mono modules!" — so it is left out of the telephoto set.
+            var camNames = reg.Names;
+            bool Colour(int id) { var red = lri.Modules[camNames[id]].Module.SensorBayerRedOverride; return red is null || (red.X | red.Y) >= 0; }
+            var teleIds = reg.Sizes.Keys.Where(Colour).OrderBy(k => k).ToArray();
             // Each telephoto cache (its own module frame, ISP stats and warp field) is independent of the others, so they are built at
             // once; the module list keeps the id order the sequential loop had, which is what ImageResolutionAmp merges in.
             var teleCaches = new Lux.Engine.Pipeline.ResAmp.TeleLevel0Cache[teleIds.Length];

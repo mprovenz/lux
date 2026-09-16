@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using Lux.Engine.Pipeline.Geometry;
@@ -39,7 +40,7 @@ public static class AcamCrop
     /// <summary>§3: the radial factor q = r'/r for a squared radius r2 (rsqrt lane = scalar or packed — same per lane on one CPU).</summary>
     static float Q(float r2, float[] Dc, float x0, float invdx)
     {
-        float rs = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(r2)).ToScalar();
+        float rs = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(r2)).ToScalar();
         float a = r2 * rs, b = a * (-0.5f), c = (a * rs) + (-3.0f);
         float r = r2 != 0f ? (b * c) : 0f;
         float invr = (rs * (-0.5f)) * c;

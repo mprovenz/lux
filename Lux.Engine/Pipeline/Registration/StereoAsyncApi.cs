@@ -92,10 +92,15 @@ public sealed class StereoAsyncApi
         }
         Cdp.Log = Log; Cdp.CamsType = 0; Cdp.Ref = Cams[RefId]; Cdp.Dump = DumpPrefix is string rdp ? new RegDump(rdp) : null;
         foreach (var c in RefGroupCams()) if (c.Id != RefId) Cdp.RefGroup.Add(c);
-        foreach (var c in Cams.Values) if (Group(c.Id) > Group(RefId)) Cdp.Higher.Add(c);
+        // The higher group takes no monochrome module (bayer red position (−1,−1)): on a B4-reference capture with a mono C6, Lumen
+        // runs five telephoto drivers and a nine-camera BA (C1–C5), never touching C6 — and its super-res cache constructor would
+        // throw on it. The reference group keeps its mono member (A2 on an A-reference capture) as before.
+        foreach (var c in Cams.Values) if (Group(c.Id) > Group(RefId) && !Mono(c.Id)) Cdp.Higher.Add(c);
         Cdp.Z = CdpInputs.PlaneDepth(Lri.Modules[refName].Module, Cdp.ZRange.Min); Cdp.WideFlag = CdpInputs.WideFlag(Lri.Header, Lri.Modules[refName].Module.Id);
         Log?.Invoke($"setup: ref {RefId} ({refName}) refGroup [{string.Join(",", Cdp.RefGroup.Select(c => c.Id))}] higher [{string.Join(",", Cdp.Higher.Select(c => c.Id))}] Z {Cdp.Z} wideFlag {Cdp.WideFlag}");
     }
+
+    bool Mono(int id) { var red = Lri.Modules[Names[id]].Module.SensorBayerRedOverride; return red is not null && (red.X | red.Y) < 0; }
 
     public IEnumerable<CdpCamera> RefGroupCams()
     {
@@ -147,7 +152,12 @@ public sealed class StereoAsyncApi
         refFrame ??= CapturedFrame.Load(Lri, Names[RefId]);
         Neutral = Lri.LumenNeutral;
         var c = Cams[RefId];
-        var module = CdpCamera.ToCamera(c.Slot);
+        // The module calibration the guide warp is built against is the CURRENT slot with the ctor pose's P/u applied and no crop —
+        // `Apply(P,u only)`, the same record the stereo builds use (Lumen's `stereo<i>_calibB` / `pairs` second): R = I, t = 0 for the
+        // reference. The raw slot only coincides with it when the reference module's own R is the identity (an A reference); on a
+        // B4 reference the raw slot carries the B4 rotation and the guide warped by a spurious few-milliradian homography.
+        var mp = Clone(c.Pose); mp.Scale1 = (1f, 1f); mp.Shift1 = (0f, 0f);
+        var module = CdpCamera.ToCamera(ViewTransform.Apply(mp, c.Slot));
         var view = CdpCamera.ToCamera(c.View());
         Log?.Invoke($"state 1 guide: view K [{string.Join(" ", view.K.Select(v => v.ToString("R")))}] off ({view.ViewOffX:R},{view.ViewOffY:R}) crop ({view.CropX:R},{view.CropY:R}); module K [{string.Join(" ", module.K.Select(v => v.ToString("R")))}]");
         return Registration.ReferenceGuide.Build(refFrame, Profile, Neutral, view, module, Dist[RefId], Log, keepFloat, maxTiles, Threads);

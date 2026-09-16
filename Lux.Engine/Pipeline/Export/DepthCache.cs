@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -112,8 +113,8 @@ public sealed class DepthImageCache
         {
             int so = y * stride, dofs = y * w, x = 0;
             for (; x + 4 <= w; x += 4)
-                Sse.Reciprocal(Vector128.Create(src[so + x], src[so + x + 1], src[so + x + 2], src[so + x + 3])).CopyTo(dst, dofs + x);
-            for (; x < w; x++) dst[dofs + x] = Sse.ReciprocalScalar(Vector128.CreateScalar(src[so + x])).ToScalar();
+                IntelApprox.Reciprocal(Vector128.Create(src[so + x], src[so + x + 1], src[so + x + 2], src[so + x + 3])).CopyTo(dst, dofs + x);
+            for (; x < w; x++) dst[dofs + x] = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(src[so + x])).ToScalar();
         }
         return dst;
     }
@@ -127,9 +128,9 @@ public sealed class DepthImageCache
         {
             int so = y * stride, dofs = y * w, x = 0;
             for (; x + 4 <= w; x += 4)
-                Sse.Min(Sse.Reciprocal(Vector128.Create(src[so + x], src[so + x + 1], src[so + x + 2], src[so + x + 3])), cv).CopyTo(dst, dofs + x);
+                Sse.Min(IntelApprox.Reciprocal(Vector128.Create(src[so + x], src[so + x + 1], src[so + x + 2], src[so + x + 3])), cv).CopyTo(dst, dofs + x);
             for (; x < w; x++)
-                dst[dofs + x] = Sse.MinScalar(Sse.ReciprocalScalar(Vector128.CreateScalar(src[so + x])), Vector128.CreateScalar(clip)).ToScalar();
+                dst[dofs + x] = Sse.MinScalar(IntelApprox.ReciprocalScalar(Vector128.CreateScalar(src[so + x])), Vector128.CreateScalar(clip)).ToScalar();
         }
         return dst;
     }

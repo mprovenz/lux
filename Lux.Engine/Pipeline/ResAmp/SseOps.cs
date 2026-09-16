@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -10,19 +11,19 @@ internal static class SseOps
     public static float F(uint bits) => BitConverter.UInt32BitsToSingle(bits);
 
     /// <summary>`rcpss` — raw 12-bit reciprocal, no Newton step.</summary>
-    public static float Rcpss(float x) => Sse.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar();
+    public static float Rcpss(float x) => IntelApprox.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar();
     /// <summary>`rsqrtss` — raw approximate reciprocal square root.</summary>
-    public static float Rsqrtss(float x) => Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar();
+    public static float Rsqrtss(float x) => IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar();
     /// <summary>`rcpps` on 4 lanes.</summary>
     public static void Rcpps(ReadOnlySpan<float> src, Span<float> dst)
     {
-        var v = Sse.Reciprocal(Vector128.Create(src[0], src[1], src[2], src[3]));
+        var v = IntelApprox.Reciprocal(Vector128.Create(src[0], src[1], src[2], src[3]));
         dst[0] = v.GetElement(0); dst[1] = v.GetElement(1); dst[2] = v.GetElement(2); dst[3] = v.GetElement(3);
     }
     /// <summary>`rsqrtps` on 4 lanes.</summary>
     public static void Rsqrtps(ReadOnlySpan<float> src, Span<float> dst)
     {
-        var v = Sse.ReciprocalSqrt(Vector128.Create(src[0], src[1], src[2], src[3]));
+        var v = IntelApprox.ReciprocalSqrt(Vector128.Create(src[0], src[1], src[2], src[3]));
         dst[0] = v.GetElement(0); dst[1] = v.GetElement(1); dst[2] = v.GetElement(2); dst[3] = v.GetElement(3);
     }
 

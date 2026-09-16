@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -39,7 +40,7 @@ public static class StereoColorTransfer
         {
             double w = Di[8] + (Di[7] * Y + Di[6] * X);
             float wf = (float)w;
-            float r0 = Sse.Reciprocal(Vector128.Create(wf)).ToScalar();
+            float r0 = IntelApprox.Reciprocal(Vector128.Create(wf)).ToScalar();
             float r = ((1.0f - wf * r0) * r0 + r0) * 1.0f;
             float x = (float)(Di[2] + (Di[1] * Y + Di[0] * X)) * r;
             float y = (float)(Di[5] + (Di[4] * Y + Di[3] * X)) * r;

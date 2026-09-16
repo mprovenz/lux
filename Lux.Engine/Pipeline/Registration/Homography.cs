@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -12,9 +13,9 @@ namespace Lux.Engine.Pipeline.Registration;
 public static class Homography
 {
     // ---- approximate primitives (machine order) ----
-    public static float Rcp(float x) { float r = Sse.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar(); return ((1.0f - x * r) * r) + r; }
-    public static float Rsqrt(float x) { float r = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar(); float A = x * r, C = A * r, D = C + (-3.0f), E = r * (-0.5f); return E * D; }
-    public static float Sqrt(float x) { float r = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar(); float A = x * r, B = A * (-0.5f), C = A * r, D = C + (-3.0f), s = D * B; return x == 0.0f ? 0.0f : s; }
+    public static float Rcp(float x) { float r = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar(); return ((1.0f - x * r) * r) + r; }
+    public static float Rsqrt(float x) { float r = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar(); float A = x * r, C = A * r, D = C + (-3.0f), E = r * (-0.5f); return E * D; }
+    public static float Sqrt(float x) { float r = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar(); float A = x * r, B = A * (-0.5f), C = A * r, D = C + (-3.0f), s = D * B; return x == 0.0f ? 0.0f : s; }
 
     const float FltMin = 1.17549435e-38f, FltEps = 1.1920929e-07f;
     static readonly float SqrtEps = BitConverter.Int32BitsToSingle(0x39b504f3);       // norm down-date threshold
@@ -305,7 +306,7 @@ public static class Homography
         double Deg((float X, float Y) E, float comp, float sign)
         {
             float len2 = E.X * E.X + E.Y * E.Y;
-            float q = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(len2)).ToScalar();
+            float q = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(len2)).ToScalar();
             float D = ((len2 * q) * q) + (-3.0f);
             float cos = ((q * sign) * D) * comp;
             return (double)MathF.Acos(cos) * 57.295780490442965;

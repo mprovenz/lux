@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using Ltpb;
@@ -125,7 +126,7 @@ public sealed class MonoFusion
     // ---------------------------------------------------------------------------------------------------------------------------------
     // §3.1 FUN_1800d14c0 (disasm 1800d150b–1800d16c0) and §3.2 FUN_1800c2a00
     // ---------------------------------------------------------------------------------------------------------------------------------
-    static float RsqrtNRs(float n) { float r = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(n)).ToScalar(); float t = n * r; return n == 0f ? 0f : ((t * r) + MinusThree) * ((t) * MinusHalf); }
+    static float RsqrtNRs(float n) { float r = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(n)).ToScalar(); float t = n * r; return n == 0f ? 0f : ((t * r) + MinusThree) * ((t) * MinusHalf); }
 
     /// <summary>The basis of `FUN_1800d14c0`: row0 = v·rcpNR(rsqrtNR(|v|²)), row1 = (−b·rcpNR(k2), (a+c)·k2, −b·rcpNR(k2)) with k2 = rsqrtNR(2b² + (a+c)²),
     /// row2 = (v × (−b, a+c, −b))·rsqrtNR(|·|²) (no zero guard). Exact register sequence from the disassembly.</summary>
@@ -138,7 +139,7 @@ public sealed class MonoFusion
         float aabb = a * a + b * b;           // xmm5
         float ss = s * s;
         float n2 = (b * b + b * b) + ss;      // xmm3 = 2b² + s²   (b² computed once as xmm3 = b·b; addss xmm3,xmm3; addss xmm3,xmm2)
-        float r2 = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(n2)).ToScalar();
+        float r2 = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(n2)).ToScalar();
         float t2 = n2 * r2;                   // xmm6
         float t2r = t2 * r2;                  // xmm6 = n2·r2·r2
         float x4 = (r2 * MinusHalf) * s;      // xmm4
@@ -146,7 +147,7 @@ public sealed class MonoFusion
         float z = sa - nb2;                   // xmm11 = s·a − (−b²)
         float x = nb2 - sc;                   // xmm13 = −b² − s·c
         float n1 = c * c + aabb;              // xmm10
-        float r1 = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(n1)).ToScalar();
+        float r1 = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(n1)).ToScalar();
         float t1 = n1 * r1;
         float h1 = t1 * MinusHalf;            // xmm0
         float k1 = ((t1 * r1) + MinusThree) * h1;
@@ -157,12 +158,12 @@ public sealed class MonoFusion
         if (n2 == 0f) k2 = 0f;
         // q = rcpps((k1,k1,k1,k2)); q = ((1 − k·q)·q) + q; row = q ⊙ (a, b, c, −b)
         var kv = Vector128.Create(k1, k1, k1, k2);
-        var q0 = Sse.Reciprocal(kv);
+        var q0 = IntelApprox.Reciprocal(kv);
         var q = ((Vector128.Create(One) - kv * q0) * q0) + q0;
         var row = q * Vector128.Create(a, b, c, -b);
         float x4f = x4 * m2;                  // xmm4 = ((r2·(−0.5))·s)·(n2 r2² − 3) = s·k2
         float n3 = z * z + (amc * amc + x * x);
-        float r3 = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(n3)).ToScalar();
+        float r3 = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(n3)).ToScalar();
         float m3 = (n3 * r3) * r3 + MinusThree;
         float k3 = (r3 * MinusHalf) * m3;
         o[0] = row.GetElement(0); o[1] = row.GetElement(1); o[2] = row.GetElement(2);
@@ -252,7 +253,7 @@ public sealed class MonoFusion
         NoiseA = model.R.A * k; NoiseB = k * model.R.B;
         BlackMono = mn.Black; WhiteMono = mn.White;
         // reference RGB: (raw − black)·rcpss(range) → DemosaickLightV1<0,0> with neutral (1,1,1)
-        float rcpRange = Sse.ReciprocalScalar(Vector128.CreateScalar(Range)).ToScalar();
+        float rcpRange = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(Range)).ToScalar();
         var norm = new float[W * H];
         // 1801fcdf0 L344–402: `stacked = FUN_18020a6d0(stream, ref)`; null → `FUN_1800f4940(ref)` (ushort → float of the raw frame) into
         // `FUN_1801f8780(bayer, {black_ref, rcpss(range)})`; on a stacked capture the closure is `{stacked, black, rcp(range)}` — the module's

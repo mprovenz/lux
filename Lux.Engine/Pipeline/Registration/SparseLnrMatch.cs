@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -148,7 +149,7 @@ public static class SparseLnrMatch
         if (!Inside(p0) || !Inside(p1))
         {
             float dx = (float)(p1.X - p0.X), dy = (float)(p1.Y - p0.Y), q = dy * dy + dx * dx;
-            float r = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(q)).ToScalar();
+            float r = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(q)).ToScalar();
             float t = (q * r) * r + (-3.0f), inv = (r * -0.5f) * t, ux = dx * inv, uy = inv * dy;
             int n = q == 0f ? 0 : (int)(((q * r) * -0.5f) * t);
             if (!Inside(p0))
@@ -302,7 +303,7 @@ public static class SparseLnrMatch
             var pn = W.ProjectRaw(fx, fy, 100.0f); var pf = W.ProjectRaw(fx, fy, 100000.0f);
             float dirx = (pn.X - pf.X) * invScale, diry = (pn.Y - pf.Y) * invScale;
             float q = diry * diry + dirx * dirx;
-            float rq = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(q)).ToScalar();
+            float rq = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(q)).ToScalar();
             float invLen = (rq * -0.5f) * ((q * rq) * rq + (-3.0f));
             float ox = (dirx * half) * invLen, oy = (diry * half) * invLen;
             var p0 = ((int)((float)px - ox), (int)((float)py - oy));
@@ -312,7 +313,7 @@ public static class SparseLnrMatch
             float score = best * Scale60, sec = (float)second * Scale60;
             float dx = (float)((offs.X + pos.X) - rx), dy = (float)((offs.Y + pos.Y) - ry);
             float dq = dy * dy + dx * dx;
-            float rd = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(dq)).ToScalar(), sd = dq * rd;
+            float rd = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(dq)).ToScalar(), sd = dq * rd;
             float dist = dq == 0f ? 0f : ((sd * rd) + (-3.0f)) * (-0.5f * sd);
             int octave = dist < 8.0f ? 1 : 2;                             // ucomiss; sbb: 2 − (dist < 8.0), DAT_180685d4c
             float nmx = ((float)pos.X - cBx) * sNorm, nmy = ((float)pos.Y - cBy) * sNorm;
@@ -369,7 +370,7 @@ public static class SparseLnrMatch
             }
         float var = m2 * inv;
         if (var == 0f) return 0f;
-        float rs = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(var)).ToScalar();
+        float rs = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(var)).ToScalar();
         float s = var * rs;
         return (-0.5f * s) * ((s * rs) - 3.0f);
     }

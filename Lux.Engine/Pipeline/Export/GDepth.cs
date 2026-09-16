@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Buffers.Binary;
 using System.Globalization;
 using System.Text;
@@ -78,7 +79,7 @@ public static class GDepth
                 if (x < blockEnd)
                 {
                     float a = System.Runtime.Intrinsics.Vector128.GetElement(
-                        System.Runtime.Intrinsics.X86.Sse.Reciprocal(System.Runtime.Intrinsics.Vector128.Create(t)), 0);
+                        IntelApprox.Reciprocal(System.Runtime.Intrinsics.Vector128.Create(t)), 0);
                     r = (1.0f - t * a) * a + a;      // one Newton step, _DAT_1806824a0 = 1.0f
                 }
                 else r = 1.0f / t;                    // the scalar tail's divss

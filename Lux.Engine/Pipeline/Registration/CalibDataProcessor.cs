@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -272,7 +273,7 @@ public sealed class CalibDataProcessor
         float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
         float d2 = (dz * dz + dx * dx) + dy * dy;
         if (d2 == 0f) return 0f;
-        float r = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(d2)).ToScalar(), s = d2 * r;
+        float r = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(d2)).ToScalar(), s = d2 * r;
         return (((s * r) + (-3.0f)) * s) * (-0.5f);
     }
 

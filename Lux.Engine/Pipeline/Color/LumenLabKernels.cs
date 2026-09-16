@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using static Lux.Engine.Pipeline.Color.LumenColorTables;
@@ -23,7 +24,7 @@ public static class LumenLabKernels
         return (x * invY, ((1.0f - y) - x) * invY);
     }
 
-    static float Rcp(float v) => Sse.Reciprocal(Vector128.Create(v)).ToScalar();   // rcpps lane
+    static float Rcp(float v) => IntelApprox.Reciprocal(Vector128.Create(v)).ToScalar();   // rcpps lane
 
     /// <summary>`FUN_1800d2db0` per-lane cube root: bit-hack seed (`i/3 + 0x2a5137a0`) and two Newton steps with `rcpps` reciprocals
     /// (`DAT_180687580..5a0`: 709965728, 1/3, 2/3; `DAT_1806824a0 = 1.0`).</summary>

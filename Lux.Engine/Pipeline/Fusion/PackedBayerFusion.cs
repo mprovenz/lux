@@ -417,7 +417,7 @@ public sealed class PackedBayerFusion
                         for (int x = 0; x < vc; x += 2)
                         {
                             var v = Vector128.Create(p[r0 + x + 1], p[r0 + x], p[r1 + x], p[r1 + x + 1]);
-                            v = Sse.Reciprocal(Sse.Max(v, tenth));
+                            v = IntelApprox.Reciprocal(Sse.Max(v, tenth));
                             s0 = s0 + v.GetElement(0); s1 = s1 + v.GetElement(1); s2 = s2 + v.GetElement(2); s3 = s3 + v.GetElement(3);
                         }
                     }
@@ -450,7 +450,7 @@ public sealed class PackedBayerFusion
         if (y + 1 < h && x + 1 < w) { s = s + Load(img[(y + 1) * stride + x + 1]); cnt++; }
         else if (cnt == 0) return Vector128<float>.Zero;
         var c = Vector128.Create((float)cnt);
-        var r = Sse.Reciprocal(c);
+        var r = IntelApprox.Reciprocal(c);
         return ((Vector128.Create(One) - c * r) * r + r) * s;
     }
 
@@ -464,7 +464,7 @@ public sealed class PackedBayerFusion
     {
         float f = Mean2x2(VignMap, VmW, VmH, VmW, bx, by);
         var v = Mean2x2Vec(BlockRcp, BrW, BrH, BrW, bx, by);
-        var r = Sse.Reciprocal(v);
+        var r = IntelApprox.Reciprocal(v);
         var t = v * r;
         var d = (Vector128.Create(One) - t) * r;
         var s = Vector128.Create(Black) + r;
@@ -665,7 +665,7 @@ public sealed class PackedBayerFusion
     /// (disasm 180507f4c–180507f78); `std[i] = DAT_1806b5110[w8[i]]·k` (`FUN_180209010`).</summary>
     public static float StdK(float noiseScale)
     {
-        float r = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(noiseScale)).ToScalar();
+        float r = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(noiseScale)).ToScalar();
         float t = noiseScale * r;
         float k = ((t * r) + MinusThree) * (MinusHalf * t);
         return noiseScale == 0f ? 0f : k;

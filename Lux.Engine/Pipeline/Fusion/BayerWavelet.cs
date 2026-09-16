@@ -161,7 +161,7 @@ public static class BayerMerge
         return h;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)] static float Rcp(float d) => Sse.ReciprocalScalar(Vector128.CreateScalar(d)).ToScalar();
+    [MethodImpl(MethodImplOptions.AggressiveInlining)] static float Rcp(float d) => IntelApprox.ReciprocalScalar(Vector128.CreateScalar(d)).ToScalar();
     /// <summary>`maxps`/`maxss` dst,src: dst if dst &gt; src else src (so src on NaN or equal).</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)] static float MaxPs(float dst, float src) => dst > src ? dst : src;
 

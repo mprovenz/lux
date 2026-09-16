@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -91,12 +92,12 @@ public sealed class DenseLayer
     {
         int n = L.Planes.Length, pw = prev.W, ph = prev.H;
         var b = new float[n];
-        for (int i = 0; i < n - 1; i++) b[i] = (Sse.ReciprocalScalar(Vector128.CreateScalar(L.Planes[i + 1])).ToScalar() + Sse.ReciprocalScalar(Vector128.CreateScalar(L.Planes[i])).ToScalar()) * 0.5f;
+        for (int i = 0; i < n - 1; i++) b[i] = (IntelApprox.ReciprocalScalar(Vector128.CreateScalar(L.Planes[i + 1])).ToScalar() + IntelApprox.ReciprocalScalar(Vector128.CreateScalar(L.Planes[i])).ToScalar()) * 0.5f;
         b[n - 1] = float.MaxValue;
         var idx = new ushort[pw * ph];
         for (int i = 0; i < pw * ph; i++)
         {
-            float v = Sse.ReciprocalScalar(Vector128.CreateScalar(prev.Depth[i])).ToScalar();
+            float v = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(prev.Depth[i])).ToScalar();
             int c = 0; while (c < n && b[c] <= v) c++;   // #{j : b[j] ≤ v}
             idx[i] = (ushort)c;
         }

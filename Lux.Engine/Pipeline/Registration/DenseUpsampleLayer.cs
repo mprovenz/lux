@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
@@ -134,8 +135,8 @@ public static class DenseUpsampleLayer
     public static float[] InverseDepth(float[] src)
     {
         var dst = new float[src.Length]; int i = 0;
-        for (; i + 4 <= src.Length; i += 4) Sse.Reciprocal(Vector128.Create(src[i], src[i + 1], src[i + 2], src[i + 3])).CopyTo(dst, i);
-        for (; i < src.Length; i++) dst[i] = Sse.ReciprocalScalar(Vector128.CreateScalar(src[i])).ToScalar();
+        for (; i + 4 <= src.Length; i += 4) IntelApprox.Reciprocal(Vector128.Create(src[i], src[i + 1], src[i + 2], src[i + 3])).CopyTo(dst, i);
+        for (; i < src.Length; i++) dst[i] = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(src[i])).ToScalar();
         return dst;
     }
 

@@ -195,7 +195,7 @@ public sealed class StackFusion
                         {
                             int p = row + x * 4;
                             var v = Vector128.Create((float)packed[p], (float)packed[p + 1], (float)packed[p + 2], (float)packed[p + 3]);
-                            v = Sse.Reciprocal(Sse.Max(v, tenth));
+                            v = IntelApprox.Reciprocal(Sse.Max(v, tenth));
                             s0 += v.GetElement(0); s1 += v.GetElement(1); s2 += v.GetElement(2); s3 += v.GetElement(3);
                         }
                     }
@@ -211,7 +211,7 @@ public sealed class StackFusion
     public Vec4F NoiseFn(int bx, int by)
     {
         var v = PackedBayerFusion.Mean2x2Vec(_blockRcp, _brW, _brH, _brW, bx, by);
-        var r = Sse.Reciprocal(v);
+        var r = IntelApprox.Reciprocal(v);
         var d = (Vector128.Create(One) - v * r) * r;
         var s = Vector128.Create(Black) + r;
         s = s + d;

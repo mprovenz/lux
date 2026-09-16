@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using Lux.Engine.Lri;
@@ -19,8 +20,8 @@ public static class WhiteBalance
 
     /// <summary>xy → (CCT, tint), float version of <see cref="LumenColorTables.XyToCct"/> (`FUN_1800d0ef0`).</summary>
     // SSE forms used by cp.dll's colour code (transcribed from the assembly): rsqrtss/rcpps + one Newton step.
-    private static float RsqrtSs(float x) => System.Runtime.Intrinsics.X86.Sse.IsSupported ? System.Runtime.Intrinsics.X86.Sse.ReciprocalSqrtScalar(System.Runtime.Intrinsics.Vector128.CreateScalar(x)).ToScalar() : 1f / MathF.Sqrt(x);
-    private static float RcpSs(float x) => System.Runtime.Intrinsics.X86.Sse.IsSupported ? System.Runtime.Intrinsics.X86.Sse.ReciprocalScalar(System.Runtime.Intrinsics.Vector128.CreateScalar(x)).ToScalar() : 1f / x;
+    private static float RsqrtSs(float x) => IntelApprox.ReciprocalSqrtScalar(System.Runtime.Intrinsics.Vector128.CreateScalar(x)).ToScalar();
+    private static float RcpSs(float x) => IntelApprox.ReciprocalScalar(System.Runtime.Intrinsics.Vector128.CreateScalar(x)).ToScalar();
     /// <summary>1/√x as `rs·(−0.5)·((x·rs)·rs + (−3))` (rsqrtss + Newton), 0 when x == 0.</summary>
     private static float InvSqrtNR(float x) { if (x == 0f) return 0f; float rs = RsqrtSs(x); float s = x * rs; return (s * rs + -3.0f) * -0.5f * rs; }
     /// <summary>1/√x in the variant `FUN_1800d0cb0` uses: `((x·rs)·rs + (−3))·(rs·(−0.5))` — same value, kept separate for op order.</summary>

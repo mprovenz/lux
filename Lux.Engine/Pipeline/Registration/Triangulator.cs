@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -61,7 +62,7 @@ public static class Triangulator
         if (MathF.Abs(l0) > Eps || MathF.Abs(l1) > Eps)
         {
             float n = l1 * l1 + l0 * l0;
-            float y = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(n)).ToScalar();
+            float y = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(n)).ToScalar();
             float t = ((n * y) * y) + (-3.0f);
             float sc = (y * (-0.5f)) * t;
             return new[] { l0 * sc, l1 * sc, sc * l2 };
@@ -94,7 +95,7 @@ public static class Triangulator
         float bo2 = boz * boz + (boy * boy + box * box), br2 = brz * brz + (bry * bry + brx * brx);
         float Po = bo2 * ro2, Pr = br2 * rr2;
         var Pv = Vector128.Create(Po, Pr, 0f, 0f);
-        var yv = Sse.ReciprocalSqrt(Pv);
+        var yv = IntelApprox.ReciprocalSqrt(Pv);
         float yo = yv.GetElement(0), yr = yv.GetElement(1);
         float coso = ((yo * (-0.5f)) * doto) * (((Po * yo) * yo) + (-3.0f));
         float cosr = ((yr * (-0.5f)) * dotr) * (((Pr * yr) * yr) + (-3.0f));
@@ -102,7 +103,7 @@ public static class Triangulator
         double sino = Math.Sqrt(1.0 - co * co), sinr = Math.Sqrt(1.0 - cr * cr);
         double S = (co * sinr) + (cr * sino);
         float q = br2 / rr2;
-        float yq = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(q)).ToScalar();
+        float yq = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(q)).ToScalar();
         float sq = (((q * yq) * yq) + (-3.0f)) * ((-0.5f) * (q * yq));
         if (q == 0f) sq = 0f;
         double ratio = sino / S;

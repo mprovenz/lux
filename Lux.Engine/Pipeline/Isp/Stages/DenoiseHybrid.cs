@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using Lux.Engine.Pipeline.Isp;
@@ -83,7 +84,7 @@ public static class HybridDenoise
     public sealed class NlmParams { public int WindowSize = 5, PatchSize = 5, StepSize = 2, PyramidSize = 5; public float ChromaBoost = 2f, MinLumaStd = 0f; }
     public sealed class BilateralParams { public int WindowSize = 5, PyramidSize = 5; public float ChromaBoost = 2f; }
 
-    static float Rcp(float d) => Sse.ReciprocalScalar(Vector128.CreateScalar(d)).ToScalar();
+    static float Rcp(float d) => IntelApprox.ReciprocalScalar(Vector128.CreateScalar(d)).ToScalar();
     static float Max(float a, float b) => a > b ? a : b;          // maxps: NaN → second operand… (a > b false → b)
     static Vec4F Add(Vec4F a, Vec4F b) => new(a.R + b.R, a.G + b.G, a.B + b.B, a.A + b.A);
     static float Abs(float a) => BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(a) & 0x7fffffff);

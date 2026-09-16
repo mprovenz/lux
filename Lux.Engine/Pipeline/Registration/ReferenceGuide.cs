@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using Lux.Engine.Pipeline.Color;
@@ -88,7 +89,7 @@ public static class ReferenceGuide
         }
         if (threads > 1 && tileList.Count > 1) Parallel.ForEach(tileList, new ParallelOptions { MaxDegreeOfParallelism = threads }, t => Tile(t, true));
         else foreach (var t in tileList) Tile(t, false);
-        var ac = AlignedCalib.Build(view, module, 1f, 1f, 1f, 1f, dist.PpX, dist.PpY, dist.Poly, dist.Pix, dist.Pix);   // FUN_180185030(ac, module, view, I, img, (1,1), 0)
+        var ac = AlignedCalib.Build(view, module, 1f, 1f, 1f, 1f, dist.PpX, dist.PpY, dist.Poly, dist.Pix, dist.Pix, M: new float[] { 1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f });   // FUN_180185030(ac, module, view, M = I₃, img, (1,1), 0)
         var warped = Rgba8Warp.Warp(pre, W, H, W, H, ac);   // FUN_180326240(out, img8, &img8.size, &ac)
         log?.Invoke($"guide: {W}x{H} in {sw.Elapsed.TotalSeconds:F1}s");
         return new Result(new Rgba8Image(warped, W, H, W)) { PreWarp = pre, Float = flt, W = W, H = H, Stats = stats, Calib = ac };
@@ -118,7 +119,7 @@ public static class Rgba8Warp
                 float dx = w * Xn - cx, dy = w * Yn - cy;
                 float r2 = (sy * dy) * (sy * dy) + (sx * dx) * (sx * dx);
                 float r;
-                if (r2 == 0f) r = 0f; else { float rs = Sse.ReciprocalSqrtScalar(Vector128.CreateScalar(r2)).ToScalar(); float S = r2 * rs; r = ((S * rs) + (-3.0f)) * (S * (-0.5f)); }
+                if (r2 == 0f) r = 0f; else { float rs = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(r2)).ToScalar(); float S = r2 * rs; r = ((S * rs) + (-3.0f)) * (S * (-0.5f)); }
                 int idx = (int)r; if (idx >= 0x1000) idx = 0xfff;
                 float lu = lut[idx];
                 int px = (int)(((cx + (-2.0f)) + lu * dx) * 64.0f), py = (int)(((cy + (-2.0f)) + dy * lu) * 64.0f);
