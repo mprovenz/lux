@@ -98,6 +98,7 @@ public sealed class Options
     public DateTimeOffset? Since { get; private set; }
     public bool Overwrite { get; private set; }
     public bool ListOnly { get; private set; }
+    public bool Offline { get; private set; }     // version: print the build's version without asking GitHub
 
     /// <summary>The flags actually present on the command line, so a command can reject one that names something
     /// it does not write (`--jpeg-quality` with `--formats dng`) or one that belongs to a different command.</summary>
@@ -222,6 +223,9 @@ public sealed class Options
                     case "--since": o.Since = DateTimeOffset.Parse(Need("a date"), CultureInfo.InvariantCulture); break;
                     case "--overwrite": o.Overwrite = true; break;
                     case "--list": o.ListOnly = true; break;
+
+                    // ---- version
+                    case "--offline": o.Offline = true; break;
 
                     default:
                         if (a.StartsWith('-')) o.Errors.Add($"unknown option '{a}' — `lux-light --help` lists every flag");

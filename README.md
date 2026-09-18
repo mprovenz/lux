@@ -26,7 +26,7 @@ Currently, only the Lux 'light' CLI exists. This is meant to be a lightweight GU
 - **Lux.Cli** — `lux-light`: `convert` (the one picture-producing verb — Lumen's DNG, JPG, HDR, PPM and
   JPEG+GDepth, plus the Lux formats that share the same render: the stereo depth pair, `lens-frames` and the
   experimental `parallax-*` animations and stills), `inspect`, `profile`, `isp`, `isp-run`, `mod-info`, `devices`,
-  `pull`.
+  `pull`, `version`.
 
 ## Build & run
 Precompiled builds: download the archive for your platform from the [Releases page](https://github.com/mprovenz/lux/releases),
@@ -352,10 +352,11 @@ lux-light --help
 | `isp-run <input...>` | Run the module ISP over a centre ROI, write a gamma-encoded PPM |
 | `devices` | List connected MTP cameras |
 | `pull [options]` | Pull matching files off the camera |
+| `version [--offline]` | Print this build's version and check GitHub for a newer release |
 
 ### INPUT
 
-convert, inspect, mod-info, profile, isp and isp-run take one or more .lri files and/or directories (directories are scanned for *.lri). devices and pull take no input files.
+convert, inspect, mod-info, profile, isp and isp-run take one or more .lri files and/or directories (directories are scanned for *.lri). devices, pull and version take no input files.
 
 ### CONVERT OPTIONS
 
@@ -529,6 +530,14 @@ Every format but parallax-wiggle forces the level-0 build (announced, as jpg+dep
 | `--since <date>` | only files modified on/after this date |
 | `--overwrite` | re-download even if a same-size file exists locally |
 | `--list` | list matching files without downloading |
+
+### VERSION OPTIONS
+
+| Option | Description |
+|---|---|
+| `--offline` | print the version only, without asking GitHub |
+
+Exit status: 0 up to date (or no release published yet), 1 a newer release is available, 2 the check could not be made (no network, GitHub error). The release page is https://github.com/mprovenz/lux/releases.
 
 ### GLOBAL OPTIONS
 

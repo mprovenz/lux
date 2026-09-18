@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>lux-light</AssemblyName>
+    <!-- The build's version: `lux-light version` compares it with the latest GitHub release tag (v<Version>). Bump it with each release. -->
+    <Version>1.2.0</Version>
     <RootNamespace>Lux.Cli</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- The tile render allocates its scratch per tile on many threads; the workstation collector let ~20 GB of dead

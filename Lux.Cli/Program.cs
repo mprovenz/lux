@@ -26,7 +26,8 @@ namespace Lux.Cli
 
             if (!CommandSets.IsProduction(command)) return UnknownCommand(command);
 
-            // device commands take no input files
+            // the device and version commands take no input files
+            if (command == "version") return VersionCmd.Run(opts);
             if (command == "devices") return RunDevices();
             if (command == "pull") return RunPull(opts);
             Lux.Engine.Pipeline.Color.LumenComponents.EnsureRegistered();
@@ -328,10 +329,11 @@ namespace Lux.Cli
                   isp-run <input...>          Run the module ISP over a centre ROI, write a gamma-encoded PPM
                   devices                     List connected MTP cameras
                   pull [options]              Pull matching files off the camera
+                  version [--offline]         Print this build's version and check GitHub for a newer release
 
                 INPUT:
                   convert, inspect, mod-info, profile, isp and isp-run take one or more .lri files and/or
-                  directories (directories are scanned for *.lri). devices and pull take no input files.
+                  directories (directories are scanned for *.lri). devices, pull and version take no input files.
 
                 REQUIREMENTS:
                   - The .NET 10 runtime.
@@ -510,6 +512,12 @@ namespace Lux.Cli
                       --since <date>          only files modified on/after this date
                       --overwrite             re-download even if a same-size file exists locally
                       --list                  list matching files without downloading
+
+                VERSION OPTIONS:
+                      --offline               print the version only, without asking GitHub
+                  Exit status: 0 up to date (or no release published yet), 1 a newer release is available,
+                  2 the check could not be made (no network, GitHub error). The release page is
+                  https://github.com/mprovenz/lux/releases
 
                 GLOBAL OPTIONS:
                   -h, --help                  this help
