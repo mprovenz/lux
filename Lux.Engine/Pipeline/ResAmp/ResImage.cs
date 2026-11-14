@@ -1,6 +1,6 @@
 namespace Lux.Engine.Pipeline.ResAmp;
 
-/// <summary>Mirror of cp.dll's <c>lt::Image&lt;T&gt;</c> header as used inside <c>ImageResolutionAmp</c> (spec `a-resamp.md` §0):
+/// <summary>Mirror of Lumen's <c>lt::Image&lt;T&gt;</c> header as used inside <c>ImageResolutionAmp</c>:
 /// <c>Off</c> = element index of view pixel (0,0) (the "data pointer"), <c>W/H</c> = view size, <c>Stride</c> in pixels, and
 /// <c>RX0..RY1</c> = the whole allocated valid area relative to the view origin (RX0 ≤ 0, RX1 ≥ W after a crop). Kernels that clamp
 /// against the rect (conv, resamplers) read real data outside the view. <c>Elems</c> = floats per pixel (4 for vec4, 1 for float).</summary>
@@ -22,7 +22,7 @@ public sealed class ResImage
     /// <summary>Element index of pixel (x, y) (view coordinates; may be negative inside the rect).</summary>
     public int Idx(int x, int y) => Off + (y * Stride + x) * Elems;
 
-    /// <summary>§0 crop rule: view := rect ∩ [a,b,c,d]; data += (stride·y0 + x0); rect −= (x0, y0). Returns a new header sharing the buffer.</summary>
+    /// <summary>Crop rule: view := rect ∩ [a,b,c,d]; data += (stride·y0 + x0); rect −= (x0, y0). Returns a new header sharing the buffer.</summary>
     public ResImage Crop(int a, int b, int c, int d)
     {
         int x0 = Math.Max(RX0, a), y0 = Math.Max(RY0, b), x1 = Math.Min(RX1, c), y1 = Math.Min(RY1, d);

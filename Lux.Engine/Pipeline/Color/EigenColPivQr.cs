@@ -1,19 +1,16 @@
 namespace Lux.Engine.Pipeline.Color;
 
 /// <summary>
-/// Eigen 3.3 `ColPivHouseholderQR&lt;MatrixXd&gt;` — the decomposition cp.dll uses for the thin-plate-spline system of
-/// `OptimizeHSVLut` (`FUN_180164940` allocates the object, `FUN_180165350` = `computeInPlace`, `FUN_180168190`/`FUN_180168240`
-/// = `_solve_impl`). The object layout in `FUN_180164940` identifies the Eigen 3.3 flavour unambiguously: m_qr (ptr, rows, cols),
-/// m_hCoeffs (min(rows,cols)), m_colsPermutation (**int32**, cols), m_colsTranspositions (int64, cols), m_temp, m_colNormsUpdated
-/// and m_colNormsDirect (three double vectors of size cols) — the last two only exist in 3.3 (3.2 has a single m_colSqNorms).
+/// Eigen 3.3 `ColPivHouseholderQR&lt;MatrixXd&gt;` — the decomposition Lumen uses for the thin-plate-spline system of
+/// `OptimizeHSVLut` (the constructor = `computeInPlace`, <see cref="Solve"/> = `_solve_impl`). Lumen's build is the Eigen 3.3
+/// flavour: it keeps m_colNormsUpdated and m_colNormsDirect (two double vectors of size cols); 3.2 has a single m_colSqNorms.
 ///
-/// The machine-level deviations of the same compiler on the fixed-size twin in this binary
-/// (`ColPivHouseholderQR&lt;Matrix&lt;double,9,8&gt;&gt;::computeInPlace` at 0x1802a33d0, spec `a5552553660ca75d1.md`)
-/// are reproduced here: `essential = tail·(1/(c0−beta))` as a reciprocal multiply, `temp2 = (u/d)·(u/d)·temp`,
+/// This code reproduces the machine-level behaviour of Lumen's compiled Eigen:
+/// `essential = tail·(1/(c0−beta))` as a reciprocal multiply, `temp2 = (u/d)·(u/d)·temp`,
 /// `temp&lt;0 → 0` as a max, `beta` sign from `c0 &lt; 0`, strict `&gt;` for both the pivot search (first maximum wins) and
-/// `m_maxpivot`, `tol` test `tailSqNorm &lt;= DBL_MIN`, and the `&lt;=` downdate test. What is *not* reproduced is the
+/// `m_maxpivot`, `tol` test `tailSqNorm &lt;= DBL_MIN`, and the `&lt;=` downdate test. It does *not* reproduce the
 /// compiler's SIMD re-association of the inner dot products (the gemv lane trees): those loops are written sequentially
-/// here, which changes nothing at float precision (the grid is float and every one of the 2×3072 exported values matches).
+/// here. This changes nothing at float precision: the grid is float, and all 2×3072 output values match Lumen's.
 /// </summary>
 public sealed class EigenColPivQr
 {
@@ -77,7 +74,7 @@ public sealed class EigenColPivQr
             {
                 beta = Math.Sqrt(c0 * c0 + tailSq);
                 if (c0 >= 0.0) beta = -beta;
-                double r = 1.0 / (c0 - beta);                               // reciprocal multiply (0x1802a3945)
+                double r = 1.0 / (c0 - beta);                               // reciprocal multiply
                 for (int i = 0; i < tail; i++) _qr[k + 1 + i + rows * k] *= r;
                 tau = (beta - c0) / beta;
             }

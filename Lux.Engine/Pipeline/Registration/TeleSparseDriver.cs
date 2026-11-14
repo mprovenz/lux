@@ -5,9 +5,9 @@ using System.Runtime.Intrinsics.X86;
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// The TELE (higher-group) sparse matching of `lt::SparseLNR` — `FUN_1802ea1c0` + `matchFeaturesPerLevelHigherCams&lt;12&gt;` (`1802eb860`,
-/// lambda `1802f2110`, core `FUN_1802f2c60`, ZSAD `FUN_1802f2ec0`), the depth-visibility mask `FUN_1802e7310` and the prior points
-/// `FUN_1802b4c40` (spec `a521b464485b1074b.md`). Reuses the WIDE port's pyramids, RANSAC gate, view updates and finalize.
+/// The TELE (higher-group) sparse matching of `lt::SparseLNR` — the driver + `matchFeaturesPerLevelHigherCams&lt;12&gt;` (its
+/// lambda, core and ZSAD), the depth-visibility mask and the prior points. Reuses the WIDE port's pyramids, RANSAC gate, view
+/// updates and finalize.
 /// </summary>
 public static class TeleSparseDriver
 {
@@ -26,7 +26,7 @@ public static class TeleSparseDriver
         return (v[0] * w, w * v[1]);
     }
 
-    /// <summary>`FUN_1802b4c40`: per triangulated WIDE point, its projection into the cam canvas (or (−1,−1)) gated by a 17×17 depth-consistency test.</summary>
+    /// <summary>Per triangulated WIDE point, its projection into the cam canvas (or (−1,−1)) gated by a 17×17 depth-consistency test.</summary>
     public static (float X, float Y)[] PriorPoints(TriPoint[] pts, float[] depth, int dW, int dH, float[] M, int imgW, int imgH)
     {
         const float sx = 1f, sy = 1f; var outp = new (float X, float Y)[pts.Length];
@@ -79,7 +79,7 @@ public static class TeleSparseDriver
         return o;
     }
 
-    /// <summary>`FUN_1802e7310`: z-buffered visibility of the reference depth in the cam canvas (¼ grid), opened (erode/dilate, r = 1), nearest-resampled to the depth size.</summary>
+    /// <summary>Z-buffered visibility of the reference depth in the cam canvas (¼ grid), opened (erode/dilate, r = 1), nearest-resampled to the depth size.</summary>
     public static byte[] VisibilityMask(float[] depth, int dW, int dH, float[] M, float sx, float sy, int wB, int hB, float[] rect)
     {
         int zw = wB / 4, zh = hB / 4, vw = dW / 4, vh = dH / 4;
@@ -117,7 +117,7 @@ public static class TeleSparseDriver
         return outp;
     }
 
-    // ---- 12×12 zero-mean weighted SAD (FUN_1802f2c60 / FUN_1802f2ec0) ----
+    // ---- 12×12 zero-mean weighted SAD ----
     static int[] Mean12(Rgba8Image img, int x, int y)
     {
         var sum = new int[4];
@@ -235,7 +235,7 @@ public static class TeleSparseDriver
 
     public sealed class Result { public MatchedPoint[][] PerLevel = null!; public (float X, float Y)[] Out = null!; public MatchView ViewA = null!, ViewB = null!; public bool[][] Skip = null!; }
 
-    /// <summary>`FUN_1802ea1c0`: the whole TELE matching for one camera.</summary>
+    /// <summary>The whole TELE matching for one camera.</summary>
     public static Result Run(PaddedRgba8[] refPyr, FeaturePoint[][] feats, int nRefPts, byte[] B0, int wB, int hB, (float X, float Y)[] prior,
         float[] depth, int dW, int dH, float[] M, float sx, float sy, float planeDepth, bool farScene, float satLevel, Action<string>? log = null)
     {

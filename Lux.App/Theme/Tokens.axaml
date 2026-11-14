@@ -1,0 +1,76 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    Studio design tokens. Every colour, face, size and radius the app uses is defined here
+    once; views and control themes refer to these keys only. To swap the faces (Archivo / JetBrains Mono), change
+    LuxTextFont / LuxMonoFont.
+  -->
+
+  <!-- Colours -->
+  <Color x:Key="LuxGroundColor">#404040</Color>        <!-- page ground, active tab -->
+  <Color x:Key="LuxPanelColor">#3a3a3a</Color>         <!-- side panels, toolbars, cards -->
+  <Color x:Key="LuxBarColor">#333333</Color>           <!-- header, status bar, notes, table head -->
+  <Color x:Key="LuxLineDarkColor">#262626</Color>      <!-- separators, fields, badges, selected tree row -->
+  <Color x:Key="LuxLineMidColor">#555555</Color>       <!-- field borders, segmented outline, progress track -->
+  <Color x:Key="LuxLineLightColor">#6a6a6a</Color>     <!-- button outlines, dialog border -->
+  <Color x:Key="LuxTextColor">#f2f2f2</Color>
+  <Color x:Key="LuxTextSecondaryColor">#d6d6d6</Color>
+  <Color x:Key="LuxTextDisabledColor">#a8a8a8</Color>
+  <Color x:Key="LuxAccentColor">#a9dcff</Color>
+  <Color x:Key="LuxAccentHoverColor">#d3edff</Color>
+  <Color x:Key="LuxOnAccentColor">#1c1c1c</Color>
+  <Color x:Key="LuxSelectionColor">#2b3a44</Color>
+  <Color x:Key="LuxWarningColor">#f0b47a</Color>
+  <Color x:Key="LuxWarningGroundColor">#4a4033</Color>
+  <Color x:Key="LuxSuccessColor">#8fd6a3</Color>
+  <Color x:Key="LuxScrimColor">#B3202020</Color>       <!-- behind a dialog -->
+  <Color x:Key="LuxPlaceholderColor">#4c4c4c</Color>   <!-- a thumbnail not loaded yet -->
+  <Color x:Key="LuxHoverColor">#14FFFFFF</Color>
+  <Color x:Key="LuxPressedColor">#26FFFFFF</Color>
+
+  <SolidColorBrush x:Key="LuxGround" Color="{StaticResource LuxGroundColor}" />
+  <SolidColorBrush x:Key="LuxPanel" Color="{StaticResource LuxPanelColor}" />
+  <SolidColorBrush x:Key="LuxBar" Color="{StaticResource LuxBarColor}" />
+  <SolidColorBrush x:Key="LuxLineDark" Color="{StaticResource LuxLineDarkColor}" />
+  <SolidColorBrush x:Key="LuxLineMid" Color="{StaticResource LuxLineMidColor}" />
+  <SolidColorBrush x:Key="LuxLineLight" Color="{StaticResource LuxLineLightColor}" />
+  <SolidColorBrush x:Key="LuxText" Color="{StaticResource LuxTextColor}" />
+  <SolidColorBrush x:Key="LuxTextSecondary" Color="{StaticResource LuxTextSecondaryColor}" />
+  <SolidColorBrush x:Key="LuxTextDisabled" Color="{StaticResource LuxTextDisabledColor}" />
+  <SolidColorBrush x:Key="LuxAccent" Color="{StaticResource LuxAccentColor}" />
+  <SolidColorBrush x:Key="LuxAccentHover" Color="{StaticResource LuxAccentHoverColor}" />
+  <SolidColorBrush x:Key="LuxOnAccent" Color="{StaticResource LuxOnAccentColor}" />
+  <SolidColorBrush x:Key="LuxSelection" Color="{StaticResource LuxSelectionColor}" />
+  <SolidColorBrush x:Key="LuxWarning" Color="{StaticResource LuxWarningColor}" />
+  <SolidColorBrush x:Key="LuxWarningGround" Color="{StaticResource LuxWarningGroundColor}" />
+  <SolidColorBrush x:Key="LuxSuccess" Color="{StaticResource LuxSuccessColor}" />
+  <SolidColorBrush x:Key="LuxScrim" Color="{StaticResource LuxScrimColor}" />
+  <SolidColorBrush x:Key="LuxPlaceholder" Color="{StaticResource LuxPlaceholderColor}" />
+  <SolidColorBrush x:Key="LuxHover" Color="{StaticResource LuxHoverColor}" />
+  <SolidColorBrush x:Key="LuxPressed" Color="{StaticResource LuxPressedColor}" />
+
+  <!-- Faces (bundled, Assets/Fonts, SIL OFL 1.1): Archivo for text (400 / 500 / 600 / 700 as static files), JetBrains Mono for names and
+       numbers (400 / 500 / 700). The bundled face comes first, so no text layout searches for a missing font; Inter (bundled with
+       Avalonia) and the platform's fallback cover characters the faces lack (stars, arrows). -->
+  <FontFamily x:Key="LuxTextFont">avares://lux-app/Assets/Fonts#Archivo, fonts:Inter#Inter</FontFamily>
+  <FontFamily x:Key="LuxMonoFont">avares://lux-app/Assets/Fonts#JetBrains Mono, fonts:Inter#Inter</FontFamily>
+
+  <!-- Type scale -->
+  <x:Double x:Key="LuxFontSize">13</x:Double>
+  <x:Double x:Key="LuxFontSizeSmall">12</x:Double>
+  <x:Double x:Key="LuxFontSizeTiny">11</x:Double>
+  <x:Double x:Key="LuxFontSizeLarge">15</x:Double>
+  <x:Double x:Key="LuxFontSizeHeading">16</x:Double>
+  <x:Double x:Key="LuxFontSizeDialogTitle">17</x:Double>
+  <x:Double x:Key="LuxFontSizeTitle">22</x:Double>
+
+  <!-- Metrics -->
+  <x:Double x:Key="LuxControlHeight">44</x:Double>
+  <x:Double x:Key="LuxFieldHeight">32</x:Double>
+  <x:Double x:Key="LuxToolbarHeight">52</x:Double>
+  <x:Double x:Key="LuxStatusHeight">32</x:Double>
+  <CornerRadius x:Key="LuxRadius">2</CornerRadius>
+  <x:Double x:Key="LuxTreeWidth">230</x:Double>
+  <x:Double x:Key="LuxDetailsWidth">280</x:Double>
+  <x:Double x:Key="LuxSidePanelWidth">460</x:Double>
+</ResourceDictionary>

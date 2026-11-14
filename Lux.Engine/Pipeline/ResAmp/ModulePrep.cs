@@ -2,12 +2,12 @@ using static Lux.Engine.Pipeline.ResAmp.SseOps;
 
 namespace Lux.Engine.Pipeline.ResAmp;
 
-/// <summary>§4 of `a-resamp.md`: per tele module — WarpField projection of the 8-px coarse grid, module render (gain+√ by the generator),
+/// <summary>Per tele module — WarpField projection of the 8-px coarse grid, module render (gain+√ by the generator),
 /// colour decorrelation, Lanczos-2 9-tap blur, luma/alpha, 81×81 box-normalised u8 luma, the nine 1/3-px phase maps, bilinear↓ +
 /// B-spline↑ high-pass, and the record push.</summary>
 internal static class ModulePrep
 {
-    /// <summary>The decorrelation matrix (static initializer list @0x1806defb0, copied to DAT_180836de8..e08): rows M[0]=(de8,dec,df0), M[1]=(df4,df8,dfc), M[2]=(e00,e04,e08).</summary>
+    /// <summary>The decorrelation matrix, rows M[0], M[1], M[2].</summary>
     public static readonly float[] Mrow =
     {
         F(0x3f13cd36), F(0x3f13cd36), F(0x3f13cd36),
@@ -15,7 +15,7 @@ internal static class ModulePrep
         F(0x3ed10625), F(0xbf510625), F(0x3ed10625),
     };
 
-    /// <summary>§4.1: project the coarse grid through the WarpField. Returns false (module skipped) unless bw &gt; 0 &amp;&amp; bh &gt; 0.</summary>
+    /// <summary>Project the coarse grid through the WarpField. Returns false (module skipped) unless bw &gt; 0 &amp;&amp; bh &gt; 0.</summary>
     public static bool Project(int[] grid, int gw, int gh, WarpField wf, int refW, int refH, int Wm, int Hm, int[] proj, out int minx, out int miny, out int maxx, out int maxy)
     {
         minx = int.MaxValue; miny = int.MaxValue; maxx = int.MinValue; maxy = int.MinValue;
@@ -47,7 +47,7 @@ internal static class ModulePrep
         return bw > 0 && minx != int.MaxValue && bh > 0;
     }
 
-    /// <summary>§4.2–§4.10 for one module whose projection produced the bbox. Returns the record.</summary>
+    /// <summary>The rest of the module preparation for one module whose projection produced the bbox. Returns the record.</summary>
     public static ModuleRecord Build(ImageGenerator gen, float scale, ReadOnlySpan<float> sWeights, int[] proj, int gw, int gh,
                                      int minx, int miny, int maxx, int maxy, int moduleIndex, ResAmpTrace? trace)
     {
@@ -58,7 +58,7 @@ internal static class ModulePrep
         var render = ResAmpKernels.RenderGen(gen, minx - m2, miny - m2, maxx + 4 + m1, maxy + 4 + m1);
         trace?.Emit(tp + "render", render);
         int boxSize = s32i | 1;
-        // §4.3 colour decorrelation in place: out_k = (G·M[k][1] + R·M[k][0]) + B·M[k][2]
+        // colour decorrelation in place: out_k = (G·M[k][1] + R·M[k][0]) + B·M[k][2]
         {
             var d = render.Data;
             for (int i = 0; i < d.Length; i += 4)
@@ -69,7 +69,7 @@ internal static class ModulePrep
                 d[i + 2] = (G * Mrow[7] + R * Mrow[6]) + B * Mrow[8];
             }
         }
-        // §4.4 Lanczos-2 taps
+        // Lanczos-2 taps
         float invS = 1.0f / scale; var wk = new float[9]; float sum = 0f;
         float pi = F(0x40490fdb), pi2 = F(0x3fc90fdb), pisq = F(0x411de9e7);
         for (int k = 0; k < 9; k++)
@@ -86,7 +86,7 @@ internal static class ModulePrep
         int ex = bw + 2 * m1 + 4, ey = bh + 2 * m1 + 4;
         render = render.Crop(4, 4, ex, ey);                       // (W−8)×(H−8), rect (−4,−4,W−4,H−4)
         var blur = ResAmpKernels.Conv9(render, wk, wk);
-        // §4.5 luma / alpha
+        // luma / alpha
         float s0 = sWeights[0], s1 = sWeights[1], s2 = sWeights[2];
         float L0 = (Mrow[1] * s1 + Mrow[0] * s0) + Mrow[2] * s2;
         float L1 = (Mrow[4] * s1 + Mrow[3] * s0) + Mrow[5] * s2;
@@ -104,13 +104,13 @@ internal static class ModulePrep
         luma = luma.Crop(hh, hh, cx1, cy1); alpha = alpha.Crop(hh, hh, cx1, cy1);
         render = render.Crop(hh, hh, cx1, cy1); blur = blur.Crop(hh, hh, cx1, cy1);
         int uw = bw + 2 * Nm, uh = bh + 2 * Nm;
-        // §4.6 normalised-luma u8 map
+        // normalised-luma u8 map
         var boxLuma = ResAmpKernels.BoxFilter(luma, boxSize, boxSize);
         var boxAlpha = ResAmpKernels.BoxFilter(alpha, boxSize, boxSize);
         var u8data = ResAmpKernels.FloatToU8(luma, boxLuma, boxAlpha, F(0x30800000), 127.0f, 127.0f);
         var u8 = new U8Image(u8data, 0, uw, uh, uw, 0, 0, uw, uh);
         trace?.Emit(tp + "u8", u8);
-        // §4.7 the nine 1/3-phase maps
+        // the nine 1/3-phase maps
         int cw = CeilI((float)bw * invS), ch = CeilI((float)bh * invS);
         float fN = (float)Nm; float fOff = fN - s16;
         int step = Cvtt(scale * F(0x46aaaaab));
@@ -147,12 +147,12 @@ internal static class ModulePrep
             }
         }
         for (int k = 0; k < 9; k++) ph[k] = ph[k].Crop(16, 16, cw + 16, ch + 16);
-        // §4.8 bilinear down-sample of the blurred module
+        // bilinear down-sample of the blurred module
         var bil = new ResImage(cw + 32, ch + 32);
         ResAmpKernels.BilinearResample(bil, blur, (double)fOff, (double)fOff, (double)scale, (double)scale);
         trace?.Emit(tp + "bil", bil);
         bil = bil.Crop(16, 16, cw + 16, ch + 16);
-        // §4.9 B-spline up-sample and high-pass
+        // B-spline up-sample and high-pass
         var up = new ResImage(uw, uh);
         double upOff = (double)(-(fN * invS));
         ResAmpKernels.Resample(up, bil, upOff, upOff, (double)invS, (double)invS, bspline: true);

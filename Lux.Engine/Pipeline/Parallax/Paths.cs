@@ -9,7 +9,7 @@ namespace Lux.Engine.Pipeline.Parallax;
 ///
 /// The **axis** is not invented either. The A modules are bolted to the body, so their layout is a property of the
 /// camera; the dominant eigenvector of the colour modules' centres is the direction the rig is actually spread along
-/// (~12° off horizontal on this corpus), and a sweep along it is the widest baseline the camera can offer.
+/// (about 12° off horizontal), and a sweep along it is the widest baseline the camera can offer.
 /// </summary>
 public static class Paths
 {

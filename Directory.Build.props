@@ -1,0 +1,7 @@
+<Project>
+  <!-- One version for the app and the command line tool. `lux-light version` and the app's update check compare it with the
+       latest GitHub release tag (v<Version>); the release workflow overrides it with the tag being built. Bump it with each release. -->
+  <PropertyGroup>
+    <Version>2.0.0</Version>
+  </PropertyGroup>
+</Project>

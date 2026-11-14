@@ -9,35 +9,35 @@ using Lux.Engine.Pipeline.Registration;
 namespace Lux.Engine.Pipeline.ResAmp;
 
 /// <summary>
-/// The tele module's `SourceImageCache` (0x188 B, ctor `1804dd930`, spec `a-resamp.md` §7.4) = a one-level
+/// The tele module's `SourceImageCache` = a one-level
 /// `TileCache&lt;vec4x16f&gt;` (512×512 tiles) of the module reprojected into the B-cam *view* camera at canvas scale σ, size
-/// `(trunc(validW·σ), trunc(validH·σ))`: tile generator `SourceImageCache::lambda_0` (`1804dddd0`) → `ImageLensUndistort&lt;2, vec4x32f,
-/// LensUndistortCRA&gt;` (`FUN_180304790`: border AABB of the A.8 map, truncate, ±4, clamp to the frame) over the source lambda_1 (`1804de1a0`:
-/// level-0 module SoftISP (config level 1) on the halo-grown rect, cropped back) with the `ImageWarpClamped&lt;2&gt;` kernel (`180305960` = the
-/// `1804e49f0` kernel family, fill (0,0,0,0) ⇒ alpha = validity), stored as software round-toward-zero halves (`FUN_1800e8150`) and read back
-/// exactly (`FUN_1800e86c0`). No neutral and no gain in the cache; the `initResAmp::lambda_3` generator (§1.1/§1.5) applies
-/// `sqrt(max(src·(g,g,g,1), 0))` on the way out, and `FUN_18044b680` zero-fills whatever a render rect asks for outside the level.
+/// `(trunc(validW·σ), trunc(validH·σ))`: tile generator `SourceImageCache::lambda_0` → `ImageLensUndistort&lt;2, vec4x32f,
+/// LensUndistortCRA&gt;` (border AABB of the aligned map, truncate, ±4, clamp to the frame) over the source lambda_1
+/// (level-0 module SoftISP (config level 1) on the halo-grown rect, cropped back) with the `ImageWarpClamped&lt;2&gt;` kernel (the
+/// `PipelineCache::processLevel1` kernel family, fill (0,0,0,0) ⇒ alpha = validity), stored as software round-toward-zero halves and read back
+/// exactly. No neutral and no gain in the cache; the `initResAmp::lambda_3` generator applies
+/// `sqrt(max(src·(g,g,g,1), 0))` on the way out, and <c>RenderGenerator</c> zero-fills whatever a render rect asks for outside the level.
 /// </summary>
 public sealed class TeleLevel0Cache
 {
-    public const int TileSize = 512;                    // ImageCaches+0x38 (DAT_1808378b0)
+    public const int TileSize = 512;
     public readonly int CamId; public readonly string Name;
-    public readonly (int W, int H) Dims;                // levelDims[0] = FUN_1804f0e80: ((int)((float)validW·σx), (int)((float)validH·σy))
+    public readonly (int W, int H) Dims;                // level-0 dims: ((int)((float)validW·σx), (int)((float)validH·σy))
     public readonly (int X, int Y) Grid;                // max(1, (256 + W) / 512)
-    public readonly AlignedCalib Calib;                 // cache+0xc0 LensUndistortCRA: H = (K_mod·inv(R_view·R_modᵀ))·inv(σ·K_view), CRA centre, polynomial LUT
+    public readonly AlignedCalib Calib;                 // LensUndistortCRA: H = (K_mod·inv(R_view·R_modᵀ))·inv(σ·K_view), CRA centre, polynomial LUT
     public readonly CapturedFrame Frame;
-    public readonly SoftIsp Isp;                        // cache+0x110, FUN_18050cc30(profile, isp, cfgLevel 1, cap, (cct, tint))
-    public readonly int Halo;                           // cache+0xb8 = FUN_18050cbf0(profile, sensor_analog_gain)
-    public readonly float Gain;                         // FUN_18010fc80(camera, &id) — captured by lambda_3 (+0x10)
+    public readonly SoftIsp Isp;                        // module ISP (profile, config level 1, capture, (cct, tint))
+    public readonly int Halo;                           // halo by sensor analog gain
+    public readonly float Gain;                         // module gain (ModuleGain) — captured by lambda_3
     public Action<string>? Log;
-    /// <summary>Diagnostics: every grown-rect ISP output (the `FUN_1803dcd90` result) keyed by the grown rect.</summary>
+    /// <summary>Diagnostics: every grown-rect ISP output keyed by the grown rect.</summary>
     public Dictionary<RectI, Image<Vec4F>>? IspOutputs;
-    /// <summary>Diagnostics: replace the module ISP by an externally supplied output for a grown rect (e.g. cp.dll's own output for that rect) to verify the tile/warp path alone.</summary>
+    /// <summary>Diagnostics: replace the module ISP by an externally supplied output for a grown rect (e.g. Lumen's own output for that rect) to check the tile/warp path alone.</summary>
     public Func<RectI, Image<Vec4F>?>? SourceOverride;
     readonly Cache.TileStore<(int, int), ushort[]> _tiles = new();
     readonly float[] _table = WarpResample.BuildTable();
 
-    /// <summary>The module's `lt::StackFusion` result on a stacked capture (`FUN_18020a6d0(stream, cam)` in the cache lambda); null otherwise.</summary>
+    /// <summary>The module's `lt::StackFusion` result on a stacked capture; null otherwise.</summary>
     public global::Lux.Engine.Pipeline.BayerFusion.StackFusion? Stacked { get; }
 
     public TeleLevel0Cache(LriFile lri, string moduleName, CameraCalib view, CameraCalib module, (int W, int H) validSize, (float X, float Y) scale,
@@ -47,10 +47,8 @@ public sealed class TeleLevel0Cache
         Dims = ((int)((float)validSize.W * scale.X), (int)((float)validSize.H * scale.Y));
         Grid = (Math.Max(1, (TileSize / 2 + Dims.W) / TileSize), Math.Max(1, (TileSize / 2 + Dims.H) / TileSize));
         Frame = CapturedFrame.Load(lri, moduleName);
-        // The tele (non-reference-group) frames are decoded by FUN_1804d3d00 → FUN_180126010 (decode only): the per-frame black estimate
-        // (FUN_180125d10, run by the FUN_18020a6d0 loader path) never happens for them, so every reader of CapturedImage+0xb4 / Stats+0x198
-        // sees the sensor-record black (42.0 on the AR1335). Verified on cp.dll's tele-ISP stage-skip reference runs t2/t3 (CNR/desat/LS with the 43.17
-        // estimate: max|d| 6e-4; with the sensor black: ≤1e-5).
+        // Lumen decodes the tele (non-reference-group) frames without the per-frame black estimate, so every reader of the
+        // frame black and of the sensor black in the Stats sees the sensor-record black (42.0 on the AR1335).
         Frame = new CapturedFrame { Raw = Frame.Raw, Width = Frame.Width, Height = Frame.Height, Info = Frame.Info with { FrameBlack = float.NaN }, Module = Frame.Module, Header = Frame.Header };
         if (!Frame.Info.IsColour) throw new NotSupportedException("Super-res does not support mono modules!");
         var dist = StereoImageBuilder.DistortionOf(lri, moduleName);
@@ -70,7 +68,7 @@ public sealed class TeleLevel0Cache
         Gain = ModuleGain(lri, lri.ReferenceModule, moduleName);
     }
 
-    /// <summary>`FUN_18010fc80(camera, &amp;moduleId)` from the LRI: `((g_ref·(float)e_ref) / (g_mod·(float)e_mod)) · (rb_mod / rb_ref)` (vignetting
+    /// <summary>The module gain from the LRI: `((g_ref·(float)e_ref) / (g_mod·(float)e_mod)) · (rb_mod / rb_ref)` (vignetting
     /// `relative_brightness` ratio only when both records exist and the module is colour).</summary>
     public static float ModuleGain(LriFile lri, string refName, string modName)
     {
@@ -80,7 +78,7 @@ public sealed class TeleLevel0Cache
         return StereoColorTransfer.ExposureGain(rm.SensorAnalogGain, rm.SensorExposure, Rb(rm.Id), mm.SensorAnalogGain, mm.SensorExposure, Rb(mm.Id), colour);
     }
 
-    /// <summary>`FUN_1804bcde0`-style tile dims: 512 unless the last tile of the row/column, which absorbs the remainder.</summary>
+    /// <summary>Tile dims: 512 unless the last tile of the row/column, which absorbs the remainder.</summary>
     public (int W, int H) TileDims(int tx, int ty)
     {
         int x0 = tx * TileSize, y0 = ty * TileSize;
@@ -89,7 +87,7 @@ public sealed class TeleLevel0Cache
         return (w, h);
     }
 
-    /// <summary>`FUN_180304500`: min/max of the map over the border of `rect` (columns x0 and x1−1 for every row, then rows y0 and y1−1 for every column).</summary>
+    /// <summary>Min/max of the map over the border of `rect` (columns x0 and x1−1 for every row, then rows y0 and y1−1 for every column).</summary>
     public (float MinX, float MinY, float MaxX, float MaxY) BorderAabb(RectI rect)
     {
         float minx = float.MaxValue, miny = float.MaxValue, maxx = -float.MaxValue, maxy = -float.MaxValue;
@@ -106,7 +104,7 @@ public sealed class TeleLevel0Cache
         return (minx, miny, maxx, maxy);
     }
 
-    /// <summary>`FUN_180304790` source rect: `cvttps2dq(aabb)`, then `(x0 − 4, y0 − 4, x1 + 4, y1 + 4)` with `x0,y0 = max(·, 0)` and `x1,y1 = min(·, frame dims)`.</summary>
+    /// <summary>Source rect: `cvttps2dq(aabb)`, then `(x0 − 4, y0 − 4, x1 + 4, y1 + 4)` with `x0,y0 = max(·, 0)` and `x1,y1 = min(·, frame dims)`.</summary>
     public RectI SourceRect(RectI rect)
     {
         var (minx, miny, maxx, maxy) = BorderAabb(rect);
@@ -116,10 +114,10 @@ public sealed class TeleLevel0Cache
         return new RectI(x0, y0, x1, y1);
     }
 
-    /// <summary>`SourceImageCache::lambda_0::lambda_1` (`1804de1a0`, single-frame path): `FUN_180011d50` rounds the requested rect outward to even
-    /// (`(x0 &amp; ~1, y0 &amp; ~1, (x1 + 1) &amp; ~1, (y1 + 1) &amp; ~1)`, mask `0x180681da0`), grows it by `halo &gt;&gt; 1` (left/top) and `max(halo − 1, 0) &gt;&gt; 1`
-    /// (right/bottom), each limited by the frame edge, runs the level-0 module SoftISP (`FUN_1803dcd90`) over the grown rect and crops the result
-    /// back to the even rect and then to the requested rect (`FUN_180012530` copies the view).</summary>
+    /// <summary>`SourceImageCache::lambda_0::lambda_1` (single-frame path): the requested rect is rounded outward to even
+    /// (`(x0 &amp; ~1, y0 &amp; ~1, (x1 + 1) &amp; ~1, (y1 + 1) &amp; ~1)`), grown by `halo &gt;&gt; 1` (left/top) and `max(halo − 1, 0) &gt;&gt; 1`
+    /// (right/bottom), each limited by the frame edge; the level-0 module SoftISP runs over the grown rect, and the result is cropped
+    /// back to the even rect and then to the requested rect (as a copy of the view).</summary>
     public Image<Vec4F> Source(RectI srcRect)
     {
         int ax0 = srcRect.X0 & ~1, ay0 = srcRect.Y0 & ~1, ax1 = (srcRect.X1 + 1) & ~1, ay1 = (srcRect.Y1 + 1) & ~1;
@@ -134,12 +132,11 @@ public sealed class TeleLevel0Cache
         else if (Stacked is null) img = Isp.ProcessBayer(Frame, grown, 0, Log);
         else
         {
-            // SourceImageCache lambda (1804de1a0 L95–250) on a stacked capture: `FUN_18020a6d0(stream, cam)` non-null → the module's gain map
-            // (`FUN_18020b870`) over the grown rect as the STD plane (`FUN_180209010(gain, 1.0)`) and the BayerFloat runner (`FUN_1803dc980`) on a copy
-            // (`FUN_180012530`) of the stacked float frame's grown window — the same grown rect, no extra margin, then the same crops as the ushort path.
+            // On a stacked capture: the module's gain map over the grown rect is the STD plane (k = 1.0), and the BayerFloat runner
+            // runs on a copy of the stacked float frame's grown window — the same grown rect, no extra margin, then the same crops as the ushort path.
             var bay = Stacked.BayerImage().View(grown); var sd = Stacked.StdImage(grown);
             if (Environment.GetEnvironmentVariable("LUX_TELE_ISPDUMP") is string dpi && RectWanted("LUX_TELE_ISPDUMP_RECTS", grown))
-            {   // twins of the oracle's ORACLE_STACK telestk<i>_bayer / _std: the runner's inputs over the grown rect
+            {   // diagnostic telestk<i>_bayer / _std: the runner's inputs over the grown rect
                 var fb = new float[grown.Width * grown.Height]; for (int y = 0; y < grown.Height; y++) bay.Row(y).CopyTo(fb.AsSpan(y * grown.Width, grown.Width));
                 global::Lux.Engine.Pipeline.BayerFusion.PackedBayerFusion.DumpFloat($"{dpi}_{Name}_stkin_{grown.X0}_{grown.Y0}_{grown.X1}_{grown.Y1}_bayer.bin", fb, grown.Width, grown.Height);
                 var fs = new float[grown.Width * grown.Height]; for (int y = 0; y < grown.Height; y++) sd.Row(y).CopyTo(fs.AsSpan(y * grown.Width, grown.Width));
@@ -149,7 +146,7 @@ public sealed class TeleLevel0Cache
         }
         if (img.Rect != grown) throw new InvalidOperationException($"tele ISP output rect {img.Rect} != grown rect {grown}");
         if (IspOutputs is not null) lock (IspOutputs) IspOutputs.TryAdd(grown, img);
-        if (Environment.GetEnvironmentVariable("LUX_TELE_ISPDUMP") is string dp && RectWanted("LUX_TELE_ISPDUMP_RECTS", grown))   // diagnostic twin of cp.dll's tele-ISP intermediate hook (0x4de3f4): the whole grown-rect ISP output
+        if (Environment.GetEnvironmentVariable("LUX_TELE_ISPDUMP") is string dp && RectWanted("LUX_TELE_ISPDUMP_RECTS", grown))   // diagnostic: the whole grown-rect ISP output
         {
             int gw = img.Width, gh = img.Height; var mb = new byte[16 + gw * gh * 16];
             BitConverter.GetBytes(gw).CopyTo(mb, 0); BitConverter.GetBytes(gh).CopyTo(mb, 4); BitConverter.GetBytes(gw).CopyTo(mb, 8); BitConverter.GetBytes(16).CopyTo(mb, 12);
@@ -170,8 +167,8 @@ public sealed class TeleLevel0Cache
         }
         return false;
     }
-    /// <summary>`ImageLensUndistort&lt;2, vec4x32f, LensUndistortCRA&gt;(calib, rect, source)` (`FUN_180304790`): source rect → generator → `ImageWarpClamped&lt;2&gt;`
-    /// with the `((cx + −1) + lu·dx) − x0` kernel (`180305960`), fill (0,0,0,0); an empty source rect yields zeros.</summary>
+    /// <summary>`ImageLensUndistort&lt;2, vec4x32f, LensUndistortCRA&gt;(calib, rect, source)`: source rect → generator → `ImageWarpClamped&lt;2&gt;`
+    /// with the `((cx + −1) + lu·dx) − x0` kernel, fill (0,0,0,0); an empty source rect yields zeros.</summary>
     public float[] LensUndistort(RectI rect)
     {
         int w = rect.Width, h = rect.Height;
@@ -187,7 +184,7 @@ public sealed class TeleLevel0Cache
         return dst;
     }
 
-    /// <summary>`SourceImageCache::lambda_0` (`1804dddd0`): the tile rect `(512·tx, 512·ty, +w, +h)`, the undistort, then `ImageConvertPixelType&lt;vec4x16f, vec4x32f&gt;`
+    /// <summary>`SourceImageCache::lambda_0`: the tile rect `(512·tx, 512·ty, +w, +h)`, the undistort, then `ImageConvertPixelType&lt;vec4x16f, vec4x32f&gt;`
     /// = software RTZ half in all 4 lanes.</summary>
     ushort[] Generate(int tx, int ty)
     {
@@ -202,7 +199,7 @@ public sealed class TeleLevel0Cache
     /// <summary>Generate (and keep) one tile ahead of any render that needs it — the unit of the export's dependency prefetch.</summary>
     public void EnsureTile(int tx, int ty) => Tile(tx, ty);
 
-    /// <summary>`TileCache&lt;vec4x16f&gt;::renderROI&lt;vec4x32f&gt;(cache+8, out, rect, 0)` (`1804bdfe0`): gather the tiles overlapping `rect` (level-0 pixels,
+    /// <summary>`TileCache&lt;vec4x16f&gt;::renderROI&lt;vec4x32f&gt;(cache, out, rect, 0)`: gather the tiles overlapping `rect` (level-0 pixels,
     /// must lie inside the level) as float RGBA via the exact half→float conversion (alpha from the stored half).</summary>
     public float[] RenderRoi(RectI rect)
     {
@@ -226,7 +223,7 @@ public sealed class TeleLevel0Cache
         return outp;
     }
 
-    /// <summary>`initResAmp::lambda_3` (`1804e4550`): `renderROI` then `FUN_1804e4600`: `dst = sqrtps(maxps(mulps(src, (g,g,g,1)), 0))` (NaN → 0).</summary>
+    /// <summary>`initResAmp::lambda_3`: `renderROI`, then `dst = √max(src·(g,g,g,1), 0)` per lane (MAXPS order: NaN → 0).</summary>
     public float[] Generator(RectI rect)
     {
         var v = RenderRoi(rect);
@@ -239,11 +236,11 @@ public sealed class TeleLevel0Cache
         return v;
     }
 
-    /// <summary>The `+0x258` entry of `initResAmp` for this module: an <see cref="ImageGenerator"/> of the level-0 dims wrapping <see cref="RenderRoi"/> with
-    /// `FUN_1804e4600` (gain + √) — what `ImageResolutionAmp` renders through `FUN_18044b680`.</summary>
+    /// <summary>The level-0 generator of `initResAmp` for this module: an <see cref="ImageGenerator"/> of the level-0 dims wrapping <see cref="RenderRoi"/> with
+    /// gain + √ — what `ImageResolutionAmp` renders through <c>RenderGenerator</c>.</summary>
     public ImageGenerator ToGenerator() => ImageGenerator.GainSqrtOf(Dims.W, Dims.H, Gain, RenderRoi);
 
-    /// <summary>`FUN_18044b680(out, gen, rect)` (§4.0): an image of `rect`'s size, the generator rendered over `rect ∩ [0,W)×[0,H)`, zero (RGBA) elsewhere.</summary>
+    /// <summary>An image of `rect`'s size, the generator rendered over `rect ∩ [0,W)×[0,H)`, zero (RGBA) elsewhere.</summary>
     public float[] RenderGenerator(RectI rect)
     {
         int w = rect.Width, h = rect.Height; var outp = new float[w * h * 4];

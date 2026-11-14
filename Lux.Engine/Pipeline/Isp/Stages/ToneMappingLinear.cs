@@ -2,11 +2,10 @@ using Lux.Engine.Pipeline.Color;
 
 namespace Lux.Engine.Pipeline.Isp.Stages;
 
-/// <summary>`ToneMapping:default` / `linear` — slot 15 (`setToneMapping` 18040cd30 cases 1/2: `lt::LinearTMO` (ctor `FUN_18038a450`, +8 = ev_offset)
-/// at pipeline+0x1b80, Bayer/BayerFloat/Color lambda_70 → `LinearTMO::process(img, img, Stats+0x48)` (`18038a470`, 256×256 tiles, lambda_0 `18038a630`)):
-/// per tile `v ⊙= (2^ev, 2^ev, 2^ev, 1)` (`FUN_18038a990`, exp2f of the ev_offset) then, unless the output space equals linear ProPhoto D50
-/// (13-field compare), `ImageConvertColorSpace(tile, tile, ProPhotoD50, Stats+0x48, 1)` in place. The whole working image is processed (no crop).
-/// Spec `a-reference-guide.md` §3.5.</summary>
+/// <summary>`ToneMapping:default` / `linear` — slot 15 (`setToneMapping` cases 1/2: `lt::LinearTMO` with its ev_offset;
+/// the Bayer/BayerFloat/Color stage lambda calls `LinearTMO::process(img, img, output space)` (256×256 tiles)):
+/// per tile `v ⊙= (2^ev, 2^ev, 2^ev, 1)` (exp2f of the ev_offset) then, unless the output space equals linear ProPhoto D50
+/// (13-field compare), `ImageConvertColorSpace(tile, tile, ProPhotoD50, output space, 1)` in place. The whole working image is processed (no crop).</summary>
 public sealed class ToneMappingLinearStage : IStage
 {
     readonly string _type;
@@ -37,7 +36,7 @@ public sealed class ToneMappingLinearStage : IStage
     }
 
     /// <summary>msvcrt `exp2f` (api-ms-win-crt-math exp2f); exact for integer arguments — the only value the guide path uses is 2⁰ = 1.
-    /// Non-integer ev_offsets would need the Wine/msvcrt exp2f transcription [I].</summary>
+    /// Non-integer ev_offsets would need a bit-exact port of the CRT exp2f [I].</summary>
     static float Exp2(float x)
     {
         if (x == 0f) return 1.0f;

@@ -4,8 +4,8 @@ using System.Runtime.Intrinsics.X86;
 
 namespace Lux.Engine.Pipeline.ResAmp;
 
-/// <summary>Hardware-approximate SSE ops and Intel min/max semantics used verbatim by cp.dll's ResAmp code (spec `a-resamp.md` §10 item 2:
-/// the CPU cp.dll was run on defines the truth — this port runs the same instructions through the .NET intrinsics).</summary>
+/// <summary>Hardware-approximate SSE ops and Intel min/max semantics as Lumen's ResAmp code uses them. The approximations depend on
+/// the CPU, so this code runs the same instructions through the .NET intrinsics.</summary>
 internal static class SseOps
 {
     public static float F(uint bits) => BitConverter.UInt32BitsToSingle(bits);
@@ -44,8 +44,8 @@ internal static class SseOps
         if (double.IsNaN(x) || x >= 2147483648.0 || x < -2147483648.0) return int.MinValue;
         return (int)x;
     }
-    /// <summary>`roundss …, 9` (floor) then `cvttss2si`.</summary>
+    /// <summary>Floor (ROUNDSS), then truncate (`cvttss2si`).</summary>
     public static int FloorI(float x) => Cvtt(MathF.Floor(x));
-    /// <summary>`roundss …, 0xA` (ceil) then `cvttss2si`.</summary>
+    /// <summary>Ceiling (ROUNDSS), then truncate (`cvttss2si`).</summary>
     public static int CeilI(float x) => Cvtt(MathF.Ceiling(x));
 }

@@ -11,8 +11,8 @@ public struct FeaturePoint
 }
 
 /// <summary>
-/// `lt::FeatureDetector::findFeatures` (180302fd560 + tile lambda 1802fe280) and `cullFeatures` (1802fddb0 + lambda_2
-/// 1802fec70), ported from the decompilation. Input is the 8-bit RGBA stereo image; the detection scalar is either the
+/// `lt::FeatureDetector::findFeatures` (with its tile lambda) and `cullFeatures` (with lambda_2), with Lumen's exact operation
+/// order. Input is the 8-bit RGBA stereo image; the detection scalar is either the
 /// integer luma `(9797R + 19234G + 3735B + 16384) >> 15` or the raw R byte. Per 16×16 tile: Sobel-like 3×3 separable
 /// gradients (image-edge clamp, cross-tile neighbours), structure-tensor products, 5-tap σ 0.7 Gaussian smoothing
 /// (clamped at the tile edge), Harris `R = det − 0.05·tr²`, one arg-max per tile if `R > 1e5`. Optional cull to
@@ -21,11 +21,11 @@ public struct FeaturePoint
 /// </summary>
 public static class FeatureDetector
 {
-    const float Threshold = 100000.0f;     // DAT_1806bbab0
-    const float NegK = -0.05f;             // DAT_1806bcba4
-    const float Sigma = 0.7f;              // DAT_1806bcba0
+    const float Threshold = 100000.0f;
+    const float NegK = -0.05f;
+    const float Sigma = 0.7f;
 
-    /// <summary>The detection scalar image (`FUN_1802fdcd0` luma or `FUN_180292520` channel 0), integer-valued floats.</summary>
+    /// <summary>The detection scalar image (luma or channel 0), integer-valued floats.</summary>
     public static float[] ToScalar(ReadOnlySpan<byte> rgba, int w, int h, bool channel0)
     {
         var f = new float[w * h];
@@ -120,7 +120,7 @@ public static class FeatureDetector
                         float det = ixx * iyy - ixy * ixy;
                         float tr = ixx + iyy;
                         float r = tr * tr * NegK + det;
-                        if (r > best) { bx = x; by = y; best = r; }   // ucomiss/cmova + maxss(R, best): NaN never wins
+                        if (r > best) { bx = x; by = y; best = r; }   // NaN never wins
                     }
                 float fx, fy;
                 if (best > Threshold) { fx = (float)(bx + px0); fy = (float)(by + py0); } else { fx = -1f; fy = -1f; }

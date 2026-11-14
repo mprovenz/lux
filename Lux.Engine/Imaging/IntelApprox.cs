@@ -6,11 +6,11 @@ namespace Lux.Engine.Imaging;
 
 /// <summary>
 /// Software model of Intel's `rcpps/rcpss` and `rsqrtps/rsqrtss` — the approximate reciprocal and reciprocal square root the
-/// pipeline reproduces from cp.dll. The hardware result is a table function of the top 12 mantissa bits (one 4096-entry table for the
+/// pipeline reproduces from Lumen. The hardware result is a table function of the top 12 mantissa bits (one 4096-entry table for the
 /// reciprocal, one per exponent parity for the reciprocal square root) scaled by an exact power of two, with these special cases:
 /// ±0 and denormals (treated as zero) → ±∞, ±∞ → ±0, NaN → the quieted NaN, a negative rsqrt input → the indefinite QNaN
 /// (0xffc00000), and a result that would be denormal → ±0. The tables are the ones this project's reference machine produces
-/// (`IntelApprox.Tables.cs`); the model matches that hardware for every one of the 2³² inputs (checked 2026-09-15). The
+/// (`IntelApprox.Tables.cs`); the model matches that hardware for every one of the 2³² inputs. The
 /// approximation tables differ between CPU vendors (about half the entries differ from an AMD Zen 3's, each by one or two
 /// table steps), so using the hardware instruction would make Lux's output depend on the machine; this class makes it the same
 /// everywhere, and identical to the reference outputs.
@@ -73,6 +73,29 @@ public static partial class IntelApprox
     }
     /// <summary>`rcpss`: lane 0 approximated, lanes 1–3 passed through unchanged.</summary>
     public static Vector128<float> ReciprocalScalar(Vector128<float> v) => v.AsUInt32().WithElement(0, RcpBits(v.AsUInt32().GetElement(0))).AsSingle();
+
+    static readonly Vector256<uint> SignMask8 = Vector256.Create(0x80000000u), ManMask8 = Vector256.Create(0x7fffffu), Inf8 = Vector256.Create(0x7f800000u),
+        Quiet8 = Vector256.Create(0x400000u), Ff8 = Vector256.Create(0xffu);
+    static readonly Vector256<int> Bias8 = Vector256.Create(127);
+
+    /// <summary>`rcpps` on eight lanes: each lane = <see cref="RcpBits"/> of that lane (the same table and special cases as
+    /// the four-lane form, so the same bits for all 2³² inputs). Without AVX2, eight scalar lookups.</summary>
+    public static unsafe Vector256<float> Reciprocal(Vector256<float> v)
+    {
+        var u = v.AsUInt32();
+        if (!Avx2.IsSupported)
+            return Vector256.Create(Reciprocal(v.GetLower()), Reciprocal(v.GetUpper()));
+        var sign = u & SignMask8; var e = (u >> 23) & Ff8; var m = u & ManMask8;
+        Vector256<uint> r;
+        fixed (uint* t = RcpTable) r = Avx2.GatherVector256(t, (m >> 11).AsInt32(), 4);
+        var re = ((r >> 23) & Ff8).AsInt32() + Bias8 - e.AsInt32();
+        var res = sign | (re.AsUInt32() << 23) | (r & ManMask8);
+        res = Vector256.ConditionalSelect(Vector256.LessThanOrEqual(re, Vector256<int>.Zero).AsUInt32(), sign, res);   // denormal result → ±0
+        res = Vector256.ConditionalSelect(Vector256.Equals(e, Vector256<uint>.Zero), sign | Inf8, res);                  // ±0, denormal → ±inf
+        res = Vector256.ConditionalSelect(Vector256.Equals(e, Ff8),
+            Vector256.ConditionalSelect(Vector256.Equals(m, Vector256<uint>.Zero), sign, u | Quiet8), res);              // ±inf → ±0, NaN → quiet
+        return res.AsSingle();
+    }
     /// <summary>`rsqrtps`: all four lanes (AVX2 gathers from both parity tables, else four scalar lookups).</summary>
     public static unsafe Vector128<float> ReciprocalSqrt(Vector128<float> v)
     {
@@ -95,6 +118,9 @@ public static partial class IntelApprox
         res = Vector128.ConditionalSelect(nan, u | Quiet, res);                                                   // NaN → quiet NaN
         return res.AsSingle();
     }
+    /// <summary>`rsqrtps` on eight lanes (two four-lane halves of <see cref="ReciprocalSqrt(Vector128{float})"/>).</summary>
+    public static Vector256<float> ReciprocalSqrt(Vector256<float> v) => Vector256.Create(ReciprocalSqrt(v.GetLower()), ReciprocalSqrt(v.GetUpper()));
+
     /// <summary>`rsqrtss`: lane 0 approximated, lanes 1–3 passed through unchanged.</summary>
     public static Vector128<float> ReciprocalSqrtScalar(Vector128<float> v) => v.AsUInt32().WithElement(0, RsqrtBits(v.AsUInt32().GetElement(0))).AsSingle();
 }

@@ -1,6 +1,6 @@
 namespace Lux.Engine.Pipeline.Registration;
 
-/// <summary>An RGBA8 pyramid level as `FUN_1802e62f0` builds it: `Pad` zero pixels around the image are addressable
+/// <summary>An RGBA8 pyramid level as Lumen builds it: `Pad` zero pixels around the image are addressable
 /// (rect (−pad, −pad, w+pad, h+pad)); level 0 is a view of the source (pad 0).</summary>
 public sealed class PaddedRgba8
 {
@@ -21,15 +21,15 @@ public sealed class PaddedRgba8
 
 /// <summary>
 /// Image-side helpers of `lt::SparseLNR`: the Gaussian ½ pyramid (`ImageGaussianFilterAndSubSample&lt;vec4x8ui&gt;`
-/// 1800149c0, taps 0.05/0.25/0.4, clamp-to-edge, two association variants), the saturation mask (`FUN_1802e7cc0`:
-/// channel 0 → 9×9 in-bounds box mean truncated → `≥ (byte)(sat·0.9)`), and `PyramidAlignment` (`FUN_1802f5b10` /
-/// `alignImage` 1802f4e70: coarse-to-fine integer offset search with weighted L1 costs; top level mixes a gradient cost).
+/// taps 0.05/0.25/0.4, clamp-to-edge, two association variants), the saturation mask (
+/// channel 0 → 9×9 in-bounds box mean truncated → `≥ (byte)(sat·0.9)`), and `PyramidAlignment` (with
+/// `alignImage`: coarse-to-fine integer offset search with weighted L1 costs; top level mixes a gradient cost).
 /// </summary>
 public static class SparseLnrPyramid
 {
     static readonly float K0 = BitConverter.Int32BitsToSingle(0x3d4ccccd), K1 = BitConverter.Int32BitsToSingle(0x3e800000), K2 = BitConverter.Int32BitsToSingle(0x3ecccccd);
 
-    /// <summary>`FUN_1802e62f0`: level 0 = the source view; each further level = ½ downsample with an 8-pixel zero ring.</summary>
+    /// <summary>Level 0 = the source view; each further level = ½ downsample with an 8-pixel zero ring.</summary>
     public static PaddedRgba8[] Build(byte[] level0, int w, int h, int nLevels, int pad = 8)
     {
         var pyr = new PaddedRgba8[nLevels];
@@ -73,7 +73,7 @@ public static class SparseLnrPyramid
         return dst;
     }
 
-    /// <summary>`FUN_1802e7cc0(this, level, 9)`: mask byte = 0xff where the 9×9 in-bounds box mean of channel 0 ≥ (byte)(int)(sat·0.9f).</summary>
+    /// <summary>Mask byte = 0xff where the 9×9 in-bounds box mean of channel 0 ≥ (byte)(int)(sat·0.9f).</summary>
     public static byte[] SaturationMask(PaddedRgba8 img, float satLevel, int box = 9)
     {
         int w = img.W, h = img.H; int hb = box / 2;
@@ -114,10 +114,10 @@ public static class SparseLnrPyramid
         return g;
     }
 
-    public static readonly float[] AlignWeightsColour = { 2.0f, 0.5f, 0.5f, 0.0f };   // DAT_180835310
-    public static float[] AlignWeightsMono = { 3.0f, 0.0f, 0.0f, 0.0f };               // DAT_180835300
+    public static readonly float[] AlignWeightsColour = { 2.0f, 0.5f, 0.5f, 0.0f };
+    public static float[] AlignWeightsMono = { 3.0f, 0.0f, 0.0f, 0.0f };
 
-    /// <summary>`FUN_1802f5b10`: coarse-to-fine offsets (pointB = pointA − offs) per level; returns (offsets, ok = mean score &lt; 100).</summary>
+    /// <summary>Coarse-to-fine offsets (pointB = pointA − offs) per level; returns (offsets, ok = mean score &lt; 100).</summary>
     public static ((int X, int Y)[] Offs, bool Ok) Align(PaddedRgba8[] refPyr, PaddedRgba8[] srcPyr, (float X, float Y) center, (float X, float Y) guessNorm, float[] weights)
     {
         int n = refPyr.Length; if (srcPyr.Length != n) throw new InvalidOperationException("ref/src pyr size mismatch!");
@@ -156,7 +156,7 @@ public static class SparseLnrPyramid
         return ((bdx + guess.X, bdy + guess.Y), best);
     }
 
-    /// <summary>`FUN_1802f6470`: weighted L1 of the ref crop against the src window at (R.x0 − offs.x, R.y0 − offs.y); the src rect includes the zero ring.</summary>
+    /// <summary>Weighted L1 of the ref crop against the src window at (R.x0 − offs.x, R.y0 − offs.y); the src rect includes the zero ring.</summary>
     static float CostRgba(PaddedRgba8 refL, PaddedRgba8 srcL, int cx0, int cy0, int wc, int hc, int rx0, int ry0, (int X, int Y) offs, float[] w)
     {
         int ox = rx0 - offs.X, oy = ry0 - offs.Y;
@@ -176,7 +176,7 @@ public static class SparseLnrPyramid
         return count < (wc * hc) / 2 ? float.MaxValue : sum / (float)count;
     }
 
-    /// <summary>`FUN_1802f6900`: plain L1 of the gradient images (rect (0,0,w,h), no ring); integer-valued so the summation order is immaterial.</summary>
+    /// <summary>Plain L1 of the gradient images (rect (0,0,w,h), no ring); integer-valued so the summation order is immaterial.</summary>
     static float CostGrad(float[] refG, float[] srcG, int refW, int srcW, int srcH, int cx0, int cy0, int wc, int hc, int rx0, int ry0, (int X, int Y) offs)
     {
         int ox = rx0 - offs.X, oy = ry0 - offs.Y;

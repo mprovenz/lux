@@ -4,29 +4,29 @@ using System.Runtime.Intrinsics.X86;
 
 namespace Lux.Engine.Pipeline.Registration;
 
-/// <summary>One camera as the `CalibDataProcessor` sees it (spec `ad108613f7a1daa2b.md` §0): the stereo image
-/// `CDP+0x70[c]`, its saturation level `CDP+0x80[c]`, the CURRENT stage-1 slot (written in place), the view pose `CDP+0x90[c]`
+/// <summary>One camera as the `CalibDataProcessor` sees it: the stereo image, its saturation level, the CURRENT stage-1 slot
+/// (written in place), the view pose
 /// and the per-capture facts the state machines read from the CapturedImage.</summary>
 public sealed class CdpCamera
 {
     public int Id; public string Name = "";
-    public int SensorType = 2;                       // FUN_180125650(img)[0]; the fine optimizer only runs on type 2
-    public Rgba8Image Image;                 // CDP+0x70[c] (dense RGBA8, half-res stereo image)
-    public float SatLevel = 255f;                    // CDP+0x80[c]
-    public bool Gray;                                // (g0|g1) >> 31 of FUN_180125590(img): uniform (channel-0) weights
+    public int SensorType = 2;                       // the fine optimizer runs only on type 2
+    public Rgba8Image Image;                 // dense RGBA8, half-res stereo image
+    public float SatLevel = 255f;
+    public bool Gray;                                // uniform (channel-0) weights
     public CalibDataFull Slot = null!;               // CURRENT stage-1 slot (K,R,t are overwritten by the optimisers / BA)
-    public CalibDataFull FactorySlot = null!;        // stage-0 slot (nominal fallback in FUN_1802aea30)
-    public ViewPose Pose = null!;                    // CDP+0x90[c]
-    public (float X, float Y) Centre;                // FUN_1802b3c90(cdp, c): normalised matching centre
-    public bool StoredResult;                        // FUN_1802b42d0: camera contributes no observations
+    public CalibDataFull FactorySlot = null!;        // stage-0 slot (fallback of the nominal-centre lookup)
+    public ViewPose Pose = null!;
+    public (float X, float Y) Centre;                // normalised matching centre
+    public bool StoredResult;                        // camera contributes no observations
     public MirrorSystem? Mirror; public ActuatorMapping? Map; public double Hall;
-    public int FrameW = 4160, FrameH = 3120;         // FUN_180125640(img)+8/+0xc (native capture size)
+    public int FrameW = 4160, FrameH = 3120;         // native capture size
     public Geometry.RatPolyMapping? Poly; public float PpX, PpY, Pix;   // CRA distortion for the aligned-calibration warp map
     public CalibDataFull View() => ViewTransform.Apply(Pose, Slot);
     public static Geometry.CameraCalib ToCamera(CalibDataFull c) => new((float[])c.K.Clone(), (float[])c.T.Clone(), (float[])c.R.Clone(), c.OffX, c.OffY, c.ScX, c.ScY);
 }
 
-/// <summary>The WIDE sparse driver `FUN_1802e80c0` (spec `a868996653d4faf7c.md` §2) assembled from the ported pieces: target pyramid,
+/// <summary>The WIDE sparse driver, assembled from the ported pieces: target pyramid,
 /// alignment offsets, warp field, saturation masks, per-level matching (initLowerA/initLowerB at the top by `mode`, matchFeatures
 /// below), RANSAC gate, view update, finalize.</summary>
 public static class WideSparseDriver
@@ -46,7 +46,7 @@ public static class WideSparseDriver
         int n = feats.Length;
         int di = dump is null ? -1 : dumpIndex >= 0 ? dumpIndex : dump.Drv++;
         var pyrB = SparseLnrPyramid.Build(Dense(B), B.W, B.H, n, 8);
-        var guess = (refCentre.X - camCentre.X, refCentre.Y - camCentre.Y);   // this+0x10 − this+0x254
+        var guess = (refCentre.X - camCentre.X, refCentre.Y - camCentre.Y);
         var (offs, ok) = SparseLnrPyramid.Align(refPyr, pyrB, refCentre, guess, mono ? SparseLnrPyramid.AlignWeightsMono : SparseLnrPyramid.AlignWeightsColour);
         log?.Invoke($"  align offs {string.Join(" ", offs.Select(o => $"({o.X},{o.Y})"))} ok {ok}");
         var W = new SparseLnrMatch.WarpField { M = Mat4D.FlowMatrix(calibA, calibB), Sx = 1f, Sy = 1f };
@@ -64,7 +64,7 @@ public static class WideSparseDriver
         {
             var mask = SparseLnrPyramid.SaturationMask(pyrB[l], satLevel);
             var Bl = pyrB[l].AsImage(); var A = refPyr[l].AsImage();
-            // 1802e856a–1802e8709: at the top level `mode == 0` → initLowerACamera, `mode − 1 <u 2` (i.e. 1 or 2) →
+            // At the top level `mode == 0` → initLowerACamera, `mode − 1 <u 2` (i.e. 1 or 2) →
             // initLowerBCamera, any other value → no initialiser at all (unreachable from CalibDataProcessor, which only
             // ever passes 0/1/2).
             MatchedPoint[] m = l == top
@@ -73,19 +73,18 @@ public static class WideSparseDriver
                  : throw new NotSupportedException($"SparseLNR mode {mode} has no top-level initialiser"))
                 : SparseLnrMatch.MatchLevel(A, Bl, mask, pyrB[l].W, offs[l], feats[l], viewA, viewB, farScene, bidir, mono);
             if (m.Length != feats[l].Length) throw new InvalidOperationException("feature size mismatch");
-            // 1802e8837–1802e8863: thrA is ALWAYS 2.0f/wB (xmm7, passed in xmm3); only thrB takes the far-scene
-            // 0.6f (DAT_1806bba74). Passing thr twice is invisible while view A is disabled — which it is on every
-            // A-reference capture — but wrong for mode 1/2, where view A is the working view.
+            // thrA is ALWAYS 2.0f/wB; only thrB takes the far-scene 0.6f. The same thr for both views makes no difference while view A
+            // is disabled (on every A-reference capture), but it is wrong for mode 1/2, where view A is the working view.
             float wB = pyrB[l].W; float thrA = 2.0f / wB, thrB = (farScene ? BitConverter.Int32BitsToSingle(0x3f19999a) : 2.0f) / wB;
             if (log is not null)
-            {   // one summary line per level, in the same shape as cp.dll's own per-level log lines so the two logs can be compared side by side
+            {   // one summary line per level, in the same shape as Lumen's own per-level log lines, so the two logs can be compared side by side
                 int f1 = 0, s0 = 0, s3 = 0, s4a = 0, s4b = 0;
                 foreach (var r in m) { if (r.Status == 1) f1++; else if (r.Status == 0) s0++; else if (r.Status == 3) s3++; else if (r.Octave == 1) s4a++; else s4b++; }
                 log($"  L{l} {(l != top ? "match" : mode == 0 ? "initA" : "initB")}: {m.Length} feats → fail {f1} lowtex {s0} weak {s3} good {s4a + s4b} (A {s4a} B {s4b}), minInl {minInl}");
             }
             SparseLnrRansac.Gate(m, viewA, viewB, feats[l], thrA, thrB, minInl);
             perLevel[l] = m;
-            if (l != 0)   // 1802e8946–1802e8991: the view updates and the both-disabled abort run for levels > 0 only (level 0 goes straight to finalize)
+            if (l != 0)   // the view updates and the both-disabled abort run for levels > 0 only (level 0 goes straight to finalize)
             {
                 SparseLnrRansac.UpdateView(viewA, ptsA, l, feats[l], m, l != top);
                 SparseLnrRansac.UpdateView(viewB, ptsB, l, feats[l], m, l != top);
@@ -98,18 +97,18 @@ public static class WideSparseDriver
 }
 
 /// <summary>
-/// `CalibDataProcessor` (spec `ad108613f7a1daa2b.md`): the WIDE state machine `runReferenceGroupCams` (`1802af340`, states
+/// `CalibDataProcessor`: the WIDE state machine `runReferenceGroupCams` (states
 /// 0 → 2 → 3×N → 6×N → 4×N → 7 → 8): reference features → points, per-camera WIDE sparse matching, fundamental-matrix filter,
-/// fine mirror optimizer (type-2 sensors only), triangulate + refine, sparse BA (mask schedule by `CDP+0xfc`) with the nominal-centre /
+/// fine mirror optimizer (type-2 sensors only), triangulate + refine, sparse BA (mask schedule by <c>WideFlag</c>) with the nominal-centre /
 /// reprojection acceptance. Poses are never written here; calibration slots are written in place.
 /// </summary>
 public sealed class CalibDataProcessor
 {
     public CdpCamera Ref = null!;
-    public List<CdpCamera> RefGroup = new();     // FUN_1802af870(cams, 0): reference-group cams excluding ref, capture (file) order
-    public float Z = 1000f;                       // CDP+0xf8 (FUN_1802acc90)
-    public bool WideFlag = true;                  // CDP+0xfc (FUN_1802ad350)
-    public int CamsType;                          // FUN_180111c40(cams): 0 on the L16
+    public List<CdpCamera> RefGroup = new();     // reference-group cams excluding ref, capture (file) order
+    public float Z = 1000f;
+    public bool WideFlag = true;
+    public int CamsType;                          // 0 on the L16
     public (float Min, float Max) ZRange => CamsType == 1 ? (70f, 40000f) : (200f, 640000f);
     public Action<string>? Log;
     public RegDump? Dump;                         // LUX_DENSE_DUMP: regdump-layout stage dumps (see RegDump)
@@ -128,18 +127,18 @@ public sealed class CalibDataProcessor
         if (Log is not null) foreach (var l in logs) foreach (var line in l) Log(line);
         return res;
     }
-    /// <summary>The oracle counts driver calls, not cameras: the dump index of each camera that actually calls a driver, in list order.</summary>
+    /// <summary>The dump index counts driver calls, not cameras, as in Lumen. Returns the dump index of each camera that calls a driver, in list order.</summary>
     static int[] DriverIndices(IReadOnlyList<CdpCamera> cams) { var ix = new int[cams.Count]; int k = 0; for (int i = 0; i < cams.Count; i++) ix[i] = cams[i].StoredResult ? -1 : k++; return ix; }
 
     public PaddedRgba8[] RefPyr = null!; public FeaturePoint[][] RefFeats = null!; public (float X, float Y)[] RefPts = null!;
-    public TriPoint[] Points = Array.Empty<TriPoint>();                                    // CDP+0x40
-    public SortedDictionary<int, (float X, float Y)[]> Obs = new();                         // CDP+0x50
-    public Dictionary<string, Dictionary<int, float>> Snapshots = new();                    // evaluator records (FUN_1802d84f0)
+    public TriPoint[] Points = Array.Empty<TriPoint>();
+    public SortedDictionary<int, (float X, float Y)[]> Obs = new();
+    public Dictionary<string, Dictionary<int, float>> Snapshots = new();                    // evaluator records (see Snapshot)
     public Dictionary<int, bool> Accepted = new();
 
     IEnumerable<CdpCamera> All() { yield return Ref; foreach (var c in RefGroup) yield return c; }
 
-    /// <summary>`FUN_1802d84f0(ev, name)`: the live mean reprojection error of the ref and every observed camera.</summary>
+    /// <summary>Records the live mean reprojection error of the ref and every observed camera.</summary>
     public void Snapshot(string name)
     {
         var rec = new Dictionary<int, float>();
@@ -156,8 +155,7 @@ public sealed class CalibDataProcessor
         const int levels = 4;
         RefPyr = SparseLnrPyramid.Build(WideSparseDriver.Dense(Ref.Image), Ref.Image.W, Ref.Image.H, levels, 8);
         RefFeats = new FeaturePoint[levels][];
-        // detect(maxCount 4000, levels 2): `mc = (i == 0) ? maxCount : -1` (cmp r15,1; sbb eax,eax; not eax; or eax,r14d → level 0 culled to 4000, others unculled;
-        // verified on L16_00405 where level 0 has 8509 raw corners → 2700, and on 00466 where 3078 < 4000 leaves it unculled)
+        // detect(maxCount 4000, levels 2): `mc = (i == 0) ? maxCount : -1`. Level 0 is culled to 4000 corners; the other levels are not culled.
         for (int l = 0; l < levels; l++) RefFeats[l] = FeatureDetector.FindFeatures(RefPyr[l].Dense(), RefPyr[l].W, RefPyr[l].H, l == 0 ? 4000 : -1, 6, true).ToArray();
         var pts = new List<(float X, float Y)>();
         for (int s = 0; s <= 2; s++) { float scale = (float)(int)Math.ScaleB(1.0, s); foreach (var p in RefFeats[s]) pts.Add((p.X * scale, p.Y * scale)); }
@@ -173,7 +171,7 @@ public sealed class CalibDataProcessor
     (float X, float Y)[] SparseWideCore(CdpCamera c, int dumpIndex, Action<string>? log)
     {
         if (c.StoredResult) return Enumerable.Repeat((-1f, -1f), Points.Length).ToArray();
-        // λ1 step 1 (`1802be477–1802be48d`): the mode is a function of the reference module's *identity*, not its group —
+        // λ1 step 1: the mode is a function of the reference module's *identity*, not its group —
         // `mode = (ref == 8) ? 1 : (ref == 14) ? 2 : 0`, i.e. B4 → 1, C5 → 2, everything else (including C1–C4/C6) → 0.
         int mode = Ref.Id == 8 ? 1 : Ref.Id == 14 ? 2 : 0;
         var refView = Ref.View().Basic(); var camView = c.View().Basic();
@@ -228,7 +226,7 @@ public sealed class CalibDataProcessor
         Snapshot("2. point BA");
     }
 
-    /// <summary>`FUN_1802aea30`: expected camera centres by module name (table by `FUN_180111c40`), else the factory (stage-0) centre.</summary>
+    /// <summary>Expected camera centres by module name (table chosen by <c>CamsType</c>), else the factory (stage-0) centre.</summary>
     public static readonly Dictionary<string, (double X, double Y, double Z)> NominalTable0 = new()
     {
         ["A1"] = (0, 0, 0), ["A2"] = (-27.69, -23.74, 0), ["A3"] = (8.53, -23.26, 0), ["A4"] = (24.28, 23.61, 0), ["A5"] = (-43.39, 1.12, 0),
@@ -245,7 +243,7 @@ public sealed class CalibDataProcessor
         return SparseBaCaller.Centre(c.FactorySlot.R, c.FactorySlot.T);
     }
 
-    /// <summary>`FUN_1802dc770` wrapper: the BA caller over the current slots, written slots applied in place.</summary>
+    /// <summary>Wrapper of the BA caller over the current slots. Written slots are applied in place.</summary>
     public SparseBaCaller.Result RunBa(uint mask, bool b8, bool b9, bool isHigher, IEnumerable<CdpCamera> members, HashSet<int> exclusion)
     {
         var cams = new Dictionary<int, SparseBaCaller.CamInput>();
@@ -259,7 +257,7 @@ public sealed class CalibDataProcessor
         return res;
     }
 
-    /// <summary>`FUN_180125740(module, K, R, t, stage 1)`: an optimiser's in-place write of the CURRENT slot (dumped like the oracle's `calibwrite&lt;i&gt;`).</summary>
+    /// <summary>An optimiser's in-place write of the CURRENT slot (stage 1), dumped as `calibwrite&lt;i&gt;`.</summary>
     void CalibWrite(CdpCamera c, float[] K, float[] R, float[] T, string stage)
     {
         int wi = Dump is null ? -1 : Dump.Cw++; Dump?.Bytes($"calibwrite{wi}_before", RegDump.Slot54(c.Slot));
@@ -277,7 +275,7 @@ public sealed class CalibDataProcessor
         return (((s * r) + (-3.0f)) * s) * (-0.5f);
     }
 
-    /// <summary>λ6 (state 8): the WIDE BA schedule (`2 − (type==1)` passes; `CDP+0xfc` selects masks 8/1/(0x10,0x20) or (0x30)/9) and the acceptance
+    /// <summary>λ6 (state 8): the WIDE BA schedule (`2 − (type==1)` passes; <c>WideFlag</c> selects masks 8/1/(0x10,0x20) or (0x30)/9) and the acceptance
     /// against the nominal centres (≤ 8) and the live reprojection error (≤ 4 when ref &lt; 5 else 15); rejected cams restore the pre-BA slot.</summary>
     public void BundleAdjustWide()
     {
@@ -326,15 +324,15 @@ public sealed class CalibDataProcessor
     }
 
     // ───────────────────────────── TELE (higher group) ─────────────────────────────
-    public List<CdpCamera> Higher = new();        // FUN_1802b10e0(cams): higher-group cams, capture (file) order
-    public float[] Depth = Array.Empty<float>(); public int DepthW, DepthH;   // CDP+0x60: dense depth in the reference image frame
-    public MirrorAngleOptimizerCoarse.Context? Coarse;                        // CDP+0x18
+    public List<CdpCamera> Higher = new();        // higher-group cams, capture (file) order
+    public float[] Depth = Array.Empty<float>(); public int DepthW, DepthH;   // dense depth in the reference image frame
+    public MirrorAngleOptimizerCoarse.Context? Coarse;
     public Dictionary<int, double> ThetaMap = new(); public Dictionary<int, (float X, float Y)> CMap = new();
     public Dictionary<int, (float Err, CalibDataFull Slot)> Saved = new(); public HashSet<int> Excl = new();
     public Dictionary<int, CalibData> FineWritten = new();     // the fine optimizer's accepted write per camera (before any restore)
-    public Dictionary<int, (int W, int H)> CanvasSize = new();               // api+0x3b8[c] = 2·size
+    public Dictionary<int, (int W, int H)> CanvasSize = new();               // 2·size
 
-    /// <summary>API state 6 for one higher-group camera (prior spec §1.5): `scale2 = shift2 = 0.5`, `GetAlignedCalibration(refView, camView, img, (w/2,h/2), (1,1))`,
+    /// <summary>API state 6 for one higher-group camera: `scale2 = shift2 = 0.5`, `GetAlignedCalibration(refView, camView, img, (w/2,h/2), (1,1))`,
     /// then the canvas pose `scale3 = K_al/K_cam`, `shift3 = K_cam[2] − K_al[2]/scale3`, `Q = R_al·R_camᵀ`. Returns the aligned calib and size (the CreateStereoImage inputs).</summary>
     public (Geometry.CameraCalib Aligned, Geometry.CameraCalib Module, (int W, int H) Size) CanvasPose(CdpCamera c)
     {
@@ -352,12 +350,12 @@ public sealed class CalibDataProcessor
         return (al, camView, (r.W, r.H));
     }
 
-    /// <summary>API state 7 init (`FUN_1802b32e0` + `FUN_180291c40`): the coarse optimizer context from the reference image, the depth image and `Apply(pose[ref], calib(ref))`.</summary>
+    /// <summary>API state 7 init: the coarse optimizer context from the reference image, the depth image and `Apply(pose[ref], calib(ref))`.</summary>
     public void InitCoarse()
     {
         if (DepthW != Ref.Image.W || DepthH != Ref.Image.H) throw new InvalidOperationException("Size of image and reference do not match.");
         var refView = Ref.View();
-        var ref8 = ViewTransform.Scale(refView, 0.125f, 0.125f);   // FUN_180308670: refCam × 0.125
+        var ref8 = ViewTransform.Scale(refView, 0.125f, 0.125f);   // refCam × 0.125
         Coarse = MirrorAngleOptimizerCoarse.Build(Ref.Image, Depth, DepthW, DepthH, ref8, Z);
     }
 
@@ -380,7 +378,7 @@ public sealed class CalibDataProcessor
         }
     }
 
-    /// <summary>λ9 (state 3): prior points (`FUN_1802b4c40`) + the TELE sparse driver (`FUN_1802ea1c0`) on `Apply(pose[ref], calib(ref))` / `Apply(pose[c], calib(c))`.
+    /// <summary>λ9 (state 3): prior points + the TELE sparse driver on `Apply(pose[ref], calib(ref))` / `Apply(pose[c], calib(c))`.
     /// `planeDepth`/`farScene` are the values the last WIDE driver call left on the shared SparseLNR.</summary>
     public (float X, float Y)[] SparseTele(CdpCamera c) { var r = SparseTeleCore(c, -1, Log); Obs[c.Id] = r; return r; }
     (float X, float Y)[] SparseTeleCore(CdpCamera c, int dumpIndex, Action<string>? log)
@@ -421,7 +419,7 @@ public sealed class CalibDataProcessor
         foreach (var c in Higher) Saved[c.Id] = (Snapshots["1. MirrorOpt"].GetValueOrDefault(c.Id, 0f), c.Slot.Clone());
     }
 
-    /// <summary>`FUN_1802d84f0` on the TELE evaluator: the ref and every camera key of `CDP+0x50`.</summary>
+    /// <summary><c>Snapshot</c> on the TELE evaluator: the ref and every camera key of <c>Obs</c>.</summary>
     public void SnapshotTele(string name)
     {
         var rec = new Dictionary<int, float>();

@@ -6,8 +6,8 @@ Currently, only the Lux 'light' CLI exists. This is meant to be a lightweight GU
 ## Requirements
 - [.NET 10](https://dotnet.microsoft.com/download/dotnet/10.0): The SDK to build from source. The precompiled releases bundle
   the runtime and need no .NET install.
-- [ffmpeg](https://ffmpeg.org/download.html) on PATH for the animated parallax formats (parallax-wiggle, parallax-wiggle-interp, parallax-orbit, parallax-single, parallax-rack, parallax-dolly).
-  - Frames are produced by Lux, the GIF/WebP/AVIF/APNG container is written by ffmpeg. The CLI will exit if it cannot be found and one of these formats is requested.
+- [ffmpeg](https://ffmpeg.org/download.html) on PATH only for AVIF animations, `--parallax-encoder ffmpeg` and MP4 / WebM video (`animate --anim-container mp4|webm`).
+  - GIF, APNG and (lossless) WebP animations are written by Lux itself. The CLI exits before rendering anything if ffmpeg is needed and cannot be found.
 - libgphoto2 on Linux only if MTP connection to the camera is desired
 
 ## Features
@@ -19,29 +19,47 @@ Currently, only the Lux 'light' CLI exists. This is meant to be a lightweight GU
 - Parallax effect animations and stills
 - Full control over the image processing pipeline
 - Bulk processing with multithreading
+- Saved depth edits: edits to a capture's depth map are kept next to the capture and used by every export; what Lumen saved for
+  a photo — its depth edits, depth effect, tone settings and crop / rotation — can be imported from its session files, after
+  which Lux renders the photo as Lumen does (see [Saved depth edits](#saved-depth-edits-the-luximagecontext-folder))
 
 ## Projects
 - **Lux.Engine** — the image-processing engine (`.lri` parse, module ISP, registration/depth, fusion, ResAmp,
-  colour profile, DNG/JPEG/HDR output, camera pull). Reused by the CLI and (later) a GUI.
+  colour profile, DNG/JPEG/HDR output, camera pull). Its session layer (`Lux.Engine.Session`) is the one path every
+  front end uses: `CaptureSession` (open a capture, render any region of any level, depth and focus queries, saved
+  edits, exports, the analysis cache) and the exporter `convert` runs on.
 - **Lux.Cli** — `lux-light`: `convert` (the one picture-producing verb — Lumen's DNG, JPG, HDR, PPM and
   JPEG+GDepth, plus the Lux formats that share the same render: the stereo depth pair, `lens-frames` and the
   experimental `parallax-*` animations and stills), `inspect`, `profile`, `isp`, `isp-run`, `mod-info`, `devices`,
-  `pull`, `version`.
+  `pull`, `version`, `edits-info`, `import-lumen-edits`, `cache`.
+- **Lux.Store** — what Lux keeps per capture on disk (the `LuxImageContext` folder): the depth-edit database and the
+  analysis cache. It carries the SQLite dependency (`Microsoft.Data.Sqlite`), so the engine itself has none.
 
 ## Build & run
-Precompiled builds: download the archive for your platform from the [Releases page](https://github.com/mprovenz/lux/releases),
-extract it and run `lux-light` from the extracted folder. It is self-contained, so no .NET install is needed.
+Precompiled builds for Linux x64 and Windows x64 are on the [Releases page](https://github.com/mprovenz/lux/releases).
+Everything is self-contained, so no .NET install is needed. Pick one:
+
+| Download | What it is |
+|---|---|
+| `Lux-win-Setup.exe` | Windows installer for the app (per user, no administrator rights). Includes `lux-light`. Updates itself. |
+| `Lux.AppImage` | Linux app as one file: make it executable and run it. Includes `lux-light`. Updates itself. |
+| `lux-<version>-<platform>` (.tar.gz / .zip) | The app and `lux-light` as a plain folder. No installer and no self-update; on Linux a `lux.desktop` file and icon are included for your launcher. |
+| `lux-light-<version>-<platform>` (.tar.gz / .zip) | The command line tool alone. |
+
+The installed builds check this repository's releases when the app starts, download a newer version in the background and apply
+it only when you choose to restart. The binaries are not code-signed, so Windows shows a SmartScreen warning on first run.
 ```
 tar -xzf lux-light-<version>-linux-x64.tar.gz      # a .zip on Windows
 ./lux-light convert <file-or-dir> [--out-directory out] [--formats all] [-j threads]
 ```
-macOS: the binaries are not signed, so clear the quarantine flag once after extracting: `xattr -d com.apple.quarantine lux-light`.
+Camera import on Linux uses the system's `libgphoto2` (package `libgphoto2-6` or similar); without it the rest of Lux works.
 
 Build from source (needs the .NET 10 SDK):
 ```
 dotnet build Lux.slnx -c Release
 ./Lux.Cli/bin/Release/net10.0/lux-light convert <file-or-dir> [--out-directory out] [--formats all] [-j threads]
 ```
+The release files are made by `packaging/pack.sh <version> <linux-x64|win-x64>` (it needs only the SDK; the Windows installer can be built on Linux).
 The [full CLI usage instructions](#full-cli-usage-instructions) are at the bottom of this document.
 
 Note: a full export can take a few minutes and use up to 7G of memory per file. `convert` processes inputs in parallel
@@ -50,7 +68,7 @@ with one thread per CPU by default, so on a batch pass `-j` with a count that ke
 ## Status
 - DNG and JPG are byte-exact to Lumen (excluding the dense-stereo race condition and assuming processed in Lumen with no pre-existing .lris). 
 - Performance needs some work, exports take 2-4 minutes to process all formats
-- The tool is heavily tested on Linux, Windows and macOS testing would be appreciated
+- The tool is heavily tested on Linux and checked on Windows; macOS and ARM builds are not published for now (untested)
 - Automated builds are not up yet, coming soon
 
 ## Sample Images
@@ -285,7 +303,7 @@ Runs in the Color domain on the fused tile, with a constant halo of 64:
 |---|---|---|
 | 2 | ÷ neutral | divide by AsShotNeutral |
 | 10 | `ColorCorrection` (`optimized`) | matrix + CCT-interpolated HSV LUT, 33×33 bilinear hue/sat, in linear ProPhoto D50, gamut clip |
-| 11 | `PostProcessing` | sharpen |
+| 11 | `PostProcessing` | saturation and vibrance (in Lab, hue-dependent), sharpen or soften |
 | 12 | `LensShading` (`inverse`) | re-apply shading model inverted |
 | 13 | `ToneAdjust` (`laplacian_pyramid`) | local Laplacian tone adjustment |
 | 14 | `ContrastAdjust` | `0.217·(x/0.217)^(2^(0.3a))` via fast log2/exp2 |
@@ -330,7 +348,133 @@ Inverse mapping, for consumers: `d = far·near / (far − u·(far − near))` wi
 | compression | DNG: uncompressed strips or lossless JPEG tiles |
 | colour space | property `0x13`; only consumed on the JPEG path |
 | exposure / f-number / ISO / focal | Exif values; `AllInFocusFNumber` is computed as `aperture · equiv35 / physical` |
+| tone & colour | the editor's sliders (exposure, contrast, temperature, tint, vibrance, saturation, sharpening) and shadows / highlights / clarity, each mapped onto the output-ISP stage it drives (§6.3); JPEG path only |
 
+
+## Where Lux keeps a photo's data
+
+Everything Lux saves about a photo — your depth edits, saved settings, rating, and the analysis that makes later opens and exports
+fast — is kept **next to the photo**, in a folder named `LuxImageContext` (described below), so it travels with your captures and
+survives renaming them. When Lux cannot write next to a photo — a read-only drive, a card with the lock switch on, a shared folder you
+may only read — it keeps the same files **on this computer** instead, in a folder of the desktop app's data (by default
+`~/.local/share/Lux/contexts` on Linux, `%APPDATA%\Lux\contexts` on Windows; you can choose another folder in the app's settings, and
+its contents move with it). Nothing is lost and nothing has to be done: as soon as the photo's folder can be written again (the drive
+is mounted read-write, the permission is fixed), the app moves the data next to the photo by itself, checking every byte before it
+removes its own copy. If the photo's folder meanwhile got data of its own (for example, the same drive was edited on another computer),
+the data next to the photo is kept and Lux's local copy is set aside, not deleted, so it can still be recovered. `lux-light` reads
+both places, so a `convert` honours edits the app saved for photos on read-only drives (set `LUX_APP_DATA` or `LUX_CONTEXT_STORE` if
+the app's data is not in the default place); like before, `convert` itself never creates any of these folders. To find the app's local
+folder, `lux-light` reads one small file the app keeps beside its library, `context-store-folder.txt` (written when the app opens its
+library and whenever you change the folder). If that file is missing (a library the current app has not opened yet), it reads the one
+setting from the library database in SQLite's read-only "immutable" mode. Either way `lux-light` writes nothing in the app's folder: no
+`-shm` / `-wal` files and no changed file times.
+
+For testing and portable set-ups: `LUX_APP_DATA` moves the app's whole data folder, and `LUX_FORBID_DEFAULT_APP_DATA=1` makes any program
+of the suite stop with an error instead of using the per-user folder (the test tools set both, so a test can never reach your own
+library).
+
+## Saved depth edits (the `LuxImageContext` folder)
+
+Lux keeps what it knows about a capture beyond the `.lri` itself in a folder named **`LuxImageContext`**, next to the captures:
+
+```
+<folder with your .lri files>/
+  LuxImageContext/
+    edits/    one file per edited capture (<long hexadecimal name>.luxedits) — your depth edits. Keep this folder.
+    cache/    data Lux can compute again at any time. Safe to delete.
+```
+
+- **`edits/` is your work.** It holds every depth edit you made, losslessly, together with the depth map the edits were made on
+  and the list of editing steps. No clean-up in Lux removes it. Back it up with the captures; if you move captures to another
+  folder, move the `LuxImageContext` folder with them.
+- **Files are matched by content, not by name.** The name of each `.luxedits` file is a fingerprint (SHA-256) of the capture
+  file's content. Renaming a `.lri` does not lose its edits, and a different capture that happens to get an old file's name does
+  not pick up edits that are not its own.
+- **Nothing is created until there is something to save.** A plain `convert` never creates the folder, and a capture without saved
+  edits converts exactly as before.
+- **Variants.** One capture can hold more than one set of edits, called variants, and exactly one of them (or none) is active:
+  - `lux` — edits made in Lux. They start from Lux's own depth map and keep the full list of steps, so undo works across
+    sessions.
+  - `lumen-import` — a Lumen session file brought over with `lux-light import-lumen-edits`: its depth edits (if it has any)
+    together with the photo's settings from Lumen (see below).
+
+  Switching the active variant (`lux-light edits-info <lri> --set-active <variant>`) never deletes the others, and
+  `--set-active none` / `convert --no-edits` always give the clean, unedited picture.
+- **Edits are checked when they are loaded.** Every stored block carries a checksum. `lux-light edits-info <lri>` lists what is
+  stored and reports any block that is damaged. If the saved list of editing steps can no longer reproduce the saved result (for
+  example after damage), the saved result is kept as it is and only undo into earlier sessions is switched off.
+
+**What an import brings over from Lumen.** Lumen keeps a session file (`.lris`) next to every photo you opened or exported. When
+it reopens a photo it does not work the picture out again from the `.lri`: it restores it from that file. `import-lumen-edits`
+brings everything that file holds into the photo's `LuxImageContext`, so that `lux-light convert` — with no options — produces
+the picture Lumen produces after reopening the session:
+
+- the depth map Lumen stored and the camera geometry it had worked out (the picture is assembled with them, exactly as Lumen does);
+- the depth edits made with Lumen's depth tools, if there are any;
+- the depth effect: the aperture (f-number) and the focus distance you set;
+- the tone and colour settings: exposure, white balance (temperature and tint), contrast, saturation, vibrance and sharpening
+  (they affect the JPG; a DNG carries the unprocessed image, as from Lumen);
+- crop and rotation, and the full-size output size Lumen uses for them;
+- the star rating (shown by `edits-info`; it does not change the picture).
+
+Any option you give to `convert` replaces just that setting (for example `--f-number 4` keeps the saved focus, tone and crop);
+`--no-edits` ignores everything saved. Photos without a `LuxImageContext` folder are converted exactly as before.
+
+One thing Lumen does not write into the session file: the tone rendering its own window used when it exported. Lumen 2.3 as
+it ran in 2025 exported with its "v2" tone curve; to reproduce those DNG and JPG files byte for byte add
+`--jpeg-v2 --dng-tone light_v2` to `convert`.
+
+> **About edits imported from Lumen.** Edits imported from Lumen use the depth map Lumen stored in its session file. That depth
+> map is slightly less precise than the one Lux computes (Lumen stores it in a compact, rounded form), so results are lower
+> fidelity than editing again from a clean Lux start. In return, the imported variant renders exactly as Lumen does after
+> reopening that session. The clean Lux depth is still there: `--no-edits` renders without any edits or saved settings, and a
+> clean `lux` variant can be started beside the imported one at any time.
+
+Example:
+
+```
+lux-light import-lumen-edits ~/Pictures/L16            # every .lris whose .lri is beside it
+lux-light edits-info ~/Pictures/L16/L16_00493.lri      # what is saved, which variant is active, is it intact
+lux-light convert ~/Pictures/L16/L16_00493.lri         # the photo as Lumen shows it: edits, depth effect, tone, crop
+lux-light convert ~/Pictures/L16/L16_00493.lri --f-number 2             # the same with another aperture
+lux-light convert ~/Pictures/L16/L16_00493.lri --no-edits               # the clean picture, nothing saved applied
+```
+
+## The analysis cache (`LuxImageContext/cache`)
+
+Most of the time of a full-size export goes into work that only depends on the capture: working out the exact geometry of the
+sixteen cameras and the depth map (the registration — about half of a full-size export), fusing the modules into the 13 MP
+image, and building the full-size image. Lux can keep the results in the capture's `LuxImageContext/cache/` folder, so that
+the next export, preview or edit of that capture starts from them. **The cache only ever saves time: an export from a cached
+capture is byte-identical to one computed from scratch**, because what is kept is the pipeline's own intermediate data,
+stored losslessly.
+
+A capture's cache has a level, and each level includes the ones before it:
+
+| Level | What is kept | What it saves | Size (typical, compressed) |
+|---|---|---|---|
+| `geometry` | the camera geometry and the full-resolution depth map | the registration, in every later export; anything that reads the depth (depth effect, `jpg+depth`, `depth`) | 14–17 MB |
+| `13mp` | also the 13 MP linear image and the previews (levels 2–4) | the fusion: 13 MP exports and previews run only the output stage | +49–57 MB |
+| `full` | also the full-size linear image under the export window | everything but the output stage of a full-size export (about 10 s instead of 1–2 min) | +180–205 MB |
+
+```
+lux-light cache ~/Pictures/L16/L16_00493.lri                  # what is kept, and how big it is
+lux-light cache ~/Pictures/L16/L16_00493.lri --level 13mp     # raise it (computes what is missing)
+lux-light cache ~/Pictures/L16 --level geometry              # a whole folder
+lux-light cache ~/Pictures/L16/L16_00493.lri --level none     # remove it
+```
+
+- **Keyed by content and by engine version.** The cache file is named by the capture's SHA-256, like the edits, and records
+  the version of the engine's cache format. A cache written by another version is discarded and rebuilt, never used.
+- **Checked on every read.** Every stored block carries a checksum of its data. A damaged block is never used: it is
+  recomputed for the export at hand, and its tier is marked incomplete (`cache` shows it, `cache --level` rebuilds it).
+- **Safe to delete at any time** — Lux recomputes whatever is missing. Nothing is ever removed automatically.
+- **`convert` uses whatever a capture's cache holds.** When the capture already has a `LuxImageContext` folder (made by the
+  `cache` command, by saved edits or by the desktop app), `convert` also keeps the geometry and depth it computed, so the next
+  export skips the registration. `convert` never creates that folder by itself; `--no-cache` turns the cache off for a run.
+- **Memory.** A full-size export peaks at about 5.5–8 GB (about 3 GB from a `full` cache). `--memory-budget <GB>` trades time for
+  memory with the same output: on a wide capture 4 GB took +25 % time and 3 GB +80 %; a stacked (night) capture does not go below
+  about 5 GB (+50 % time at a 4 GB budget).
 
 ## Full CLI usage instructions
 ### USAGE
@@ -353,10 +497,14 @@ lux-light --help
 | `devices` | List connected MTP cameras |
 | `pull [options]` | Pull matching files off the camera |
 | `version [--offline]` | Print this build's version and check GitHub for a newer release |
+| `edits-info <input...>` | Show a capture's saved depth edits: the variants, which one is active, how much is stored, and whether everything stored is intact. `--set-active <variant\|none>` chooses the variant `convert` uses |
+| `import-lumen-edits <lris file or folder...>` | Bring Lumen session files (.lris) into Lux: the depth map and edits, the depth effect, tone and colour settings, crop / rotation and rating Lumen saved for each photo. Each session's capture (the .lri of the same name) must sit beside it |
+| `animate <input...> --anim-effect <effect>` | An animation of each capture, as the desktop app makes them: `rack-focus` and `aperture-sweep` (Lumen's depth effect — each frame is exactly the still `convert --f-number … --focus-depth …` writes), `wigglegram` (the wide lenses' own pictures), `parallax` (a small camera move drawn from the photo and its depth), `lens-tour` (every lens in turn). GIF, APNG and WebP are Lux's own writers; MP4 / WebM need ffmpeg. Options: `lux-light --help`, ANIMATE OPTIONS |
+| `cache <input...> [--level none\|geometry\|13mp\|full]` | Show a capture's analysis cache, or raise / lower it to a level (see [The analysis cache](#the-analysis-cache-luximagecontextcache)). Exports from the cache are byte-identical to exports computed from scratch |
 
 ### INPUT
 
-convert, inspect, mod-info, profile, isp and isp-run take one or more .lri files and/or directories (directories are scanned for *.lri). devices, pull and version take no input files.
+convert, animate, inspect, mod-info, profile, isp, isp-run, edits-info and cache take one or more .lri files and/or directories (directories are scanned for *.lri). import-lumen-edits takes .lris files and/or directories. devices, pull and version take no input files.
 
 ### CONVERT OPTIONS
 
@@ -385,9 +533,69 @@ With no options specified, `convert` replicates Lumen output exactly: DNG (fmt 2
 | | Option | Description |
 |---|---|---|
 | \* | `--rotate <90\|180\|270>` | bake the orientation (Orientation stays 1). All four raster formats; a depth map written alongside them follows the same rotation. Not combinable with the parallax formats (their rig geometry is in the unrotated frame) |
+| \* | `--transform <m;c>` | a crop / turn / flip exactly as Lux and Lumen save it: the nine matrix values, `;`, the crop corners x0,y0,x1,y1 (decimal, or 0x + the float's 32-bit pattern); the size follows Lumen's full-size rule. All four raster formats; not combinable with `--rotate` or the parallax formats |
+| \* | `--upright` | turn a photo the way the camera was held (from its accelerometer) with Lumen's own rotate — as the desktop app exports it by default. Only when the photo's crop / rotation was never edited (a saved one is followed anyway). Without it, `convert` writes the capture as recorded, exactly as Lumen does (Lumen never turns a photo by itself). All four raster formats; not combinable with `--rotate`, `--transform` or the parallax formats. `animate --upright` turns its frames the same way |
 | \* | `--fnum <f>` | Exif FNumber [dng, jpg, jpg+depth] |
 | \* | `--iso <n>` | Exif ISO [dng, jpg, jpg+depth] |
 | \* | `--focal <n>` | Exif focal length in mm [dng, jpg, jpg+depth] |
+
+#### DEPTH EFFECT
+
+Lumen's synthetic depth of field, for dng, jpg, jpg+depth, hdr and ppm.
+
+| | Option | Description |
+|---|---|---|
+| \* | `--f-number <N>` | blur the picture as a lens of aperture f/N would, using the capture's depth map: the smaller N, the shallower the depth of field. Values at or above the capture's own all-in-focus f-number (about f/15 for a 28 mm capture) leave the image unchanged, exactly as in Lumen, whose slider runs from f/4 up to that value; smaller values are accepted. The Exif FNumber becomes N. Needs the depth map, so the full registration runs even at a reduced `--level` |
+| \* | `--focus-depth <mm>` | distance that stays sharp, in millimetres (default: the distance the camera focused at, as Lumen chooses it). Needs `--f-number` |
+| \* | `--focus-point <x,y>` | focus on whatever is at this point of the picture instead, like clicking with Lumen's focus tool: x and y from 0 to 1, 0,0 = top left. Needs `--f-number`; not combinable with `--focus-depth` or `--rotate` |
+
+#### TONE & COLOUR ADJUSTMENTS
+
+The controls of Lumen's editor. They change how the picture is rendered and affect the jpg and jpg+depth images (and the
+on-screen preview) only; a DNG, PPM or HDR keeps the image as it is before this rendering and is written exactly as without them.
+A control left out keeps the picture as Lumen renders it; with none of them the output is unchanged to the byte. Lux renders a
+slider setting exactly as Lumen does, pixel for pixel.
+
+| | Option | Description |
+|---|---|---|
+| \* | `--exposure <stops>` | brighter (+) or darker (−), −3 to 3 stops |
+| \* | `--contrast <v>` | more (+) or less (−) contrast, −100 to 100 |
+| \* | `--temperature <K>` | white balance: colour temperature in kelvin, 2000 to 20000 (default: as shot); lower values make the picture bluer, higher warmer |
+| \* | `--tint <v>` | white balance: green (−) to magenta (+), −150 to 150 (default: as shot) |
+| \* | `--vibrance <v>` | strengthen (+) or mute (−) colours, the duller ones most, sparing skin tones, −100 to 100 |
+| \* | `--saturation <v>` | strengthen (+) or weaken (−) all colours, −100 (black and white) to 100 |
+| \* | `--sharpening <v>` | sharpen (+) or soften (−), −100 to 100 (default 5, Lumen's own setting); the same control as `--jpeg-sharpening`, give one of the two |
+| \* | `--shadows <v>` | lift (+) or deepen (−) the shadows, −100 to 100 |
+| \* | `--highlights <v>` | recover (+) or brighten (−) the highlights, −100 to 100 |
+| \* | `--clarity <v>` | more (+) or less (−) local contrast in the midtones, −100 to 100 |
+
+`--shadows`, `--highlights` and `--clarity` are Lux controls: the processing is part of Lumen's software, which never offered it
+as controls.
+
+#### SAVED DEPTH EDITS
+
+A capture whose depth map was edited keeps those edits in the `LuxImageContext` folder next to it (see
+[Saved depth edits](#saved-depth-edits-the-luximagecontext-folder)). Wherever `convert` reads the depth — `--f-number`,
+`jpg+depth`, `depth`, the depth-based parallax formats — it uses the edited depth of the capture's active variant and says so
+in its output. A variant imported from a Lumen session also carries that photo's settings (depth effect, tone and colour,
+crop / rotation): `convert` then renders the photo as Lumen does after reopening the session, and each option you give replaces
+only its own setting. Captures without saved edits are not affected in any way.
+
+| | Option | Description |
+|---|---|---|
+| \* | `--no-edits` | ignore saved depth edits and saved settings: use the depth computed from the capture |
+| \* | `--edits <variant>` | use this variant instead of the active one (`edits-info` lists them) |
+
+#### ANALYSIS CACHE
+
+Whatever a capture's analysis cache holds replaces the work that would produce it; the output is byte-identical either way (see
+[The analysis cache](#the-analysis-cache-luximagecontextcache)). When the capture already has a `LuxImageContext` folder, convert
+also keeps the geometry and depth it computed there.
+
+| | Option | Description |
+|---|---|---|
+| | `--no-cache` | neither read nor write the analysis cache |
+| | `--memory-budget <GB>` | keep a full-size render within about this much memory (default: no limit, the fastest); the same output, more time |
 
 #### DNG
 
@@ -407,7 +615,7 @@ With no options specified, `convert` replicates Lumen output exactly: DNG (fmt 2
 | \* | `--jpeg-quality <n>` | libjpeg quality (default 98) |
 | \* | `--jpeg-sub <0\|1\|2>` | chroma subsampling (default 2 = 4:2:0) |
 | \* | `--jpeg-v2` | the renderer+0x64 v2 tone-mapping gate |
-| \* | `--jpeg-sharpening <v>` | the renderer's sharpening property (ParamFloat 13, -100..100; default 5 = Lumen's export state) |
+| \* | `--jpeg-sharpening <v>` | the renderer's sharpening property (ParamFloat 13, -100..100; default 5 = Lumen's export state); the same control as `--sharpening` |
 | \* | `--jpeg-modify <ts>` | Exif 0x0132 ModifyDate, YYYY-MM-DDTHH:MM:SS (default: now) |
 | \* | `--jpeg-comment <s>` | the JPEG COM marker text |
 | \* | `--jpeg-software <s>` | the Exif Software string |
@@ -445,12 +653,12 @@ With no options specified, `convert` replicates Lumen output exactly: DNG (fmt 2
 
 | Option | Description |
 |---|---|
-| `parallax-wiggle` | A-group frames, colour-matched, swept in spatial order. Module renders only, no registration [ffmpeg] |
-| `parallax-wiggle-interp` | N virtual viewpoints along the rig's axis, synthesised from the depth, disocclusions filled from the other real modules [ffmpeg] |
-| `parallax-orbit` | the same synthesis on a closed circular path [ffmpeg] |
-| `parallax-single` | single-view 2.5D: the sweep with no multi-view fill [ffmpeg] |
-| `parallax-rack` | animated rack focus [ffmpeg] |
-| `parallax-dolly` | dolly zoom, pulling back while zooming in [ffmpeg] |
+| `parallax-wiggle` | A-group frames, colour-matched, swept in spatial order. Module renders only, no registration |
+| `parallax-wiggle-interp` | N virtual viewpoints along the rig's axis, synthesised from the depth, disocclusions filled from the other real modules |
+| `parallax-orbit` | the same synthesis on a closed circular path |
+| `parallax-single` | single-view 2.5D: the sweep with no multi-view fill |
+| `parallax-rack` | animated rack focus with the experimental layered blur (`animate --anim-effect rack-focus` uses Lumen's depth effect) |
+| `parallax-dolly` | dolly zoom, pulling back while zooming in |
 | `parallax-dof` | synthetic depth of field, one PNG still |
 | `parallax-anaglyph` | red/cyan (Dubois) anaglyph of a synthesised stereo pair, PNG |
 | `parallax-crosseye` | cross-eye side-by-side stereo pair, PNG |
@@ -461,7 +669,8 @@ Every format but parallax-wiggle forces the level-0 build (announced, as jpg+dep
 
 | Option | Description |
 |---|---|
-| `--parallax-format <c>` | animation container: gif (default) \| webp \| avif \| apng |
+| `--parallax-format <c>` | animation container: gif (default) \| webp \| avif \| apng. GIF, APNG and WebP are Lux's own writers; AVIF goes through ffmpeg. **WebP is now lossless by default** (every pixel exact), so it is several times larger than the earlier lossy WebP — 46 frames at 800 px came to 14.7 MB; add `--parallax-encoder ffmpeg` for the old lossy WebP (`--parallax-quality` sets its quality) |
+| `--parallax-encoder <e>` | lux (default) \| ffmpeg: the earlier ffmpeg recipes for every container (one GIF palette with Bayer dithering, lossy WebP) |
 | `--parallax-size <n>` | long edge of the working image in px (default 1600; 0 = native, for parallax-wiggle) |
 | `--parallax-ms <n>` | per-frame duration in ms (default 100 for parallax-wiggle, 70 for -rack and -dolly, 60 otherwise) |
 | `--parallax-frames <n>` | virtual viewpoints / animation frames (default 24) |
@@ -483,7 +692,7 @@ Every format but parallax-wiggle forces the level-0 build (announced, as jpg+dep
 | `--parallax-subject-at <x,y>` | read it off the depth map at that pixel instead |
 | `--parallax-dz <mm>` | dolly travel (default 400; positive pulls back and zooms in, the one direction a single capture can carry — negative is clamped) |
 | `--parallax-t <tx,ty>` | parallax-still: the virtual camera translation in mm (default 40,0) |
-| `--parallax-quality <n>` | WebP encoder quality (default 88) [--parallax-format webp] |
+| `--parallax-quality <n>` | ffmpeg's lossy WebP quality (default 88) [--parallax-format webp --parallax-encoder ffmpeg] |
 | `--parallax-crf <n>` | AVIF encoder crf (default 18) [--parallax-format avif] |
 | `--parallax-order <k>` | parallax-wiggle frame order: sweep (default, along the rig's dominant axis from the factory extrinsics) \| label (module-name order) \| an explicit list, e.g. A5,A1,A3,A4 |
 | `--parallax-pivot <x,y,w,h>` | parallax-wiggle: hold a region still so the scene swings around it; integer shift only, no resampling. Native sensor pixels |
@@ -518,7 +727,8 @@ Every format but parallax-wiggle forces the level-0 build (announced, as jpg+dep
 
 ### DEVICES OPTIONS
 
-*(none)*
+*(none)* — each camera is listed with its port, its name, serial number and battery level, and its storage areas; a camera another
+program holds (often the desktop's file manager) is listed with that reason.
 
 ### PULL OPTIONS
 
@@ -530,6 +740,24 @@ Every format but parallax-wiggle forces the level-0 build (announced, as jpg+dep
 | `--since <date>` | only files modified on/after this date |
 | `--overwrite` | re-download even if a same-size file exists locally |
 | `--list` | list matching files without downloading |
+
+*(the camera's calibration files in `lightcal/` are not captures and are never pulled)*
+
+The camera is only read. Each file is written to `<name>.part` and renamed when it is complete; a file that fails or is interrupted leaves
+nothing behind. Files already present with the same size are skipped, and the files still to copy must fit on the destination drive (with
+256 MB to spare) before anything is copied.
+
+### EDITS-INFO OPTIONS
+
+| Option | Description |
+|---|---|
+| `--set-active <variant>` | make this variant the one `convert` uses; `none` = no variant, the capture renders without edits (nothing is deleted) |
+
+Exit status: 0 everything stored is intact (or the capture has no saved edits), 1 a stored block failed its check or the database could not be opened.
+
+### IMPORT-LUMEN-EDITS
+
+`lux-light import-lumen-edits <lris file or folder...>` takes no options. For every session file that has its capture beside it, what Lumen saved for the photo — its depth map and camera geometry, the depth edits if any, the f-number and focus, the tone and colour settings, crop / rotation and rating — is stored as the variant `lumen-import` of that capture and made active; `convert` then renders the photo as Lumen does after reopening the session (see [Saved depth edits](#saved-depth-edits-the-luximagecontext-folder)). A session is refused when Lumen itself could not load it for that capture (it belongs to another photo) or when it holds no depth map. Importing the same session twice does nothing; a session whose depth edits were imported by an earlier Lux gets its settings added.
 
 ### VERSION OPTIONS
 

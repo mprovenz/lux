@@ -7,11 +7,11 @@ using Lux.Engine.Lri;
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// `FUN_180251c40`: the load-time CURRENT/FACTORY calibration slot of a CapturedImage (spec `a95790d8748b8d281.md`): K from
-/// the per-focus `k_mat`s interpolated/extrapolated in `focus_hall_code` by `CameraModule.lens_position` (`FUN_1802682b0`: fx/cx with a true
+/// The load-time CURRENT/FACTORY calibration slot of a CapturedImage: K from
+/// the per-focus `k_mat`s interpolated/extrapolated in `focus_hall_code` by `CameraModule.lens_position` (fx/cx with a true
 /// reciprocal, fy/cy with `rcpps` + one Newton step), scaled by `data_scale`; R/t from the canonical extrinsics (NONE/GLUED mirrors) or the mirror
 /// pose at the actuator angle of `mirror_position` (MOVABLE); the full `CalibData` adds K2 from the polynomial distortion centre/normalisation and
-/// the coefficient vector (`FUN_180307b40`).
+/// the coefficient vector.
 /// </summary>
 public static class CalibSlotInit
 {
@@ -33,7 +33,7 @@ public static class CalibSlotInit
 
     static float Rcp(float d) { float r = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(d)).ToScalar(); return ((1.0f - d * r) * r) + r; }
 
-    /// <summary>`FUN_180251a40` + `FUN_1802682b0`: the module K (double) for `lensPosition`.</summary>
+    /// <summary>The module K (double) for `lensPosition`.</summary>
     public static double[] Intrinsics(GeometricCalibration g, int lensPosition)
     {
         var Ks = new List<double[]>(); var halls = new List<int>(); bool anyHall = false, anyMissing = false;
@@ -73,7 +73,7 @@ public static class CalibSlotInit
         return K;
     }
 
-    /// <summary>`FUN_1802516b0`: the mirror system and actuator mapping of the first bundle (key order) carrying a movable mirror.</summary>
+    /// <summary>The mirror system and actuator mapping of the first bundle (key order) carrying a movable mirror.</summary>
     public static (MirrorSystem Sys, ActuatorMapping Map)? Mirror(GeometricCalibration g)
     {
         foreach (var b in Bundles(g).Values)
@@ -93,7 +93,7 @@ public static class CalibSlotInit
         return null;
     }
 
-    /// <summary>`FUN_180251950`: the canonical extrinsics of the first bundle (key order) carrying one.</summary>
+    /// <summary>The canonical extrinsics of the first bundle (key order) carrying one.</summary>
     public static (double[] R, double[] T)? Canonical(GeometricCalibration g)
     {
         foreach (var b in Bundles(g).Values)
@@ -105,7 +105,7 @@ public static class CalibSlotInit
         return null;
     }
 
-    /// <summary>`FUN_180251c40` + `FUN_180307b40`: the module's load-time CalibData (CURRENT == FACTORY).</summary>
+    /// <summary>The module's load-time CalibData (CURRENT == FACTORY).</summary>
     public static CalibDataFull Build(LriFile lri, string module)
     {
         var m = lri.Modules[module].Module;

@@ -1,10 +1,10 @@
 namespace Lux.Engine.Pipeline.Color;
 
 /// <summary>
-/// The Ceres 1.12.0 <c>Solver::Options</c> Lumen's <c>OptimizeHSVLut</c> writes at `0x18014feb6–0x18014ff0e` (options at `rbp+0x3b0`):
-/// `+0x00 minimizer_type = 0` = LINE_SEARCH, `+0x04 line_search_direction_type = 3` = BFGS, `+0x08 line_search_type = 1` = WOLFE,
-/// `+0x68 max_num_iterations = 2000`, `+0x78 num_threads = 1`, `+0xb8 function_tolerance = 1e-10`, `+0xc0 gradient_tolerance = 1e-14`
-/// (`DAT_1806a07e0`), `+0xd0 linear_solver_type = DENSE_QR` (unused by the line-search minimiser), logging SILENT. Everything else keeps
+/// The Ceres 1.12.0 <c>Solver::Options</c> that Lumen's <c>OptimizeHSVLut</c> sets: minimizer_type = LINE_SEARCH,
+/// line_search_direction_type = BFGS, line_search_type = WOLFE, max_num_iterations = 2000, num_threads = 1,
+/// function_tolerance = 1e-10, gradient_tolerance = 1e-14, linear_solver_type = DENSE_QR (the line-search minimiser does not use it),
+/// logging SILENT. Everything else keeps
 /// the Ceres 1.12.0 defaults (`include/ceres/solver.h`). Lumen's Ceres is the separate `ceres.dll` (build path `3rdparty\ceres-solver-1.12.0`).
 /// </summary>
 public sealed class CeresLineSearchOptions
@@ -34,7 +34,7 @@ public sealed record CeresSummary(double[] X, CeresTermination Termination, stri
 /// Op-for-op port of Ceres 1.12.0's <c>LineSearchMinimizer</c> (internal/ceres/line_search_minimizer.cc) with the <c>BFGS</c> direction
 /// (line_search_direction.cc), the <c>WolfeLineSearch</c> (line_search.cc: bracketing + zoom phases, CUBIC interpolation) and the
 /// polynomial helpers (polynomial.cc: <c>FindInterpolatingPolynomial</c> = Eigen <c>FullPivLU</c> solve, <c>MinimizePolynomial</c>,
-/// closed-form roots of the derivative). The Ceres sources are kept in <c>scratch/ceres-src/</c>. Vector reductions follow Eigen's SSE2
+/// closed-form roots of the derivative). Vector reductions follow Eigen's SSE2
 /// redux order (<see cref="EigenRedux"/>) so the doubles track ceres.dll to the last bits where it matters.
 /// </summary>
 public static class CeresLineSearchMinimizer
@@ -460,8 +460,8 @@ public static class CeresLineSearchMinimizer
 public static class EigenFullPivLu
 {
     /// <summary>ceres.dll's Eigen is 3.2: <c>FullPivLU::solve</c> uses <c>nonzeroPivots()</c> (only exactly-zero pivots end the factorisation), not the
-    /// 3.3 <c>rank()</c> threshold. Verified on all three L16_00466 fits: with the 3.3 rule the zoom step of iteration 1 (abscissae ~1e-6, x³ ~1e-18) is
-    /// treated as rank-deficient and the trajectory leaves Lumen's at eval 3; with the 3.2 rule every Evaluate call matches to ≤4e-11 relative.</summary>
+    /// 3.3 <c>rank()</c> threshold. With the 3.3 rule, the zoom step of iteration 1 (abscissae ~1e-6, x³ ~1e-18) counts as rank-deficient,
+    /// and the trajectory leaves Lumen's at evaluation 3. With the 3.2 rule, every Evaluate call matches Lumen's to ≤4e-11 relative.</summary>
     public static bool UseNonzeroPivots = Environment.GetEnvironmentVariable("LUX_LU_RANK") != "rank";
     public static double[] Solve(double[] A, double[] b, int n)
     {
@@ -561,8 +561,8 @@ public static class EigenRedux
 
 /// <summary>Eigen 3.2 <c>LDLT&lt;MatrixXd, Lower&gt;</c> (`ldlt_inplace&lt;Lower&gt;::unblocked` with the largest-diagonal pivoting and the `ε·n·max`
 /// cutoff, `A21 /= akk` as a reciprocal multiply) and its solve (`P·b`, unit-lower solve, `row *= 1/D_i` unless `|D_i| ≤ 1/highest`
-/// (`DAT_1806a08f8`), unit-upper solve, `Pᵀ`). This is what `OptimizeHSVLut` uses for the weighted least-squares start
-/// (`FUN_180156350/1801567b0` = the decomposition of `Aᵀ·W·A`, `FUN_18015d030/18015d130` = the solve with the 3-column `Aᵀ·W·XYZ′` rhs).</summary>
+/// unit-upper solve, `Pᵀ`). <c>OptimizeHSVLut</c> uses it for the weighted least-squares start: the decomposition of `Aᵀ·W·A`, then
+/// the solve with the 3-column right-hand side `Aᵀ·W·XYZ′`.</summary>
 public sealed class EigenLdlt
 {
     readonly int n; readonly double[] m; readonly int[] trans;

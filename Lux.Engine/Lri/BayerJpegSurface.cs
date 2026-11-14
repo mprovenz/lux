@@ -4,39 +4,37 @@ namespace Lux.Engine.Lri;
 
 /// <summary>
 /// `CameraModule.Surface.FormatType.RAW_BAYER_JPEG` (= 0) — the second raw surface encoding a `.lri` can carry, used by
-/// 23 of the 417 captures in the corpus (all of them 4-frame stacks; see `a-module-coverage.md`). cp.dll decodes it in
-/// **`FUN_180128550`**, reached from `lt::CaptureStack::CaptureStack::lambda_0` `FUN_180118bb0`, which dispatches on the
-/// internal encoding tag: `0` → this function, `1` → the packed reader `FUN_180127670`, anything else →
+/// some 4-frame stacked captures. Lumen's `lt::CaptureStack::CaptureStack::lambda_0` dispatches on the
+/// internal encoding tag: `0` → this decoder, `1` → the packed reader, anything else →
 /// *"Unsupported sensor data encoding!"*.
 ///
 /// <para><b>Container.</b> The surface payload at <c>blockBase + surface.data_offset</c> is</para>
 /// <code>
-///   char[4]  'BJPG'                     // FUN_180128550 L~78: else "corrupted file header!"
+///   char[4]  'BJPG'                     // else "corrupted file header!"
 ///   u32      version                    // must be &lt; 2, else "unsupported encoding variant!"
 ///   u32[4]   planeSize                  // compressed byte length of each plane; version 1 uses only [0]
 ///   char[4]  'QDQT'                     // optional — see below
 ///   u32      qdqtVariant                // must be 0, else "unsupported encoding of q-dq table"
-///   u32      quantBytes                 // 1024 on every file seen: the ENCODER's 10-bit → 8-bit table
+///   u32      quantBytes                 // the ENCODER's 10-bit → 8-bit table (1024 bytes)
 ///   u32      dequantBytes               // 512 = 256 × u16: the DECODER's 8-bit → 10-bit table
 ///   u8 [quantBytes]                     // read and immediately freed — the decoder never looks at it
 ///   u16[dequantBytes/2]                 // the dequantization LUT
 ///   … the planeSize[i] JPEG streams, back to back …
 /// </code>
-/// <para>If the four bytes after the header are not `QDQT`, cp.dll seeks back and builds a default table from the
-/// sensor type instead (`FUN_180189370(table, *(u32*)(CapturedImage+0x100))`). No file in the corpus takes that branch,
-/// so it is <b>not ported</b>: hitting it throws rather than inventing a table.</para>
+/// <para>If the four bytes after the header are not `QDQT`, Lumen seeks back and builds a default table from the
+/// sensor type instead. That branch is <b>not ported</b>: hitting it throws rather than inventing a table.</para>
 ///
 /// <para><b>Planes.</b> Every plane is a **baseline grayscale JPEG** (JFIF APP0, one 8-bit component, 1×1 sampling,
 /// the Annex-K Huffman tables) decoded by <see cref="BaselineJpegDecoder"/>. Version 0 carries four planes of
 /// <c>(width/2) × (height/2)</c>, one per CFA site; version 1 carries a single full-size plane. The scatter is
-/// `0x1801290f0`:</para>
+/// as follows:</para>
 /// <code>
 ///   dst[(plane/2 + 2·y)·stride + (plane%2) + 2·x] = dequant[plane_sample[y][x]]     // version 0
 ///   dst[y·stride + x]                             = dequant[sample[y][x]]           // version 1
 /// </code>
 /// <para>so plane 0/1/2/3 land on raster sites (0,0)/(0,1)/(1,0)/(1,1) — the natural raster order of the 2×2 cell.
 /// A plane whose decoded size is not exactly half (version 0) or equal (version 1) to the surface size is rejected
-/// with cp.dll's own *"corrupted bayer plane data!"*; a compressed plane at least as large as the uncompressed one is
+/// with Lumen's own *"corrupted bayer plane data!"*; a compressed plane at least as large as the uncompressed one is
 /// *"invalid bayer plane size!"*.</para>
 /// </summary>
 public static class BayerJpegSurface
@@ -65,14 +63,14 @@ public static class BayerJpegSurface
 
         if (BinaryPrimitives.ReadUInt32LittleEndian(p[24..]) != 0x54514451u)              // 'QDQT'
             throw new NotSupportedException(
-                "RAW_BAYER_JPEG surface without a QDQT table: cp.dll falls back to FUN_180189370 (a table derived from " +
-                "the sensor type); no capture in the corpus takes that branch, so it is not ported");
+                "RAW_BAYER_JPEG surface without a QDQT table: Lumen then uses a table derived from " +
+                "the sensor type. That case is not supported.");
         if (BinaryPrimitives.ReadUInt32LittleEndian(p[28..]) != 0) throw new NotSupportedException("unsupported encoding of q-dq table");
         int quantBytes = (int)BinaryPrimitives.ReadUInt32LittleEndian(p[32..]);
         int dequantBytes = (int)BinaryPrimitives.ReadUInt32LittleEndian(p[36..]);
         if ((uint)quantBytes >= 0x1000) throw new InvalidDataException("RAW_BAYER_JPEG: q table too large");
 
-        // The 1024-byte quantize table is read and freed unused (`free(local_70)` at FUN_180128550 L~150) — the decode
+        // The 1024-byte quantize table is read and freed unused — the decode
         // needs only the u16 dequantize table that follows it.
         int dqOff = HeaderBytes + quantBytes;
         int nDequant = dequantBytes >> 1;

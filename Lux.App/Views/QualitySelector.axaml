@@ -1,0 +1,64 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             xmlns:v="using:Lux.App.Views"
+             xmlns:lib="using:Lux.Library"
+             x:Class="Lux.App.Views.QualitySelector"
+             x:DataType="vm:QualitySelectorViewModel">
+  <!-- The quality chosen for a capture, with one-click changes: exactly one option is
+       selected — the choice (the quality being made while a change runs). The copy still kept on disk during a change carries a small tick;
+       what is on screen and what is kept / being made are said in words in the caption. The same control in the details panel and, compact
+       (no caption: the viewer bar says it), under the picture. -->
+  <StackPanel Spacing="6">
+    <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding !$parent[v:QualitySelector].Compact}">
+      <TextBlock Classes="secondary" Text="Quality" VerticalAlignment="Center" />
+    </Grid>
+    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+      <TextBlock Classes="secondary small" Text="Quality" VerticalAlignment="Center" IsVisible="{Binding $parent[v:QualitySelector].Compact}" />
+      <Border Grid.Column="1" BorderBrush="{DynamicResource LuxLineMid}" BorderThickness="1" CornerRadius="2">
+        <UniformGrid Columns="3" AutomationProperties.Name="Quality">
+          <Button Classes="seg" Classes.small="{Binding $parent[v:QualitySelector].Compact}" Classes.selected="{Binding IsPreview}" x:Name="PreviewOption"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Command="{Binding ChooseCommand}" CommandParameter="{x:Static lib:ViewQuality.Preview}"
+                  IsEnabled="{Binding CanChange}" ToolTip.Tip="Made from the capture each time; no copy kept">
+            <TextBlock Text="Preview" />
+          </Button>
+          <Button Classes="seg" Classes.small="{Binding $parent[v:QualitySelector].Compact}" Classes.selected="{Binding IsStandard}" x:Name="StandardOption"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Command="{Binding ChooseCommand}" CommandParameter="{x:Static lib:ViewQuality.Linear13}"
+                  IsEnabled="{Binding CanChange}" ToolTip.Tip="A 13 MP working copy kept on disk: the photo opens at once">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <TextBlock Text="13 MP" />
+              <Path Classes="kepttick" IsVisible="{Binding StandardKept}" ToolTip.Tip="Kept on disk until the change finishes" />
+            </StackPanel>
+          </Button>
+          <Button Classes="seg" Classes.small="{Binding $parent[v:QualitySelector].Compact}" Classes.selected="{Binding IsFull}" x:Name="FullOption"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Command="{Binding ChooseCommand}" CommandParameter="{x:Static lib:ViewQuality.FullDetail}"
+                  IsEnabled="{Binding CanChange}" ToolTip.Tip="A full-detail copy kept on disk: close-up views and full-size exports start at once">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <TextBlock Text="Full detail" />
+              <Path Classes="kepttick" IsVisible="{Binding FullKept}" ToolTip.Tip="Kept on disk until the change finishes" />
+            </StackPanel>
+          </Button>
+        </UniformGrid>
+      </Border>
+    </Grid>
+    <!-- the caption: what is on screen, what is kept or being made (secondary, in words) -->
+    <TextBlock x:Name="CaptionText" Classes="secondary small wrap" Text="{Binding Caption}" IsVisible="{Binding !$parent[v:QualitySelector].Compact}" />
+    <Panel IsVisible="{Binding !$parent[v:QualitySelector].Compact}">
+    <ProgressBar Value="{Binding Progress}" Minimum="0" Maximum="1" IsVisible="{Binding IsRunning}" Height="4" MinHeight="4" />
+    </Panel>
+    <!-- the notice (shared with the selection bar and the context menu): extra storage going up, a confirmation going down -->
+    <Panel IsVisible="{Binding !$parent[v:QualitySelector].Compact}">
+    <Border Classes="note" IsVisible="{Binding HasNotice}" BorderBrush="{DynamicResource LuxAccent}" BorderThickness="1">
+      <StackPanel Spacing="8">
+        <TextBlock Classes="wrap" Foreground="{DynamicResource LuxText}" Text="{Binding Notice.Text, FallbackValue=''}" />
+        <CheckBox IsChecked="{Binding Notice.DontAskAgain, FallbackValue=False}" IsVisible="{Binding Notice.IsUpgrade, FallbackValue=False}"
+                  MinHeight="32" Content="Don't ask again" ToolTip.Tip="Turn the question back on in Settings" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+          <Button Classes="small" Content="Cancel" Command="{Binding Notice.CancelCommand, FallbackValue={x:Null}}" />
+          <Button Classes="primary small" Content="{Binding Notice.Action, FallbackValue=''}" Command="{Binding Notice.ConfirmCommand, FallbackValue={x:Null}}" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+    </Panel>
+  </StackPanel>
+</UserControl>

@@ -9,52 +9,51 @@ using Lux.Engine.Pipeline.Isp.Stages;
 namespace Lux.Engine.Pipeline.BayerFusion;
 
 /// <summary>
-/// `lt::MonoFusion` (cp.dll Lumen 2.3, 0x240 B; ctor `1801fc660`, `initialize` `1801fcdf0`, render-side `FUN_1802010c0` / `FUN_180201420`,
-/// kernel `FUN_1801ee0b0`; spec `a-monofusion.md`). Created by `FusionCacheBayer` when the reference camera's group holds
-/// a mono module (red position (−1,−1) — A2 on L16_00466): the fused colour Bayer is rendered through this object's own SoftISP into camera-space
+/// `lt::MonoFusion` (Lumen 2.3; ctor, `initialize`, render side and merge kernel). Created by `FusionCacheBayer` when the reference camera's group holds
+/// a mono module (red position (−1,−1), e.g. A2): the fused colour Bayer is rendered through this object's own SoftISP into camera-space
 /// RGB, its luma `L = (c·rgb)·range + black` is merged with the mono frame(s) in a float 16×16 wavelet domain (full resolution, 5-level flow) and
-/// the merged luma replaces the luma component of the RGB through the basis `M` / `N = M⁻¹` (§3). Float arithmetic follows the machine forms;
+/// the merged luma replaces the luma component of the RGB through the basis `M` / `N = M⁻¹`. Float arithmetic follows Lumen's operation order;
 /// `rcpss`/`rsqrtss` approximations use the hardware instructions.
 /// </summary>
 public sealed class MonoFusion
 {
     static readonly float One = BitConverter.Int32BitsToSingle(0x3f800000);
-    static readonly float MinusOne = BitConverter.Int32BitsToSingle(unchecked((int)0xbf800000));   // DAT_180681c90
-    static readonly float Third = BitConverter.Int32BitsToSingle(0x3eaaaaab);                     // DAT_18068760c
-    static readonly float Thirty = BitConverter.Int32BitsToSingle(0x41f00000);                    // DAT_1806b412c
-    static readonly float C256 = BitConverter.Int32BitsToSingle(0x43800000);                      // DAT_180685050
-    static readonly float GainTol = BitConverter.Int32BitsToSingle(0x3a83126f);                   // DAT_180685794 = 0.001
-    static readonly float HalfF = BitConverter.Int32BitsToSingle(0x3f000000);                     // DAT_180682404
-    static readonly float Max4095 = BitConverter.Int32BitsToSingle(0x457ff000);                   // DAT_1806aeb2c
+    static readonly float MinusOne = BitConverter.Int32BitsToSingle(unchecked((int)0xbf800000));
+    static readonly float Third = BitConverter.Int32BitsToSingle(0x3eaaaaab);
+    static readonly float Thirty = BitConverter.Int32BitsToSingle(0x41f00000);
+    static readonly float C256 = BitConverter.Int32BitsToSingle(0x43800000);
+    static readonly float GainTol = BitConverter.Int32BitsToSingle(0x3a83126f);                   // 0.001
+    static readonly float HalfF = BitConverter.Int32BitsToSingle(0x3f000000);
+    static readonly float Max4095 = BitConverter.Int32BitsToSingle(0x457ff000);
     static readonly float MinusHalf = BitConverter.Int32BitsToSingle(unchecked((int)0xbf000000));
     static readonly float MinusThree = BitConverter.Int32BitsToSingle(unchecked((int)0xc0400000));
 
-    /// <summary>`FUN_1801219a0` → `PTR_DAT_18068b850[type−2]` (static init 180123c14): luma coefficients (c0, c1, c2) and the mono/colour
+    /// <summary>Luma coefficients (c0, c1, c2) and the mono/colour
     /// sensitivity ratio c3 per sensor type.</summary>
     public static (float C0, float C1, float C2, float C3) LumaCoefficients(SensorType t) => t switch
     {
-        SensorType.SensorAr1335 or SensorType.SensorAr1335Mono => (BitConverter.Int32BitsToSingle(0x3e5cb924), BitConverter.Int32BitsToSingle(0x3edd5758), BitConverter.Int32BitsToSingle(0x3eb44c16), BitConverter.Int32BitsToSingle(0x40145faf)),   // 18068b310
-        SensorType.SensorImx386 or SensorType.SensorImx386Mono => (BitConverter.Int32BitsToSingle(0x3e9e39b4), BitConverter.Int32BitsToSingle(0x3e95ca4b), BitConverter.Int32BitsToSingle(0x3ecbfc22), BitConverter.Int32BitsToSingle(0x40351eb8)),   // 18068b320
+        SensorType.SensorAr1335 or SensorType.SensorAr1335Mono => (BitConverter.Int32BitsToSingle(0x3e5cb924), BitConverter.Int32BitsToSingle(0x3edd5758), BitConverter.Int32BitsToSingle(0x3eb44c16), BitConverter.Int32BitsToSingle(0x40145faf)),
+        SensorType.SensorImx386 or SensorType.SensorImx386Mono => (BitConverter.Int32BitsToSingle(0x3e9e39b4), BitConverter.Int32BitsToSingle(0x3e95ca4b), BitConverter.Int32BitsToSingle(0x3ecbfc22), BitConverter.Int32BitsToSingle(0x40351eb8)),
         _ => throw new InvalidOperationException("Unexpected sensor type!"),
     };
 
     readonly LriFile _lri;
-    readonly bool _flag;                               // +0x00 (FUN_18050cbd0(profile); 0 on the desktop)
-    public int RefCamId { get; }                       // +0xc0
+    readonly bool _flag;                               // kernel variant flag; 0 on the desktop
+    public int RefCamId { get; }
     public CapturedFrame RefFrame { get; }
-    public SoftIsp Isp { get; }                        // +0x170
+    public SoftIsp Isp { get; }
     public IspStats? Stats { get; private set; }
-    public float Range { get; }                        // +0x108
-    public float BlackRef { get; }                     // *(+0x100)+4
+    public float Range { get; }
+    public float BlackRef { get; }
     public float WhiteRef { get; }
-    public float C0 { get; } public float C1 { get; } public float C2 { get; } public float C3 { get; }   // +0x110.. / +0x120
-    public float[] M { get; } = new float[9];          // +0x124
-    public float[] N { get; } = new float[9];          // +0x148
-    public float ValidityScale { get; }                // +0x1e8
-    public float[] Neutral { get; } = { MinusOne, MinusOne, MinusOne };   // +0x1ec
-    public string DemosaicType { get; }                // +0x1f8
-    public string CrossTalkType { get; }               // +0x218
-    public bool Initialized { get; private set; }      // +0x238
+    public float C0 { get; } public float C1 { get; } public float C2 { get; } public float C3 { get; }
+    public float[] M { get; } = new float[9];
+    public float[] N { get; } = new float[9];
+    public float ValidityScale { get; }
+    public float[] Neutral { get; } = { MinusOne, MinusOne, MinusOne };
+    public string DemosaicType { get; }
+    public string CrossTalkType { get; }
+    public bool Initialized { get; private set; }
     /// <summary>Progress: <see cref="Initialize"/> ticks the caller's current phase <see cref="InitializeTicks"/> times (it runs inside the level-0 inputs).</summary>
     public ProgressReporter Progress { get; set; } = ProgressReporter.None;
     public const int InitializeTicks = 3;
@@ -63,18 +62,18 @@ public sealed class MonoFusion
     public Action<string>? Log { get; set; }
 
     // initialize() products
-    public List<int> MonoIds { get; } = new();         // +0xc8
+    public List<int> MonoIds { get; } = new();
     public int ColourCount { get; private set; }       // nColour (incl. the reference)
-    public float[] VignMap { get; private set; } = null!;   // +0x20 (W×H reference vignetting gain)
-    public float W0 { get; private set; }              // +0x50
-    public float Scale { get; private set; }           // +0x54
-    public float NoiseA { get; private set; }          // +0x58
-    public float NoiseB { get; private set; }          // +0x5c
-    public float BlackMono { get; private set; }       // +0x60
-    public float WhiteMono { get; private set; }       // +0x64
-    public Func<float, float, float> WeightFn { get; private set; } = null!;   // +0x68 lambda_0
-    public List<float[]> Sources { get; } = new();     // +0x08 (W×H float mono frames)
-    public List<Vec2S[]> Flows { get; } = new();       // +0xe0
+    public float[] VignMap { get; private set; } = null!;   // W×H reference vignetting gain
+    public float W0 { get; private set; }
+    public float Scale { get; private set; }
+    public float NoiseA { get; private set; }
+    public float NoiseB { get; private set; }
+    public float BlackMono { get; private set; }
+    public float WhiteMono { get; private set; }
+    public Func<float, float, float> WeightFn { get; private set; } = null!;   // lambda_0
+    public List<float[]> Sources { get; } = new();     // W×H float mono frames
+    public List<Vec2S[]> Flows { get; } = new();
     public List<(int W, int H)> FlowDims { get; } = new();
     public List<float> SourceGains { get; } = new();   // gr per source (diagnostic)
     public int PyramidLevels { get; }
@@ -82,36 +81,36 @@ public sealed class MonoFusion
     public int Height => RefFrame.Height;
     /// <summary>Diagnostics of the last <see cref="Initialize"/>: the demosaicked reference luma (`Lref`, W×H) and the last flow-reference ushort image.</summary>
     public float[]? RefLuma { get; private set; }
-    /// <summary>The stream's per-module `lt::StackFusion` results (`FUN_18020a6d0`) — set on a stacked capture; null (single-frame) otherwise.</summary>
+    /// <summary>The stream's per-module `lt::StackFusion` results — set on a stacked capture; null (single-frame) otherwise.</summary>
     public StackProvider? Stacks { get; set; }
     public ushort[]? LastFlowRef16 { get; private set; }
     public ushort[]? LastMono16 { get; private set; }
 
-    /// <param name="rowExtra">`FusionCacheBase+0xb4` (the sensor-tuning row's 6th value).</param>
-    /// <param name="flag">`FUN_18050cbd0(profile)` — selects the kernel variant (0 = `FUN_1801ee0b0`, the desktop case).</param>
+    /// <param name="rowExtra">The 6th value of the sensor-tuning row.</param>
+    /// <param name="flag">Selects the kernel variant (0 = the desktop case).</param>
     public MonoFusion(LriFile lri, int refCamId, RendererProfile profile, float rowExtra, bool flag, int nStack = 1, Action<string>? log = null)
     {
         _lri = lri; RefCamId = refCamId; _flag = flag; Log = log;
-        DemosaicType = RendererProfiles.DemosaicType(profile);   // FUN_18050c7f0
-        CrossTalkType = "ir_correction";                          // FUN_18050ca60 = DAT_180838af0
+        DemosaicType = RendererProfiles.DemosaicType(profile);
+        CrossTalkType = "ir_correction";
         RefFrame = CapturedFrame.Load(lri, ModuleName(refCamId));
         var noise = RefFrame.Info.Noise ?? throw new InvalidOperationException("reference frame has no sensor noise model");
-        // Sensor(ref)+4/+8: the per-frame black estimate (CapturedImage+0xb4) and the white level
+        // the per-frame black estimate and the white level of the reference sensor
         BlackRef = float.IsNaN(RefFrame.Info.FrameBlack) ? noise.Black : RefFrame.Info.FrameBlack;
         WhiteRef = noise.White;
         Range = WhiteRef - BlackRef;
         (C0, C1, C2, C3) = LumaCoefficients(RefFrame.Info.Sensor);
-        // M = FUN_1800d14c0((c0, c1, c2)); row 0 := (c0, c1, c2); N = FUN_1800c2a00(M)
+        // M = basis((c0, c1, c2)); row 0 := (c0, c1, c2); N = Invert3(M)
         Basis(C0, C1, C2, M);
         M[0] = C0; M[1] = C1; M[2] = C2;
         Invert3(M, N);
         Isp = new SoftIsp(Tuning.LumenDefaults(), Color.LumenProfile.Compute(lri));
-        // +0x1e8 = clamp((gain + (−1))·(1/3), 0, 1)·30 + 30
+        // ValidityScale = clamp((gain + (−1))·(1/3), 0, 1)·30 + 30
         float s = (RefFrame.Info.AnalogGain + MinusOne) * Third;
         float sc = 0f; if (0f <= s) sc = s; if (One <= sc) sc = One;
         ValidityScale = sc * Thirty + Thirty;
         PyramidLevels = PackedBayerFusion.Group(refCamId) == 2 ? 6 : 5 - (RefFrame.Info.IsHalfScale ? 1 : 0);
-        Scale = rowExtra / (float)nStack;                          // +0x54 = param_5 / FUN_180112250(cameraList)
+        Scale = rowExtra / (float)nStack;                          // rowExtra / frames per stack
     }
 
     string ModuleName(int camId)
@@ -120,40 +119,40 @@ public sealed class MonoFusion
         throw new InvalidOperationException($"camera id {camId} not in the LRI");
     }
 
-    /// <summary>`FUN_1802010a0` (from `FusionCacheBase::setNeutral` `180504100`): the neutral used by the own ISP (`manual_color`) and the camera-space multiply.</summary>
+    /// <summary>The neutral used by the own ISP (`manual_color`) and the camera-space multiply (set from `FusionCacheBase::setNeutral`).</summary>
     public void SetNeutral(float[] neutral) { Neutral[0] = neutral[0]; Neutral[1] = neutral[1]; Neutral[2] = neutral[2]; }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // §3.1 FUN_1800d14c0 (disasm 1800d150b–1800d16c0) and §3.2 FUN_1800c2a00
+    // basis and 3×3 inverse
     // ---------------------------------------------------------------------------------------------------------------------------------
     static float RsqrtNRs(float n) { float r = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(n)).ToScalar(); float t = n * r; return n == 0f ? 0f : ((t * r) + MinusThree) * ((t) * MinusHalf); }
 
-    /// <summary>The basis of `FUN_1800d14c0`: row0 = v·rcpNR(rsqrtNR(|v|²)), row1 = (−b·rcpNR(k2), (a+c)·k2, −b·rcpNR(k2)) with k2 = rsqrtNR(2b² + (a+c)²),
-    /// row2 = (v × (−b, a+c, −b))·rsqrtNR(|·|²) (no zero guard). Exact register sequence from the disassembly.</summary>
+    /// <summary>The basis: row0 = v·rcpNR(rsqrtNR(|v|²)), row1 = (−b·rcpNR(k2), (a+c)·k2, −b·rcpNR(k2)) with k2 = rsqrtNR(2b² + (a+c)²),
+    /// row2 = (v × (−b, a+c, −b))·rsqrtNR(|·|²) (no zero guard). Lumen's exact operation sequence.</summary>
     public static void Basis(float a, float b, float c, float[] o)
     {
         float s = c + a;
-        float nb2 = b * (-b);                 // xmm13 = b·(−b)
-        float amc = (a - c) * b;              // xmm12
-        float sa = s * a;                     // xmm11
-        float aabb = a * a + b * b;           // xmm5
+        float nb2 = b * (-b);                 // b·(−b)
+        float amc = (a - c) * b;
+        float sa = s * a;
+        float aabb = a * a + b * b;
         float ss = s * s;
-        float n2 = (b * b + b * b) + ss;      // xmm3 = 2b² + s²   (b² computed once as xmm3 = b·b; addss xmm3,xmm3; addss xmm3,xmm2)
+        float n2 = (b * b + b * b) + ss;      // 2b² + s² (b² computed once, then added to itself)
         float r2 = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(n2)).ToScalar();
-        float t2 = n2 * r2;                   // xmm6
-        float t2r = t2 * r2;                  // xmm6 = n2·r2·r2
-        float x4 = (r2 * MinusHalf) * s;      // xmm4
-        float sc = s * c;                     // xmm7
-        float z = sa - nb2;                   // xmm11 = s·a − (−b²)
-        float x = nb2 - sc;                   // xmm13 = −b² − s·c
-        float n1 = c * c + aabb;              // xmm10
+        float t2 = n2 * r2;
+        float t2r = t2 * r2;                  // n2·r2·r2
+        float x4 = (r2 * MinusHalf) * s;
+        float sc = s * c;
+        float z = sa - nb2;                   // s·a − (−b²)
+        float x = nb2 - sc;                   // −b² − s·c
+        float n1 = c * c + aabb;
         float r1 = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(n1)).ToScalar();
         float t1 = n1 * r1;
-        float h1 = t1 * MinusHalf;            // xmm0
+        float h1 = t1 * MinusHalf;
         float k1 = ((t1 * r1) + MinusThree) * h1;
         if (n1 == 0f) k1 = 0f;
-        float h2 = t2 * MinusHalf;            // xmm2 = (n2·r2)·(−0.5)
-        float m2 = t2r + MinusThree;          // xmm6
+        float h2 = t2 * MinusHalf;            // (n2·r2)·(−0.5)
+        float m2 = t2r + MinusThree;
         float k2 = h2 * m2;
         if (n2 == 0f) k2 = 0f;
         // q = rcpps((k1,k1,k1,k2)); q = ((1 − k·q)·q) + q; row = q ⊙ (a, b, c, −b)
@@ -161,7 +160,7 @@ public sealed class MonoFusion
         var q0 = IntelApprox.Reciprocal(kv);
         var q = ((Vector128.Create(One) - kv * q0) * q0) + q0;
         var row = q * Vector128.Create(a, b, c, -b);
-        float x4f = x4 * m2;                  // xmm4 = ((r2·(−0.5))·s)·(n2 r2² − 3) = s·k2
+        float x4f = x4 * m2;                  // ((r2·(−0.5))·s)·(n2 r2² − 3) = s·k2
         float n3 = z * z + (amc * amc + x * x);
         float r3 = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(n3)).ToScalar();
         float m3 = (n3 * r3) * r3 + MinusThree;
@@ -171,7 +170,7 @@ public sealed class MonoFusion
         o[6] = x * k3; o[7] = amc * k3; o[8] = k3 * z;
     }
 
-    /// <summary>`FUN_1800c2a00`: adjugate / determinant, machine association.</summary>
+    /// <summary>Adjugate / determinant, machine association.</summary>
     public static void Invert3(float[] m, float[] o)
     {
         float m0 = m[0], m1 = m[1], m2 = m[2], m3 = m[3], m4 = m[4], m5 = m[5], m6 = m[6], m7 = m[7], m8 = m[8];
@@ -191,9 +190,9 @@ public sealed class MonoFusion
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // §2 initialize
+    // initialize
     // ---------------------------------------------------------------------------------------------------------------------------------
-    /// <summary>`FUN_1801ffa10`: the own ISP's tuning (defaults + the listed keys) and its Stats for the reference capture.</summary>
+    /// <summary>The own ISP's tuning (defaults + the listed keys) and its Stats for the reference capture.</summary>
     public void ConfigureOwnIsp() => ConfigureIsp();
     /// <summary>Diagnostic: replace the own ISP's Stats IR blend (spatial IR-correction experiments).</summary>
     public void OverrideIrBlend(float blend) { var st = Stats!; Stats = new IspStats { Neutral = st.Neutral, Cct = st.Cct, Tint = st.Tint, NeutralXy = st.NeutralXy, IrBlend = blend, SensorBlack = st.SensorBlack, SensorWhite = st.SensorWhite, Noise = st.Noise, CameraToOutput = st.CameraToOutput, Profile = st.Profile, NoiseSigma = st.NoiseSigma }; }
@@ -226,7 +225,7 @@ public sealed class MonoFusion
         foreach (var kv in _lri.Modules)
         {
             var mod = kv.Value.Module; int id = (int)mod.Id;
-            if (!mod.IsEnabled || !mod.SensorDpcOn) continue;                     // CapturedImage+0x30
+            if (!mod.IsEnabled || !mod.SensorDpcOn) continue;
             if (PackedBayerFusion.Group(id) != refGroup) continue;
             var red = mod.SensorBayerRedOverride;
             if (red is not null && (red.X | red.Y) < 0) MonoIds.Add(id); else nColour++;
@@ -235,7 +234,7 @@ public sealed class MonoFusion
         if (MonoIds.Count == 0) throw new InvalidOperationException("Gray sensor does not exist.");
         ConfigureIsp();
         int W = Width, H = Height;
-        // +0x20: 1.0 image → RemoveVignettingGeneric<float,1>(rectF(0,0,W,H), ref, 1.0, false)
+        // vignetting map: 1.0 image → RemoveVignettingGeneric<float,1>(rectF(0,0,W,H), ref, 1.0, false)
         VignMap = new float[W * H]; Array.Fill(VignMap, One);
         var (cols, rows, grid) = LensShadingKernel.ModelGrid(_lri.Header, RefFrame.Module);
         VignettingFloat.Apply(VignMap, W, H, new RectF(0f, 0f, (float)W, (float)H), W, H, cols, rows, LensShadingKernel.Transform(grid, One, false));
@@ -245,7 +244,7 @@ public sealed class MonoFusion
         Scale = (nCol / c3 + One) * Scale;
         float invN = One / nMono, K = (w1 * w1 * nCol) / (nMono * nMono * c3);
         WeightFn = (cnt, q2) => { float t = (w1 * cnt) * invN + w0; return K * q2 + t * t; };
-        // first mono capture: noise model at its gain (FUN_180120cb0), A/B = channel R (+0x30/+0x34), scaled by 1/(c3·nColour)
+        // first mono capture: noise model at its gain, A/B = channel R, scaled by 1/(c3·nColour)
         var m0 = CapturedFrame.Load(_lri, ModuleName(MonoIds[0]));
         var mn = m0.Info.Noise ?? throw new InvalidOperationException($"{ModuleName(MonoIds[0])}: no sensor noise model");
         var model = mn.ModelForGain(m0.Info.AnalogGain);
@@ -255,8 +254,8 @@ public sealed class MonoFusion
         // reference RGB: (raw − black)·rcpss(range) → DemosaickLightV1<0,0> with neutral (1,1,1)
         float rcpRange = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(Range)).ToScalar();
         var norm = new float[W * H];
-        // 1801fcdf0 L344–402: `stacked = FUN_18020a6d0(stream, ref)`; null → `FUN_1800f4940(ref)` (ushort → float of the raw frame) into
-        // `FUN_1801f8780(bayer, {black_ref, rcpss(range)})`; on a stacked capture the closure is `{stacked, black, rcp(range)}` — the module's
+        // The reference frame: the stacked frame when there is one, else the raw frame (ushort → float), through
+        // `(x − black_ref)·rcpss(range)`; on a stacked capture the input is the module's
         // lt::StackFusion float frame through the same kernel
         var stackedRef = Stacks?.GetIfStacked(ModuleName(RefCamId));
         if (stackedRef is null) { var raw = RefFrame.Raw; for (int i = 0; i < norm.Length; i++) norm[i] = ((float)raw[i] - BlackRef) * rcpRange; }
@@ -265,7 +264,7 @@ public sealed class MonoFusion
         var rgb = new Vec4F[W * H];
         DemosaicLightV1.Run(norm, W, H, new RectI(0, 0, W, H), rx, ry, new[] { One, One, One }, rgb);
         norm = null!;
-        // Lref = ((a·0 + g·c1) + (b·c2 + r·c0))·range   [D: dot product mulps / shufpd 1 / addps / shufps 0xb1 / addps → (p3+p1) + (p2+p0)]
+        // Lref = ((a·0 + g·c1) + (b·c2 + r·c0))·range. This is Lumen's dot-product order; the a·0 term stays.
         var lref = new float[W * H];
         for (int i = 0; i < lref.Length; i++) { var p = rgb[i]; lref[i] = ((p.A * 0f + p.G * C1) + (p.B * C2 + p.R * C0)) * Range; }
         rgb = null!;
@@ -282,7 +281,7 @@ public sealed class MonoFusion
             var cf = CapturedFrame.Load(_lri, name);
             int w = cf.Width, h = cf.Height;
             var noise = cf.Info.Noise ?? throw new InvalidOperationException($"{name}: no sensor noise model");
-            float blackM = noise.Black;   // Sensor(m)+4 [?] spec §8.4
+            float blackM = noise.Black;   // the sensor black of the mono module
             if (cf.Info.HasHotPixelLeakageCalibration) throw new NotSupportedException("HotpixelCalibration::correctHotpixelLeakage is not ported");
             var redM = cf.Module.SensorBayerRedOverride; int mrx = redM?.X ?? 0, mry = redM?.Y ?? 0;
             var img = new float[w * h];
@@ -292,25 +291,25 @@ public sealed class MonoFusion
                 var lut = noise.SigmaTables(cf.Info.AnalogGain);
                 var hp = new ushort[w * h];
                 HotPixelKernel.RunInto(cf.Raw, w, h, new RectI(0, 0, w, h), mrx, mry, One, lut[0], lut.Length > 1 ? lut[1] : lut[0], lut.Length > 2 ? lut[2] : lut[0], hp, w, 0);
-                for (int i = 0; i < img.Length; i++) img[i] = (float)hp[i] - blackM;                       // FUN_180200740
+                for (int i = 0; i < img.Length; i++) img[i] = (float)hp[i] - blackM;
             }
             else
             {
-                // 1801fcdf0 L510–545: `img = stacked(m) ?? FUN_18039f640(captured(m))` — the module's lt::StackFusion float frame (hot-pixel patched
-                // per frame by the stack fusion) straight into FUN_180200740(img, black), black = frame 0's CapturedImage+0xb4 (the DB black of a mono module)
+                // `img` = the module's lt::StackFusion float frame (hot-pixel patched per frame by the stack fusion), else the hot-pixel-patched
+                // raw frame, minus black; black = the black of frame 0 of the stack (the DB black of a mono module)
                 var sf = stackedM.Fused;
                 for (int i = 0; i < img.Length; i++) img[i] = sf[i] - blackM;
             }
             var (mc, mr, mg) = LensShadingKernel.ModelGrid(_lri.Header, cf.Module);
             VignettingFloat.Apply(img, w, h, new RectF(0f, 0f, (float)w, (float)h), w, h, mc, mr, LensShadingKernel.Transform(mg, One, false));
-            // FUN_18010fc80: (gain_ref·exp_ref)/(gain_m·exp_m); no vignetting-model factor for a mono source
+            // (gain_ref·exp_ref)/(gain_m·exp_m); no vignetting-model factor for a mono source
             float gm = (refM.SensorAnalogGain * (float)refM.SensorExposure) / (cf.Module.SensorAnalogGain * (float)cf.Module.SensorExposure);
             float gr = gm / c3;
             if (GainTol < MathF.Abs(gPrev - gr))
             {
                 float sc = c3 / gm;
                 var lr = new float[W * H];
-                for (int i = 0; i < lr.Length; i++) { float v = lref[i] * sc; if (Range <= v) v = Range; lr[i] = v; }   // FUN_180201dc0: min(L·sc, range)
+                for (int i = 0; i < lr.Length; i++) { float v = lref[i] * sc; if (Range <= v) v = Range; lr[i] = v; }   // min(L·sc, range)
                 VignettingFloat.Apply(lr, W, H, new RectF(0f, 0f, (float)W, (float)H), W, H, cols, rows, LensShadingKernel.Transform(grid, One, false));
                 var lr16 = ToUshortSqrt(lr);
                 LastFlowRef16 = lr16;
@@ -320,9 +319,9 @@ public sealed class MonoFusion
             LastMono16 = m16;
             var flow = BlockFlow.ComputeFlow(refPyr!, pdims!, m16, w, h, PyramidLevels, validity, out int fw, out int fh);
             Flows.Add(flow); FlowDims.Add((fw, fh));
-            for (int i = 0; i < img.Length; i++) img[i] = img[i] * gr + blackM;                     // FUN_1802009e0
+            for (int i = 0; i < img.Length; i++) img[i] = img[i] * gr + blackM;
             Sources.Add(img); SourceGains.Add(gr);
-            if (Environment.GetEnvironmentVariable("LUX_FUSION_DUMP") is string dpre)   // diagnostic twin of the oracle's mkern_wrap `mono_src<i>` (whole-frame mono source, img·gr + black)
+            if (Environment.GetEnvironmentVariable("LUX_FUSION_DUMP") is string dpre)   // diagnostic `mono_src<i>` (whole-frame mono source, img·gr + black)
                 PackedBayerFusion.DumpFloat($"{dpre}_mono_src{Sources.Count - 1}.bin", img, w, h);
             gPrev = gr;
             Log?.Invoke($"mono fusion: source cam {cam} gain {gm:R} gr {gr:R} black {blackM:R} flow {fw}x{fh}");
@@ -332,7 +331,7 @@ public sealed class MonoFusion
         Log?.Invoke($"mono fusion: ids [{string.Join(",", MonoIds)}] nColour {nColour} w0 {W0:R} scale {Scale:R} A' {NoiseA:R} B' {NoiseB:R} black/white mono {BlackMono:R}/{WhiteMono:R} range {Range:R} coef ({C0:R},{C1:R},{C2:R},{C3:R})");
     }
 
-    /// <summary>`FUN_1801d6d00`: `v = min(max(x + 0.5, 1.0), 4095.0)`; `out = sqrtLUT[(int)v]`.</summary>
+    /// <summary>`v = min(max(x + 0.5, 1.0), 4095.0)`; `out = sqrtLUT[(int)v]`.</summary>
     public static ushort[] ToUshortSqrt(float[] src)
     {
         var o = new ushort[src.Length];
@@ -347,7 +346,7 @@ public sealed class MonoFusion
         return o;
     }
 
-    /// <summary>`initialize::lambda_1` (1802022e0): `x = clamp((int)(W·p.x), 0, W−1)`, `y` likewise on the full-res map, `k = rsqrtNR(v)`; returns `k·thr &lt; score`.</summary>
+    /// <summary>`initialize::lambda_1`: `x = clamp((int)(W·p.x), 0, W−1)`, `y` likewise on the full-res map, `k = rsqrtNR(v)`; returns `k·thr &lt; score`.</summary>
     public static Func<float, (float X, float Y), bool> ValidityFromVignMap(float[] map, int w, int h, float thr)
     {
         return (score, p) =>
@@ -362,30 +361,30 @@ public sealed class MonoFusion
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // §3.3 / §4 render side: FUN_1802010c0 → FUN_180201420
+    // render side
     // ---------------------------------------------------------------------------------------------------------------------------------
     public sealed record ProcessResult(Image<Vec4F> Rgb, float[] Weight, float[] Mono, float[] Luma, Image<Vec4F> RefC);
 
-    /// <summary>`FUN_1802010c0(this, out, weightOut, F, grown)`: the fused colour Bayer <paramref name="fused"/> (grown-rect size, raw DN) → the RGB image of
+    /// <summary>Process (out, weightOut, F, grown): the fused colour Bayer <paramref name="fused"/> (grown-rect size, raw DN) → the RGB image of
     /// the grown rect with the luma replaced by the mono merge, plus the mono weight image.</summary>
     public ProcessResult Process(RectI grown, float[] fused)
     {
         if (!Initialized) throw new InvalidOperationException("MonoFusion not initialized");
         if (Sources.Count == 0) throw new InvalidOperationException("Empty mono!");
         int gw = grown.Width, gh = grown.Height;
-        // FUN_1803dc980(+0x170, refC, F, ref, grown, emptySTD): the BayerFloat runner of the own ISP (Bayer view = the grown image, no halo)
+        // the BayerFloat runner of the own ISP (Bayer view = the grown image, no halo; empty STD)
         var bayer = new Image<float>(grown, fused, gw, 0);
         Action<int, IStage, IspPayload>? tap = null;
         if (Environment.GetEnvironmentVariable("LUX_MONO_DUMP") is string dpre)
             tap = (i, st, p) =>
-            {   // per-stage dumps of the own ISP (compare with cp.dll's st<call>_<rva>_out0/out3 dumps): RGB working image (16 bpp) and the float Bayer (4 bpp), full extents
+            {   // per-stage dumps of the own ISP: RGB working image (16 bpp) and the float Bayer (4 bpp), full extents
                 void Dump<T>(string tag, Image<T> im, int bpp) where T : unmanaged { int w = im.Width, h = im.Height; int es = System.Runtime.InteropServices.Marshal.SizeOf<T>(); var b = new byte[16 + w * h * es]; BitConverter.GetBytes(w).CopyTo(b, 0); BitConverter.GetBytes(h).CopyTo(b, 4); BitConverter.GetBytes(w).CopyTo(b, 8); BitConverter.GetBytes(bpp).CopyTo(b, 12); for (int y = 0; y < h; y++) System.Runtime.InteropServices.MemoryMarshal.AsBytes(im.Row(y)).CopyTo(b.AsSpan(16 + y * w * es, w * es)); File.WriteAllBytes($"{dpre}_own_st{i}_{st.Stage}.{tag}.bin", b); Log?.Invoke($"own ISP stage {i} {st.Stage}/{st.TypeString}: {tag} rect {im.Rect}"); }
                 if (p.Rgb is not null) Dump("rgb", p.Rgb, 16);
                 if (p.BayerFloat is not null) Dump("bayer", p.BayerFloat, 4);
             };
         var refC = Isp.ProcessBayerFloat(RefFrame, Stats!, bayer, null, grown, 5, Log, tap);
         var refCopy = refC.Copy();
-        // FUN_1801ea0c0: ⊙ (n0, n1, n2, 1)
+        // ⊙ (n0, n1, n2, 1)
         var nv = Vector128.Create(Neutral[0], Neutral[1], Neutral[2], One);
         var rgb = new Vec4F[gw * gh];
         for (int y = 0; y < gh; y++)
@@ -393,12 +392,12 @@ public sealed class MonoFusion
             var row = refC.Row(y);
             for (int x = 0; x < gw; x++) { var p = row[x]; var v = Vector128.Create(p.R, p.G, p.B, p.A) * nv; rgb[y * gw + x] = new Vec4F(v.GetElement(0), v.GetElement(1), v.GetElement(2), v.GetElement(3)); }
         }
-        // L = ((a·0 + g·c1) + (b·c2 + r·c0))·range + black   [D 180201660–180201687: mulps / shufpd 1 / addps / shufps 0xb1 / addps / mulss range / addss black]
+        // L = ((a·0 + g·c1) + (b·c2 + r·c0))·range + black, in Lumen's dot-product order
         var luma = new float[gw * gh];
         for (int i = 0; i < luma.Length; i++) { var p = rgb[i]; luma[i] = ((p.A * 0f + p.G * C1) + (p.B * C2 + p.R * C0)) * Range + BlackRef; }
-        // the vignetting map is passed as the (+0x20 ∩ grown) sub-VIEW: its rect fields still span the whole frame, so the kernel's per-block mean
+        // the vignetting map is passed as a sub-VIEW (map ∩ grown): its rect fields still span the whole frame, so the kernel's per-block mean
         // is taken over block ∩ FRAME (not block ∩ ROI) — pass the full map
-        if (_flag) throw new NotSupportedException("MonoFusion kernel variant FUN_1801eade0 (flag = 1) is not ported");
+        if (_flag) throw new NotSupportedException("MonoFusion kernel variant with flag = 1 is not supported");
         var (mono, weight) = Merge(luma, VignMap, grown, Sources, Width, Height, Flows, FlowDims, W0, Scale, NoiseA, NoiseB, BlackMono, WhiteMono, WeightFn);
         // combine: rgb' = N·(l, (M·rgb)₁, (M·rgb)₂)
         float invR = One / Range;
@@ -410,7 +409,7 @@ public sealed class MonoFusion
             for (int x = 0; x < gw; x++)
             {
                 var p = rgb[y * gw + x];
-                // 180201266–180201287: xmm7 = r·(M0,M3,M6); xmm0 = g·(M1,M4,M7) + xmm7; xmm7 = b·(M2,M5,M8) + xmm0  → lanes 1,2 = M·rgb
+                // t = r·(M0,M3,M6); t = g·(M1,M4,M7) + t; t = b·(M2,M5,M8) + t → lanes 1,2 = M·rgb
                 float m1 = p.B * M[5] + (p.G * M[4] + p.R * M[3]);
                 float m2 = p.B * M[8] + (p.G * M[7] + p.R * M[6]);
                 float l = (mono[y * gw + x] - BlackRef) * invR;
@@ -422,23 +421,23 @@ public sealed class MonoFusion
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // §5 kernel FUN_1801ee0b0
+    // merge kernel
     // ---------------------------------------------------------------------------------------------------------------------------------
     static int FloorDiv8(int v) => (v + (v < 0 ? 7 : 0)) >> 3;   // (v + ((v >> 31) >>> 29)) >> 3
     static int CeilDiv8(int v) { int q = FloorDiv8(v); return (v & 7) != 0 ? q + (v >= 0 ? 1 : 0) : q; }
 
-    /// <summary>`FUN_1801ee0b0(out, wOut, L, vign, srcs, flows, rect, prm)`: returns (mono, weight) images of the rect's size. `L` is the image of the
+    /// <summary>The merge kernel (out, wOut, L, vign, srcs, flows, rect, prm): returns (mono, weight) images of the rect's size. `L` is the image of the
     /// rect itself (its extent == the ROI), as `MonoFusion::process` passes its grown-rect luma.</summary>
     public static (float[] Mono, float[] Weight) Merge(float[] L, float[]? vign /* W×H */, RectI rect, List<float[]> srcs, int W, int H, List<Vec2S[]> flows, List<(int W, int H)> flowDims,
         float w0, float scale, float A, float B, float black, float white, Func<float, float, float> fn)
         => MergeCore(L, rect.Width, rect, vign, rect, srcs, W, H, flows, flowDims, w0, scale, A, B, black, white, fn);
 
     /// <summary>The kernel with `L` as an image of its own extent: <paramref name="lRect"/> is L's rect in frame coordinates and <paramref name="lStride"/>
-    /// its row stride; <paramref name="rect"/> is the ROI (frame coordinates). The per-block noise view (`FUN_1801d79d0` over `B ∩ L.rect`) and the block
-    /// extract (`FUN_1801ecee0`, edge replication at L's edge) clip to L's rect, the Hann accumulation (`FUN_1801d63c0` / `FUN_1801d6750`, with its
+    /// its row stride; <paramref name="rect"/> is the ROI (frame coordinates). The per-block noise view (over `B ∩ L.rect`) and the block
+    /// extract (edge replication at L's edge) clip to L's rect, the Hann accumulation (with its
     /// "block fully inside" fast path) and the final combine are on the ROI. `MonoFusion` passes L == ROI; the mono branch of `lt::StackFusion` passes
-    /// the whole prepared frame with 16×16 tiles as the ROI (`StackFusion::lambda_1` → `FUN_1801ef920`, the ushort instantiation of this kernel — its
-    /// helpers `FUN_1801d7b20` / `FUN_1801f0d70` / `FUN_1801f1140` are the ushort twins of `FUN_1801d79d0` / `FUN_1801ecee0` / `FUN_1801ef500`, reading
+    /// the whole prepared frame with 16×16 tiles as the ROI (`StackFusion::lambda_1` → the ushort instantiation of this kernel — its
+    /// helpers are the ushort twins of the float ones, reading
     /// `(float)v`, so the float kernel on the converted frame is the same arithmetic).</summary>
     public static (float[] Mono, float[] Weight) MergeCore(float[] L, int lStride, RectI lRect, float[]? vign /* W×H */, RectI rect, List<float[]> srcs, int W, int H,
         List<Vec2S[]> flows, List<(int W, int H)> flowDims, float w0, float scale, float A, float B, float black, float white, Func<float, float, float> fn)
@@ -507,7 +506,7 @@ public sealed class MonoFusion
                 MonoMerge.AddHannScalar(wOut, w, h, rbx, rby, wt, hann);
             }
         }
-        // FUN_1801ef500 (FUN_1801f1140 for a ushort L): out = acc·((1 − w0)/nSrc) + L·w0
+        // out = acc·((1 − w0)/nSrc) + L·w0
         float k2 = w1 / (float)srcs.Count;
         var outp = new float[w * h];
         for (int y = 0; y < h; y++)
@@ -517,7 +516,7 @@ public sealed class MonoFusion
         }
         return (outp, wOut);
     }
-    /// <summary>`FUN_1802090c0(std, W8, m8, k)`: `idx = max((((W8+1)·(m8+1)) &gt;&gt; 8) − 1, 0)`, `std = DAT_1806b5110[idx]·k`.</summary>
+    /// <summary>`idx = max((((W8+1)·(m8+1)) &gt;&gt; 8) − 1, 0)`, `std = PackedBayerFusion.StdTable[idx]·k`.</summary>
     public static float[] StdPlaneMono(byte[] w8, byte[] m8, float k)
     {
         var o = new float[w8.Length];

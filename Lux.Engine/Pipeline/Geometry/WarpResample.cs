@@ -1,13 +1,13 @@
 namespace Lux.Engine.Pipeline.Geometry;
 
-/// <summary>Lumen's per-module aligned warp resampler — `ReferenceImageCache::processLevel` lambda_5 (`1804dad10`) with the
-/// 64-phase Catmull-Rom (a = −0.5) weight table from `FUN_180305680`, clamped 4×4 gather at the source border, fill outside.
+/// <summary>Lumen's per-module aligned warp resampler — `ReferenceImageCache::processLevel` lambda_5 with the
+/// 64-phase Catmull-Rom (a = −0.5) weight table of <c>Kernel</c>, clamped 4×4 gather at the source border, fill outside.
 /// Output pixel (x,y) of the grid maps through the level-L aligned map: `s = map(origin + (x,y))`, `p = (int)((s − 1 − srcOff)·64)`,
 /// base `p >> 6`, phase `p &amp; 63`. Positive and negative kernel lobes are accumulated separately and recombined as
 /// `out = max(−0.25·P, N) + P` (P = same-sign products, N = cross-sign products).</summary>
 public static class WarpResample
 {
-    /// <summary>`FUN_180305680`: the four tap weights k(t+1), k(t), k(1−t), k(2−t) for offset t.
+    /// <summary>The four tap weights k(t+1), k(t), k(1−t), k(2−t) for offset t.
     /// |x|&lt;1: ((x²·−15 + 6) + x³·9)/6; 1≤|x|&lt;2: (((x·−24 + 12) + x²·15) + x³·−3)/6; else 0.</summary>
     public static void Kernel(float t, Span<float> w)
     {
@@ -38,8 +38,10 @@ public static class WarpResample
         return table;
     }
 
-    /// <summary>A 4-channel float image region: pixel (x,y) with rect.X0 ≤ x &lt; rect.X1 lives at data[((y·stride + x)·4)].</summary>
-    public readonly record struct Source(float[] Data, int Stride, int X0, int Y0, int X1, int Y1);
+    /// <summary>A 4-channel float image region: pixel (x,y) with rect.X0 ≤ x &lt; rect.X1 lives at data[Base + ((y·stride + x)·4)].
+    /// The rect is the clamp window of the kernel (`lt::Image` rect fields, relative to the data origin); it may start before the data
+    /// origin (negative X0/Y0) when the source is a view into a larger image, which <paramref name="Base"/> (element offset of pixel (0,0)) allows.</summary>
+    public readonly record struct Source(float[] Data, int Stride, int X0, int Y0, int X1, int Y1, int Base = 0);
 
     /// <summary>Warp `src` into `dst` (dstW×dstH, 4 floats per pixel, row stride dstW) for grid pixels
     /// [rect.x0,rect.x1)×[rect.y0,rect.y1) (output-image coordinates; the tile order is irrelevant — the kernel is per pixel).</summary>
@@ -57,7 +59,7 @@ public static class WarpResample
                 float mx = (float)originX + (float)x, my = (float)originY + (float)y;
                 int px, py;
                 if (inlinedMap)
-                {   // PipelineCache::processLevel1 kernel 1804e49f0: u = ((cx − 1) + lu·dx) − x0 (level 0 only)
+                {   // PipelineCache::processLevel1 kernel: u = ((cx − 1) + lu·dx) − x0 (level 0 only)
                     var (u1, v1) = calib.MapInlinedMinus1(mx, my);
                     px = (int)((u1 - (float)srcOffX) * 64.0f);
                     py = (int)((v1 - (float)srcOffY) * 64.0f);
@@ -88,7 +90,7 @@ public static class WarpResample
                     for (int r = 0; r < 4; r++)
                         for (int c = 0; c < 4; c++)
                         {
-                            int si = (cy[r] * src.Stride + cx[c]) * 4, bi = (r * 4 + c) * 4;
+                            int si = src.Base + (cy[r] * src.Stride + cx[c]) * 4, bi = (r * 4 + c) * 4;
                             block[bi] = src.Data[si]; block[bi + 1] = src.Data[si + 1]; block[bi + 2] = src.Data[si + 2]; block[bi + 3] = src.Data[si + 3];
                         }
                     data = null!; stride = 4; baseIdx = 0;
@@ -96,7 +98,7 @@ public static class WarpResample
                 }
                 else
                 {
-                    data = src.Data; stride = src.Stride; baseIdx = (iy * stride + ix) * 4;
+                    data = src.Data; stride = src.Stride; baseIdx = src.Base + (iy * stride + ix) * 4;
                     Resample(data, stride, baseIdx, table, px & 63, py & 63, dst, o);
                 }
             }

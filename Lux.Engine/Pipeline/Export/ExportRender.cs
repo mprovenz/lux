@@ -5,10 +5,10 @@ using Lux.Engine.Pipeline.Isp.Stages;
 namespace Lux.Engine.Pipeline.Export;
 
 /// <summary>
-/// The `CIAPI::Transform::impl` fields `GetExportTransformOutput` (`180521d90`) reads: the 3×3 matrix (+0x10, cp.dll
-/// storage order — `x' = m0·x + m3·y + m6`), the reduced aspect ratio (+0x8/+0xc) and the normalised crop rect (+0x34).
-/// `FUN_180501380` converts the matrix "to a size": elements 6/7 are scaled by `W/aspectW` (throws when the size's reduced
-/// aspect differs). The L16 default (cp.dll's export path) is the identity, crop (0,0,1,1), aspect 4:3.
+/// The fields of Lumen's `CIAPI::Transform::impl` that `GetExportTransformOutput` reads: the 3×3 matrix (Lumen's
+/// storage order — `x' = m0·x + m3·y + m6`), the reduced aspect ratio and the normalised crop rect.
+/// <see cref="MatrixForSize"/> converts the matrix "to a size": elements 6/7 are scaled by `W/aspectW` (throws when the size's reduced
+/// aspect differs). The L16 default (Lumen's export path) is the identity, crop (0,0,1,1), aspect 4:3.
 /// </summary>
 public sealed class ExportTransform
 {
@@ -23,11 +23,11 @@ public sealed class ExportTransform
     }
 
     /// <summary>The rotation Lumen bakes into the DNG (`Orientation` stays 1). This matrix makes `GetExportTransformOutput`'s affine come out as the
-    /// exact 90°/180°/270° remap of the level-0 export window — for 90° `u = y`, `v = H0 − x` (the mapping recovered from Lumen's own portrait export
-    /// of L16_00466, `portrait[Y][X] = landscape[H0 − X][Y]`). `m6/m7` are stored pre-scaled by `aspectW/W` because `MatrixForSize` multiplies them by
-    /// `W/aspectW`. cp.dll's own `CIAPI::Transform::rotate90(k)` parametrises the same rotation differently (aspect stays 4:3, matrix
-    /// `[0 ±1 0 | ∓1 0 0 | …]` plus a rotated crop rect), but reduces to the same per-block affine: verified pixel-identical for all three angles on
-    /// L16_00435 (2026-09-12; 90 = rotate90(−1), 180 = rotate90(2), 270 = rotate90(1)).</summary>
+    /// exact 90°/180°/270° remap of the level-0 export window — for 90° `u = y`, `v = H0 − x` (Lumen's portrait export has
+    /// `portrait[Y][X] = landscape[H0 − X][Y]`). `m6/m7` are stored pre-scaled by `aspectW/W` because `MatrixForSize` multiplies them by
+    /// `W/aspectW`. Lumen's own `CIAPI::Transform::rotate90(k)` parametrises the same rotation differently (aspect stays 4:3, matrix
+    /// `[0 ±1 0 | ∓1 0 0 | …]` plus a rotated crop rect), but reduces to the same per-block affine for all three angles
+    /// (90 = rotate90(−1), 180 = rotate90(2), 270 = rotate90(1)).</summary>
     public static ExportTransform Rotate(int degrees, (int W, int H) dims0)
     {
         var t = Identity(dims0);
@@ -45,9 +45,9 @@ public sealed class ExportTransform
         }
         return t;
     }
-    internal static int Gcd(int a, int b) { while (b != 0) { int t = a % b; a = b; b = t; } return a; }   // FUN_18048aad0
+    internal static int Gcd(int a, int b) { while (b != 0) { int t = a % b; a = b; b = t; } return a; }
 
-    /// <summary>`FUN_180501380(impl, out, size)`: the 9 floats with [6],[7] × (W/aspectW).</summary>
+    /// <summary>The matrix for a size (impl, out, size): the 9 floats with [6],[7] × (W/aspectW).</summary>
     public float[] MatrixForSize((int W, int H) size)
     {
         int aw = 0, ah = 0;
@@ -60,23 +60,23 @@ public sealed class ExportTransform
     }
 }
 
-/// <summary>`lt::TransformOutput` (`GetExportTransformOutput` L196–216): level, source rect at that level (±2 px, clamped), per-axis
-/// scale (source px per output px) and the affine lambda_5 `x' = B·y + A·x + C`, `y' = E·y + D·x + F` (output-rect-local → source-rect-local).</summary>
+/// <summary>`lt::TransformOutput` (as `GetExportTransformOutput` fills it): level, source rect at that level (±2 px, clamped), per-axis
+/// scale (source px per output px) and the affine `x' = B·y + A·x + C`, `y' = E·y + D·x + F` (output-rect-local → source-rect-local).</summary>
 public readonly record struct TransformOutput(int Level, RectI Source, float ScaleX, float ScaleY, float A, float B, float C, float D, float E, float F)
 {
-    public (float U, float V) Map(float x, float y) => (B * y + A * x + C, y * E + x * D + F);   // lambda_5 180523880
+    public (float U, float V) Map(float x, float y) => (B * y + A * x + C, y * E + x * D + F);
 }
 
-/// <summary>The renderer's per-level export geometry (`setInputDataStream` L~360–430, verified against cp.dll on L16_00466): `+0x270` export dims
-/// (8320×6240, halved per level), `+0x288` pipeline dims (the 10432×7824 ResAmp canvas, halved), `+0x2d0` level origins (the export window
-/// inside the canvas, (1008,832) at level 0), `+0x490` = the reference ImageCaches dims (4160×3120 = the module frame; the vignetting crop rect
+/// <summary>The renderer's per-level export geometry (as `setInputDataStream` sets it): the export dims
+/// (8320×6240, halved per level), the pipeline dims (the 10432×7824 ResAmp canvas, halved), the level origins (the export window
+/// inside the canvas, (1008,832) at level 0), the reference ImageCaches dims (4160×3120 = the module frame; the vignetting crop rect
 /// and frame are in these units) and the cache base level
-/// (`FUN_18050c640(+0x90)`, 0 on the L16). The 512-grid render tiles (`+0x268` = (512,512), grid rule of L~430) are over the export dims.</summary>
+/// (the renderer-profile level offset, 0 on the L16). The 512-grid render tiles (512×512) are over the export dims.</summary>
 public sealed record ExportLevels((int W, int H)[] ExportDims, (int W, int H)[] PipelineDims, (int X, int Y)[] Origins, (int W, int H) CacheDims, int BaseLevel)
 {
-    public const int Tile = 512;   // DAT_1808378b0 = (0x200, 0x200)
+    public const int Tile = 512;   // (0x200, 0x200)
 
-    /// <summary>Renderer tile grid of a level (`setInputDataStream` L432–456): `n = ceil(W/512)`, minus one when `n > 1` and the last tile would be partial.</summary>
+    /// <summary>Renderer tile grid of a level: `n = ceil(W/512)`, minus one when `n > 1` and the last tile would be partial.</summary>
     public static int GridCount(int w)
     {
         int n = w / Tile; if (w % Tile != 0) n += 1;
@@ -84,7 +84,7 @@ public sealed record ExportLevels((int W, int H)[] ExportDims, (int W, int H)[] 
         return n;
     }
 
-    /// <summary>The tile rect (export-level coords) of tile (tx,ty): 512-aligned, the last tile absorbs the remainder (render thread `1804a37f0` L~860).</summary>
+    /// <summary>The tile rect (export-level coords) of tile (tx,ty): 512-aligned, the last tile absorbs the remainder (as in Lumen's render thread).</summary>
     public RectI TileRect(int level, int tx, int ty)
     {
         var (W, H) = ExportDims[level]; int nx = GridCount(W), ny = GridCount(H);
@@ -92,8 +92,8 @@ public sealed record ExportLevels((int W, int H)[] ExportDims, (int W, int H)[] 
         return new RectI(tx * Tile, ty * Tile, x1, y1);
     }
 
-    /// <summary>The L16 layout: export dims = the sensor dims halved per level; pipeline dims = the canvas halved; origins halved (cp.dll's values at
-    /// level 0, `(o >> 1)` per level as cp.dll shows (1008,832) → (504,416) → (252,208) → (126,104) → (63,52)).</summary>
+    /// <summary>The L16 layout: export dims = the sensor dims halved per level; pipeline dims = the canvas halved; origins halved (Lumen's values at
+    /// level 0, `(o >> 1)` per level: (1008,832) → (504,416) → (252,208) → (126,104) → (63,52)).</summary>
     public static ExportLevels L16((int W, int H) sensor, (int W, int H) canvas, (int X, int Y) origin0, int levels = 5)
     {
         var ed = new (int, int)[levels]; var pd = new (int, int)[levels]; var og = new (int, int)[levels];
@@ -104,14 +104,14 @@ public sealed record ExportLevels((int W, int H)[] ExportDims, (int W, int H)[] 
 
 public static class ExportTransformOutput
 {
-    const float LevelSlack = 1.1f;   // DAT_1806a0800
+    const float LevelSlack = 1.1f;
 
-    /// <summary>`lt::A::GetExportTransformOutput(out, transform, size, rect, levelDims (+0x270 copy), force0 = renderer+0x500)` — `180521d90`, float-op order as compiled.</summary>
+    /// <summary>`lt::A::GetExportTransformOutput(out, transform, size, rect, levelDims, force0)` — float-op order as compiled.</summary>
     public static TransformOutput Compute(ExportTransform t, (int W, int H) size, RectI rect, (int W, int H)[] dims, bool forceLevel0)
     {
         var m = t.MatrixForSize(dims[0]);
         float tx = (float)dims[0].W * t.CropX0, ty = (float)dims[0].H * t.CropY0;
-        // L~120: the matrix re-based on the crop origin (initializer-list ctor FUN_18001b690)
+        // the matrix re-based on the crop origin
         float n0 = m[0], n1 = m[3], n2 = m[3] * ty + tx * m[0] + m[6];
         float n3 = m[1], n4 = m[4], n5 = ty * m[4] + m[1] * tx + m[7];
         float cropW = t.CropX1 - t.CropX0, cropH = t.CropY1 - t.CropY0;
@@ -175,24 +175,24 @@ public static class ExportTransformOutput
 }
 
 /// <summary>
-/// The export render path (SoT §7.3): per writer block → `GetExportTransformOutput` → `renderForExport` (`1805253c0`: render-thread 512 tiles
-/// through the export tile callback `180526690` = `FUN_1804bd710` on the PipelineCache (mode 0, all-in-focus) + `RemoveVignettingGeneric&lt;vec4x32f,1&gt;`)
-/// → `FUN_18052dfc0` (Lanczos-2 blur + `ImageWarp&lt;1,0&gt;` when a scale exceeds 1.5, else `ImageWarpClamped&lt;2&gt;`) → `FUN_18001b790` ×16384.
+/// The export render path: per writer block → `GetExportTransformOutput` → `renderForExport` (render-thread 512 tiles
+/// through the export tile callback = a PipelineCache fetch (mode 0, all-in-focus) + `RemoveVignettingGeneric&lt;vec4x32f,1&gt;`)
+/// → the export resampler (Lanczos-2 blur + `ImageWarp&lt;1,0&gt;` when a scale exceeds 1.5, else `ImageWarpClamped&lt;2&gt;`) → ×16384.
 /// </summary>
 public sealed class ExportRenderer
 {
     readonly PipelineCache _cache; readonly ExportLevels _lv; readonly ExportTransform _tr; readonly (int W, int H) _size; readonly bool _force0;
     readonly Func<int, float> _multiplier; readonly int _cols, _rows; readonly float[] _grid;
     public Action<string>? Log;
-    /// <summary>Diagnostic hook: every vignetted tile (export-level rect, shifted pipeline rect, float RGBA) — cp.dll's `t&lt;k&gt;_post` dump.</summary>
+    /// <summary>Diagnostic hook: every vignetted tile (export-level rect, shifted pipeline rect, float RGBA).</summary>
     public Action<int, RectI, RectI, float[]>? TileHook;
-    /// <summary>Diagnostic hook: every cache tile BEFORE `RemoveVignettingGeneric` — cp.dll's `t&lt;k&gt;_pre` dump.</summary>
+    /// <summary>Diagnostic hook: every cache tile BEFORE `RemoveVignettingGeneric`.</summary>
     public Action<int, RectI, RectI, float[]>? TilePreHook;
-    /// <summary>Diagnostic hook per writer block: ("rsin", source image) before `FUN_18052dfc0`, ("rsout", warped) before the ×16384 and
-    /// ("x16384", final) — cp.dll's `b&lt;k&gt;_rsin` / `_rsout` / `_x16384`.</summary>
+    /// <summary>Diagnostic hook per writer block: ("rsin", source image) before the resampler, ("rsout", warped) before the ×16384 and
+    /// ("x16384", final).</summary>
     public Action<string, RectI, int, int, float[]>? BlockHook;
 
-    /// <param name="multiplierOfLevel">`lens_shading.multiplier` of the level's tuning (`exportImage` lambda_2 L80–82 reads tuning[0]).</param>
+    /// <param name="multiplierOfLevel">`lens_shading.multiplier` of the level's tuning (Lumen's export reads tuning[0]).</param>
     /// <param name="vignetting">the reference module's vignetting model grid (before the multiplier transform).</param>
     public ExportRenderer(PipelineCache cache, ExportLevels levels, ExportTransform transform, (int W, int H) size, bool forceLevel0,
                           Func<int, float> multiplierOfLevel, (int Cols, int Rows, float[] Data) vignetting)
@@ -203,7 +203,15 @@ public sealed class ExportRenderer
 
     public (int W, int H) Size => _size;
 
-    /// <summary>`Exporter::exportDNG` lambda_0 (`1805342d0`) + `exportImage` lambda_2/lambda_3 + `FUN_18052dfc0` + `FUN_18001b790`: the writer's
+    /// <summary>The fused-tile source of the tile callback. Lumen fetches the tile from the PipelineCache when
+    /// `DefaultFNumber &lt;= f-number setting`, and from the DOFCache (the depth effect) otherwise. Null = the
+    /// PipelineCache; set to the depth-effect cache's `Render` (cache level, rect, requested dims) to select the DOFCache.</summary>
+    public Func<int, RectI, (int W, int H), float[]>? TileSource { get; set; }
+    /// <summary>With <see cref="TileSource"/>: generate that source's tiles under (cache level, rect, requested dims) on the given number of
+    /// threads, ahead of the writer (see <see cref="Prefetch"/>).</summary>
+    public Action<int, RectI, (int W, int H), int>? TileSourcePrefetch { get; set; }
+
+    /// <summary>Lumen's `Exporter::exportDNG` block step + the `exportImage` render + the export resampler + ×16384: the writer's
     /// block (unclamped 2048² rect) → the clamped block as float RGBA ×16384 (row-major, 4 floats per pixel).</summary>
     public (RectI Rect, float[] Pixels) RenderBlock(RectI block)
     {
@@ -214,9 +222,9 @@ public sealed class ExportRenderer
         int sw = to.Source.Width, sh = to.Source.Height, dw = rect.Width, dh = rect.Height;
         BlockHook?.Invoke("rsin", rect, sw, sh, src);
         float[] outp;
-        if (1.5f < to.ScaleX || 1.5f < to.ScaleY)   // DAT_180687524
+        if (1.5f < to.ScaleX || 1.5f < to.ScaleY)
         {
-            int kx = (int)(to.ScaleX * 3.5f), ky = (int)(to.ScaleY * 3.5f);   // DAT_1806ef740
+            int kx = (int)(to.ScaleX * 3.5f), ky = (int)(to.ScaleY * 3.5f);
             var kernelX = ExportResample.LanczosKernel((kx & ~1) + 1, to.ScaleX);
             var kernelY = ExportResample.LanczosKernel((ky & ~1) + 1, to.ScaleY);
             var blurred = ExportResample.ConvSeparable(src, sw, sh, kernelX, kernelY);
@@ -225,13 +233,11 @@ public sealed class ExportRenderer
         else outp = ExportResample.WarpClamped2(src, sw, sh, dw, dh, to, Threads);
         BlockHook?.Invoke("rsout", rect, dw, dh, outp);
         var scaled = new float[outp.Length];
-        for (int i = 0; i < outp.Length; i++) scaled[i] = outp[i] * 16384f;   // FUN_18001b790 with _DAT_1806ef750 = (16384,16384,16384,16384)
+        for (int i = 0; i < outp.Length; i++) scaled[i] = outp[i] * 16384f;   // ×(16384,16384,16384,16384)
         BlockHook?.Invoke("x16384", rect, dw, dh, scaled);
         return (rect, scaled);
     }
 
-    /// <summary>`renderForExport`: the export-level source rect gathered from the render-thread tiles (each rendered whole by the tile callback:
-    /// level origin shift → `FUN_1804bd710` → `RemoveVignettingGeneric&lt;vec4x32f,1&gt;` with the crop rect = shifted tile × cacheDims/pipelineDims).</summary>
     /// <summary>Tiles rendered at once inside <see cref="RenderSource"/> and <see cref="Prefetch"/>; 1 = the sequential order. Every tile is a
     /// pure function of the capture, memoised once by the caches, so the pixels do not depend on the schedule — only the order of the log
     /// lines and of the diagnostic hooks does.</summary>
@@ -251,10 +257,13 @@ public sealed class ExportRenderer
         return tiles.ToArray();
     }
 
+    /// <summary>Cancels a render between tiles (a tile, once started, completes).</summary>
+    public CancellationToken Cancel { get; set; }
+
     void ForEachTile((int Tx, int Ty)[] tiles, Action<(int Tx, int Ty)> body)
     {
-        if (Threads <= 1 || tiles.Length <= 1) { foreach (var t in tiles) body(t); return; }
-        Parallel.ForEach(tiles, new ParallelOptions { MaxDegreeOfParallelism = Threads }, body);
+        if (Threads <= 1 || tiles.Length <= 1) { foreach (var t in tiles) { Cancel.ThrowIfCancellationRequested(); body(t); } return; }
+        Parallel.ForEach(tiles, new ParallelOptions { MaxDegreeOfParallelism = Threads, CancellationToken = Cancel }, body);
     }
 
     /// <summary>Generate, ahead of the writer, every pipeline tile the export of <paramref name="rect"/> reads, <see cref="Threads"/> at a time.
@@ -271,17 +280,22 @@ public sealed class ExportRenderer
         // the union of the pipeline rects the export tiles will read (contiguous tiles, so a rect); the cache generates every
         // pipeline tile under it, its level-0 inputs first
         int ux0 = int.MaxValue, uy0 = int.MaxValue, ux1 = int.MinValue, uy1 = int.MinValue;
+        int rx0 = int.MaxValue, ry0 = int.MaxValue, rx1 = int.MinValue, ry1 = int.MinValue;
         foreach (var (tx, ty) in tiles)
         {
             var tile = _lv.TileRect(to.Level, tx, ty);
+            rx0 = Math.Min(rx0, tile.X0 + ox); ry0 = Math.Min(ry0, tile.Y0 + oy); rx1 = Math.Max(rx1, tile.X1 + ox); ry1 = Math.Max(ry1, tile.Y1 + oy);
             var s = _cache.SourceRect(L, new RectI(tile.X0 + ox, tile.Y0 + oy, tile.X1 + ox, tile.Y1 + oy), pd);
             ux0 = Math.Min(ux0, s.X0); uy0 = Math.Min(uy0, s.Y0); ux1 = Math.Max(ux1, s.X1); uy1 = Math.Max(uy1, s.Y1);
         }
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        _cache.Prefetch(L, new RectI(ux0, uy0, ux1, uy1), Threads);
+        _cache.Prefetch(L, new RectI(ux0, uy0, ux1, uy1), Threads, Cancel);
+        TileSourcePrefetch?.Invoke(L, new RectI(rx0, ry0, rx1, ry1), pd, Threads);
         Log?.Invoke($"prefetch: the pipeline tiles under {tiles.Length} export tiles of level {to.Level} on {Threads} threads in {sw.Elapsed.TotalSeconds:F1}s");
     }
 
+    /// <summary>`renderForExport`: the export-level source rect gathered from the render-thread tiles (each rendered whole by the tile callback:
+    /// level origin shift → PipelineCache fetch → `RemoveVignettingGeneric&lt;vec4x32f,1&gt;` with the crop rect = shifted tile × cacheDims/pipelineDims).</summary>
     /// <param name="reportProgress">report the call as a "render tiles" phase — the whole-image renders do, a writer block's re-read does not</param>
     public float[] RenderSource(int level, RectI src, bool reportProgress = false)
     {
@@ -291,7 +305,7 @@ public sealed class ExportRenderer
         var (ox, oy) = _lv.Origins[level]; var pd = _lv.PipelineDims[level];
         float m = _multiplier(level);
         var g = LensShadingKernel.Transform(_grid, m, inverse: true);
-        float fx = (float)_lv.CacheDims.W / (float)pd.W, fy = (float)_lv.CacheDims.H / (float)pd.H;   // FUN_18049c5d0
+        float fx = (float)_lv.CacheDims.W / (float)pd.W, fy = (float)_lv.CacheDims.H / (float)pd.H;
         var tiles = TilesOf(level, src);
         bool report = reportProgress && tiles.Length > 0;
         if (report) Progress.Begin("render tiles", tiles.Length);
@@ -299,8 +313,9 @@ public sealed class ExportRenderer
         {
             var (tx, ty) = t;
             var tile = _lv.TileRect(level, tx, ty);
-            var shifted = new RectI(tile.X0 + ox, tile.Y0 + oy, tile.X1 + ox, tile.Y1 + oy);   // 180526690 L42–47
-            var px = _cache.Render(_lv.BaseLevel + level, shifted, pd);                          // FUN_18048f2b0 → FUN_1804bd710 (mode 0, PipelineCache)
+            var shifted = new RectI(tile.X0 + ox, tile.Y0 + oy, tile.X1 + ox, tile.Y1 + oy);   // Lumen's tile callback: the tile shifted by the level origin
+            var px = TileSource is { } source ? source(_lv.BaseLevel + level, shifted, pd)        // the DOFCache fetch
+                                              : _cache.Render(_lv.BaseLevel + level, shifted, pd);   // … or on the PipelineCache
             int tw = tile.Width, th = tile.Height;
             if (TilePreHook is not null) lock (_hookLock) TilePreHook(level, tile, shifted, px);
             var img = new Image<Vec4F>(tw, th);
@@ -319,12 +334,12 @@ public sealed class ExportRenderer
     }
 }
 
-/// <summary>The export resamplers of `FUN_18052dfc0`.</summary>
+/// <summary>The export resamplers.</summary>
 public static class ExportResample
 {
     static readonly float[] Table = WarpResample.BuildTable();
 
-    /// <summary>`FUN_18052f210(n, scale)`: `x = (i − n/2)/scale`; `w = 1` at 0, `2·sin(πx)·sin(πx/2)/(x²·π²)` for |x| &lt; 2, else 0; normalised by the sum.</summary>
+    /// <summary>Lanczos-2 taps (n, scale): `x = (i − n/2)/scale`; `w = 1` at 0, `2·sin(πx)·sin(πx/2)/(x²·π²)` for |x| &lt; 2, else 0; normalised by the sum.</summary>
     public static float[] LanczosKernel(int n, float scale)
     {
         var k = new float[n]; float inv = 1f / scale, sum = 0f;
@@ -341,7 +356,7 @@ public static class ExportResample
         return k;
     }
 
-    /// <summary>`ImageConvSeparable2D&lt;vec4x32f&gt;` (`1800bc930` + lambda `1800c0cd0`): clamp-to-edge rows/columns (`FUN_1800c1710`), reversed kernel
+    /// <summary>`ImageConvSeparable2D&lt;vec4x32f&gt;`: clamp-to-edge rows/columns, reversed kernel
     /// vectors, vertical pass then horizontal, sequential `acc = k·s + acc` accumulation from tap 0.</summary>
     public static float[] ConvSeparable(float[] src, int w, int h, float[] kx, float[] ky)
     {
@@ -368,7 +383,7 @@ public static class ExportResample
         return outp;
     }
 
-    /// <summary>`ImageWarpClamped&lt;2,vec4x32f,std::function&gt;` lambda_1 (`180533040`): `p = (int)((map − 1)·64)`, 64-phase Catmull-Rom with the
+    /// <summary>`ImageWarpClamped&lt;2,vec4x32f,std::function&gt;` tile lambda: `p = (int)((map − 1)·64)`, 64-phase Catmull-Rom with the
     /// clamped 4×4 gather at the border, zero fill outside, `max(−0.25·P, N) + P` recombination (shared with the aligned warp).</summary>
     public static float[] WarpClamped2(float[] src, int sw, int sh, int dw, int dh, TransformOutput to, int threads = 1)
     {
@@ -396,7 +411,7 @@ public static class ExportResample
         return dst;
     }
 
-    /// <summary>`ImageWarp&lt;1,0,vec4x32f,std::function&gt;` lambda_1 (`180533f30`): `p = (int)(map·64)`, weights `(1 − i/64, i/64)` (`1805339c0`), clamped 2×2 at the
+    /// <summary>`ImageWarp&lt;1,0,vec4x32f,std::function&gt;` tile lambda: `p = (int)(map·64)`, weights `(1 − i/64, i/64)`, clamped 2×2 at the
     /// border, zero fill; `out = (wy1·p11 + wy0·p10)·wx1 + (wy1·p01 + wy0·p00)·wx0`.</summary>
     public static float[] WarpBilinear(float[] src, int sw, int sh, int dw, int dh, TransformOutput to)
     {
@@ -424,11 +439,11 @@ public static class ExportResample
     }
 }
 
-/// <summary>The export window inside the level-0 pipeline canvas (`setInputDataStream` L~340–430 → `FUN_1804b2520`, crop from `FUN_180110790`):
-/// `+0x270` export dims, `+0x288` pipeline dims, `+0x2d0` origins per level.</summary>
+/// <summary>The export window inside the level-0 pipeline canvas (as `setInputDataStream` computes it, with the crop of <see cref="CropRect"/>):
+/// the export dims, the pipeline dims and the origins per level.</summary>
 public static class ExportWindow
 {
-    /// <summary>`FUN_18012a380(out, camId)` — the camera → optical group table `DAT_18068be60` = {0×5, 1×5, 2×6}; ids above 15 raise
+    /// <summary>The camera → optical group table = {0×5, 1×5, 2×6}; ids above 15 raise
     /// "unknown camera group type!".</summary>
     public static int Group(int camId)
     {
@@ -436,11 +451,11 @@ public static class ExportWindow
         return camId <= 4 ? 0 : camId <= 9 ? 1 : 2;
     }
 
-    /// <summary>`FUN_180110ba0(hdr, camId, param_3)` — a camera's focal length by optical group, ten `.rdata` floats. `param_3 != 0` gives the
-    /// 35 mm equivalent: C (`0x18068a53c`) 150, B (`0x18068a538`) 70, A 35 on an AR835 (`0x18068a540`) and 28 on an AR1335 or IMX386
-    /// (`0x18068a544`). `param_3 == 0` gives the physical focal: C (`0x18068a528`) 19.77, B (`0x18068a524`) 9.19, A 4.56 / 3.95 / 3.68 on an
-    /// AR835 / IMX386 / AR1335 (`0x18068a52c` / `530` / `534`). NB the A branch keys on the sensor type of the header's REFERENCE camera
-    /// (`FUN_180111a50(hdr, hdr+0x44)`), not of <paramref name="camId"/>; a mono or unknown sensor raises "Unexpected sensor size!".</summary>
+    /// <summary>A camera's focal length by optical group, ten constant floats. <paramref name="equiv35"/> = true gives the
+    /// 35 mm equivalent: C 150, B 70, A 35 on an AR835 and 28 on an AR1335 or IMX386.
+    /// <paramref name="equiv35"/> = false gives the physical focal: C 19.77, B 9.19, A 4.56 / 3.95 / 3.68 on an
+    /// AR835 / IMX386 / AR1335. NB the A branch keys on the sensor type of the header's REFERENCE camera,
+    /// not of <paramref name="camId"/>; a mono or unknown sensor raises "Unexpected sensor size!".</summary>
     public static float Focal(Ltpb.LightHeader hdr, int camId, bool equiv35)
     {
         int g = Group(camId);
@@ -457,14 +472,14 @@ public static class ExportWindow
         };
     }
 
-    /// <summary>`FUN_180110ba0(hdr, camId, 1)` — the 35 mm-equivalent focal length (70/28 is the A→B canvas ratio).</summary>
+    /// <summary>The 35 mm-equivalent focal length (70/28 is the A→B canvas ratio).</summary>
     public static float Focal35(Ltpb.LightHeader hdr, int camId) => Focal(hdr, camId, true);
 
-    /// <summary>`FUN_180111d20(hdr, camId)` — the per-group lens aperture, `DAT_18068ae4c` = {2.0, 2.0, 2.4}; a group above 2 raises
+    /// <summary>The per-group lens aperture, {2.0, 2.0, 2.4}; a group above 2 raises
     /// "unknown camera!".</summary>
     public static float Aperture(int camId) => Group(camId) switch { 0 => 2f, 1 => 2f, _ => 2.4f };
 
-    /// <summary>`FUN_1804b23e0(renderer)` — the pipeline-canvas magnification: the 35 mm-equivalent focal length of the group ABOVE the reference
+    /// <summary>The pipeline-canvas magnification: the 35 mm-equivalent focal length of the group ABOVE the reference
     /// group over that of the reference group, both taken from the group table above at the group's FIRST camera. A reference → `focal(B1)/focal(A1)`
     /// = 70/28 = 2.5; B reference → `focal(C1)/focal(B1)` = 150/70 = 2.142857; a C reference raises "Superres not supported in C-mode!"
     /// (unreachable — a C reference forces <see cref="BaseLevelOffset"/> ≥ 1, which takes the literal 2.0f instead).</summary>
@@ -477,7 +492,7 @@ public static class ExportWindow
         return Focal35(hdr, num) / d;
     }
 
-    /// <summary>The `CIAPI::Transform` flag `setInputDataStream` L~265–320 builds and hands to `FUN_18050c4a0(transform, profile, flag)`: a scan of
+    /// <summary>The `CIAPI::Transform` flag that `setInputDataStream` builds and hands to <see cref="BaseLevelOffset"/>: a scan of
     /// every module sets `hasB` / `hasC`, then the reference group picks one — A reference → `hasB`, B reference → `hasC`, C reference → 0.
     /// So it is "the capture contains a module of the group immediately above the reference's", i.e. is super-resolution possible at all.</summary>
     public static bool HasNextGroup(Lux.Engine.Lri.LriFile lri)
@@ -488,9 +503,9 @@ public static class ExportWindow
         return false;
     }
 
-    /// <summary>`FUN_18050c640(Transform{int profile, byte flag})` — the renderer's base pipeline level: profile 1 or 2 → 1, profile 0 → 4,
-    /// profile 3 (the desktop/export profile) → `flag ^ 1`, anything else → "Invalid Renderer profile!". The level count is `5 − offset`
-    /// (`renderer+0x264`). Every L16 capture in the corpus is profile 3 with a higher group present, so the offset is 0 and there are 5 levels.</summary>
+    /// <summary>The renderer's base pipeline level (from the Transform's int profile and byte flag): profile 1 or 2 → 1, profile 0 → 4,
+    /// profile 3 (the desktop/export profile) → `flag ^ 1`, anything else → "Invalid Renderer profile!". The level count is `5 − offset`.
+    /// The L16 desktop renderer uses profile 3; with a module of the next group present, the offset is 0 and there are 5 levels.</summary>
     public static int BaseLevelOffset(int profile, bool hasNextGroup) => profile switch
     {
         1 or 2 => 1,
@@ -499,9 +514,9 @@ public static class ExportWindow
         _ => throw new NotSupportedException("Invalid Renderer profile!"),
     };
 
-    /// <summary>The level-0 pipeline canvas (`setInputDataStream` L347–361): `f = (FUN_18050c640(renderer+0x90) &gt;= 1) ? 2.0f : FUN_1804b23e0(renderer)`,
-    /// canvas = `((int)(sensorW·f), (int)(sensorH·f))`, which `FUN_1804b2520` then rounds onto the sensor's aspect grid and writes back through its
-    /// in/out `param_3` — so the value the renderer stores in `+0x288`/`+0x2a0` is the ROUNDED one. On the L16: 4160×3120 × 2.5 → 10400×7800 →
+    /// <summary>The level-0 pipeline canvas: `f = (BaseLevelOffset &gt;= 1) ? 2.0f : CanvasFactor`,
+    /// canvas = `((int)(sensorW·f), (int)(sensorH·f))`, which the export-window step then rounds onto the sensor's aspect grid and
+    /// writes back through its in/out canvas argument — so the value the renderer stores is the ROUNDED one. On the L16: 4160×3120 × 2.5 → 10400×7800 →
     /// 10432×7824 for an A reference, × 150/70 → 8914×6685 → 8896×6672 for a B reference.</summary>
     public static (int W, int H) Canvas(Lux.Engine.Lri.LriFile lri, (int W, int H) sensor, int profile = 3)
     {
@@ -509,13 +524,12 @@ public static class ExportWindow
         if (offset != 0)
             throw new NotSupportedException(
                 $"renderer base pipeline level {offset} (profile {profile}, no module above the reference group): the export/pipeline/origin\n"
-              + "level vectors then start at that level and the canvas factor is the literal 2.0f. No capture in the corpus reaches it and no\n"
-              + "cp.dll reference dump exists for it, so it is left unported rather than guessed.");
+              + "level vectors then start at that level and the canvas factor is the literal 2.0f. This case is not supported.");
         float f = offset >= 1 ? 2f : CanvasFactor(lri.Header);
         return SnapCanvas(((int)((float)sensor.W * f), (int)((float)sensor.H * f)), sensor);
     }
 
-    /// <summary>The aspect grid of `FUN_1804b2520` L1–30: `aw = 16·W/g`, `ah = 16·H/g` with `g = gcd(sensor)` (64 × 48 for 4160×3120; both fall back to
+    /// <summary>The aspect grid: `aw = 16·W/g`, `ah = 16·H/g` with `g = gcd(sensor)` (64 × 48 for 4160×3120; both fall back to
     /// `gcd(16, g)` when either exceeds a sixteenth of the sensor), then the canvas rounded to a whole number of grid cells — the same count on both
     /// axes unless `aw == ah`. Idempotent, so applying it to an already-snapped canvas is a no-op.</summary>
     public static (int W, int H) SnapCanvas((int W, int H) canvas, (int W, int H) sensor)
@@ -535,17 +549,17 @@ public static class ExportWindow
         return ((int)aw, (int)ah);
     }
 
-    /// <summary>`renderer+0x264` = `5 − FUN_18050c640(renderer+0x90)`: the number of pipeline/export levels.</summary>
+    /// <summary>`5 − BaseLevelOffset`: the number of pipeline/export levels.</summary>
     public static int LevelCount(Lux.Engine.Lri.LriFile lri, int profile = 3) => 5 - BaseLevelOffset(profile, HasNextGroup(lri));
 
-    /// <summary>`FUN_180110790`: the header `ViewPreferences.crop` (start, size → x1 = x0 + w) when its width/height are in (1e-7, 1.0000001); else the
+    /// <summary>The header `ViewPreferences.crop` (start, size → x1 = x0 + w) when its width/height are in (1e-7, 1.0000001); else the
     /// digital-zoom crop `((1 − r)/2, (1 − r)/2, (1 + r)/2, (1 + r)/2)` with `r = refFocal/effectiveFocal` (full frame when no effective focal length).</summary>
     public static RectF CropRect(Lux.Engine.Lri.LriFile lri, (int W, int H) sensor)
     {
         var h = lri.Header;
-        // The guard around both branches: a C reference or a zero effective focal length is the full frame. (`hdr+0x78` also carries an
-        // Optional<bool> whose stored value `false` short-circuits to the full frame before this; which ViewPreferences field it is has not
-        // been identified, and on every capture seen it is either absent or true, so it is not read here.)
+        // The guard around both branches: a C reference or a zero effective focal length is the full frame. (The header also carries an
+        // Optional<bool> whose stored value `false` short-circuits to the full frame before this; its ViewPreferences field is not
+        // known, and it is absent or true on every capture seen, so this code does not read it.)
         if (Group((int)h.ImageReferenceCamera) < 2 && h.ImageFocalLength != 0)
         {
             var crop = h.ViewPreferences?.Crop;
@@ -565,7 +579,7 @@ public static class ExportWindow
         return new RectF(0f, 0f, 1f, 1f);
     }
 
-    /// <summary>`FUN_1804b2520(out, canvas (in/out), sensor, levels, crop)`: aspect grid `aw = 16·W/g`, `ah = 16·H/g` (g = gcd(sensor)), canvas rounded to
+    /// <summary>The export window (out, canvas (in/out), sensor, levels, crop): aspect grid `aw = 16·W/g`, `ah = 16·H/g` (g = gcd(sensor)), canvas rounded to
     /// the grid, export size `(int)(cropW·canvasW)` rounded to the grid (both axes take the max count unless aw == ah), origin
     /// `(int)(x0·0.0625·canvasW)·16`; per level everything `&gt;&gt; l`.</summary>
     public static ExportLevels Compute((int W, int H) canvas, (int W, int H) sensor, RectF crop, int levels)
@@ -580,15 +594,15 @@ public static class ExportWindow
         int x1 = ewx * iaw + x0, y1 = ewy * iah + y0;
         var ed = new (int, int)[levels]; var pd = new (int, int)[levels]; var og = new (int, int)[levels];
         for (int l = 0; l < levels; l++) { ed[l] = ((x1 >> l) - (x0 >> l), (y1 >> l) - (y0 >> l)); og[l] = (x0 >> l, y0 >> l); pd[l] = (canvasW >> l, canvasH >> l); }
-        // +0x490 ImageCaches dims (FUN_1804d4720) = the CapturedImage (module frame) size, 4160×3120 on the L16 (cp.dll: tile (1008,832) → vignetting crop 401.963 = ×4160/10432)
+        // ImageCaches dims = the CapturedImage (module frame) size, 4160×3120 on the L16 (e.g. tile (1008,832) → vignetting crop 401.963 = ×4160/10432)
         return new ExportLevels(ed, pd, og, sensor, 0);
     }
 
-    /// <summary>The all-in-focus f-number `DOFCache::fmax = (p[0x90]·p[0x8c])/p[0x88]` (`FUN_1804e7f40`), whose parameters `FUN_1804957c0` fills from
-    /// the REFERENCE camera: `p[0x88] = FUN_180110ba0(hdr, ref, 0)` (physical focal), `p[0x8c] = FUN_180110ba0(hdr, ref, 1)` (35 mm equivalent),
-    /// `p[0x90] = FUN_180111d20(hdr, ref)` (aperture). So `f = aperture · equiv35 / physical`: 2·28/3.68 = 15.217391 for an AR1335 A reference
-    /// (255305456/2²⁴, the value every A-reference Lumen export carries) and 2·70/9.19 = 15.23395 for a B reference (255583280/2²⁴, verified
-    /// against `o552_l3.dng`). `fnum:` overrides it.</summary>
+    /// <summary>The all-in-focus f-number `DOFCache::fmax = (aperture·equiv35)/physical`, with the parameters of
+    /// the REFERENCE camera: <see cref="Focal"/>(ref, false) (physical focal), <see cref="Focal"/>(ref, true) (35 mm equivalent) and
+    /// <see cref="Aperture"/>(ref). So `f = aperture · equiv35 / physical`: 2·28/3.68 = 15.217391 for an AR1335 A reference
+    /// (255305456/2²⁴, the value every A-reference Lumen export carries) and 2·70/9.19 = 15.23395 for a B reference (255583280/2²⁴).
+    /// `fnum:` overrides it.</summary>
     public static float AllInFocusFNumber(Lux.Engine.Lri.LriFile lri)
     {
         var h = lri.Header; int refId = (int)h.ImageReferenceCamera;

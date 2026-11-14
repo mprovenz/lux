@@ -43,7 +43,7 @@ public sealed class Mt19937
 }
 
 /// <summary>
-/// `lt::FundamentalMatrixFilter::filter` (18029f300) — 8-point RANSAC over the (ref, module) correspondences of one
+/// `lt::FundamentalMatrixFilter::filter` — 8-point RANSAC over the (ref, module) correspondences of one
 /// camera: 500 pre-drawn samples from `std::mt19937(0)`, un-normalised 8-point estimate via the last column of the
 /// Householder Q of the scaled design matrix (Eigen `JacobiSVD` preconditioner, reproduced op-by-op in double),
 /// scoring = count of module points farther than 2 px from their epipolar line (one-sided, `rsqrtss` normalisation),
@@ -51,8 +51,8 @@ public sealed class Mt19937
 /// </summary>
 public static class FundamentalMatrixFilter
 {
-    const float Threshold = 2.0f;                                  // DAT_180682414
-    static readonly float Eps = BitConverter.Int32BitsToSingle(0x35a00000);   // DAT_1806b8f6c
+    const float Threshold = 2.0f;
+    static readonly float Eps = BitConverter.Int32BitsToSingle(0x35a00000);
     const int Iterations = 500;
 
     /// <summary>Filters `mod` in place (pairs of floats, stride 2; (−1,−1) sentinel). `refPts` = (x,y) per reference feature.</summary>
@@ -84,7 +84,7 @@ public static class FundamentalMatrixFilter
         Score(refPts, mod, valid, best, lines, mod);
     }
 
-    /// <summary>lambda_1 (1802a0390): 8×9 design matrix in double from float products, null vector = Q.col(8) of the QR of Msᵀ.</summary>
+    /// <summary>lambda_1: 8×9 design matrix in double from float products, null vector = Q.col(8) of the QR of Msᵀ.</summary>
     public static void Estimate(ReadOnlySpan<float> refPts, ReadOnlySpan<float> mod, int[] sample, float[] F)
     {
         var A = new double[8, 9];
@@ -224,7 +224,7 @@ public static class FundamentalMatrixFilter
         return r;
     }
 
-    /// <summary>lambda_0 (1802a0df0): lines `F·(x,y,1)` for all reference points (SIMD association for groups of 4, scalar
+    /// <summary>lambda_0: lines `F·(x,y,1)` for all reference points (SIMD association for groups of 4, scalar
     /// tail), then the outlier count over the valid matches. When `mark` is given, outliers are overwritten with (−1,−1).</summary>
     static int Score(ReadOnlySpan<float> refPts, ReadOnlySpan<float> modIn, List<int> valid, float[] F, float[] lines, Span<float> mark)
     {

@@ -11,78 +11,77 @@ using Lux.Engine.Pipeline.Isp.Stages;
 namespace Lux.Engine.Pipeline.BayerFusion;
 
 /// <summary>
-/// `lt::ColorFusionBayer` / `PackedBayerFusion` (cp.dll Lumen 2.3; spec `a4ce3d1abcbdfdc45.md`, port notes
-/// `a-fusion-port.md`): the level-1 multi-module Bayer fusion. `initialize` (`1801f6560`) builds, for the reference and every
-/// same-group colour source (§0.1), the hot-pixel-patched, highlight-restored, black-subtracted, gain-scaled, vignetting-corrected
-/// float frame (`1801f7a90`), the reference extras (block mean-reciprocal image `1801d7140`, 1/8-packed-res vignetting map,
-/// noise lambda_1 `1801f9450`), the per-source block flow (<see cref="BlockFlow"/>) and the packed half images
-/// (`PackBayerImageProtoType`). <see cref="Process"/> (`1801f5840`) runs the wavelet merge kernel `1801e6a20` on a packed ROI,
+/// `lt::ColorFusionBayer` / `PackedBayerFusion` (Lumen 2.3): the level-1 multi-module Bayer fusion. `initialize` builds,
+/// for the reference and every same-group colour source, the hot-pixel-patched, highlight-restored, black-subtracted, gain-scaled,
+/// vignetting-corrected float frame, the reference extras (block mean-reciprocal image, 1/8-packed-res vignetting map,
+/// noise lambda_1), the per-source block flow (<see cref="BlockFlow"/>) and the packed half images
+/// (`PackBayerImageProtoType`). <see cref="Process"/> runs the wavelet merge kernel on a packed ROI,
 /// re-applies the reference vignetting (`RemoveVignettingGeneric&lt;vec4x32f,0&gt;`), adds the black back and unpacks the fused Bayer
-/// frame and the weight image. All float arithmetic follows the machine association; SSE approximations (`rcpps`, `rsqrtss`) are
+/// frame and the weight image. All float arithmetic follows Lumen's association order; SSE approximations (`rcpps`, `rsqrtss`) are
 /// reproduced with the hardware instructions.
 /// </summary>
 public sealed class PackedBayerFusion
 {
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // Constants (bit patterns read from cp.dll .rdata)
+    // Constants (the bit patterns of Lumen's constants)
     // ---------------------------------------------------------------------------------------------------------------------------------
-    static readonly float NoiseMul = BitConverter.Int32BitsToSingle(0x41000000);   // DAT_180685d4c = 8.0 (kernel noise multiplier)
-    static readonly float Eps = BitConverter.Int32BitsToSingle(0x3727c5ac);        // DAT_18068b2e0 = 1e-5
-    static readonly float Tenth = BitConverter.Int32BitsToSingle(0x3dcccccd);      // DAT_1806aeb30 = 0.1 (block mean-reciprocal floor)
-    static readonly float One = BitConverter.Int32BitsToSingle(0x3f800000);        // DAT_180681c78 / DAT_1806824a0
-    static readonly float Two = BitConverter.Int32BitsToSingle(0x40000000);        // DAT_180682414 (halo)
-    static readonly float Four = BitConverter.Int32BitsToSingle(0x40800000);       // DAT_180682408 (halo)
-    static readonly float Six = BitConverter.Int32BitsToSingle(0x40c00000);        // DAT_180687540 (halo)
-    static readonly float C256 = BitConverter.Int32BitsToSingle(0x43800000);       // DAT_180685050 (weight → uint8)
-    static readonly float MinusHalf = BitConverter.Int32BitsToSingle(unchecked((int)0xbf000000));   // 0x180681c7c
-    static readonly float MinusThree = BitConverter.Int32BitsToSingle(unchecked((int)0xc0400000));  // 0x180681c80
+    static readonly float NoiseMul = BitConverter.Int32BitsToSingle(0x41000000);   // 8.0 (kernel noise multiplier)
+    static readonly float Eps = BitConverter.Int32BitsToSingle(0x3727c5ac);        // 1e-5
+    static readonly float Tenth = BitConverter.Int32BitsToSingle(0x3dcccccd);      // 0.1 (block mean-reciprocal floor)
+    static readonly float One = BitConverter.Int32BitsToSingle(0x3f800000);
+    static readonly float Two = BitConverter.Int32BitsToSingle(0x40000000);        // halo
+    static readonly float Four = BitConverter.Int32BitsToSingle(0x40800000);       // halo
+    static readonly float Six = BitConverter.Int32BitsToSingle(0x40c00000);        // halo
+    static readonly float C256 = BitConverter.Int32BitsToSingle(0x43800000);       // weight → uint8
+    static readonly float MinusHalf = BitConverter.Int32BitsToSingle(unchecked((int)0xbf000000));
+    static readonly float MinusThree = BitConverter.Int32BitsToSingle(unchecked((int)0xc0400000));
 
-    /// <summary>`DAT_18068be60[16]`: camera id → group (A = 0, B = 1, C = 2).</summary>
+    /// <summary>Camera id → group (A = 0, B = 1, C = 2).</summary>
     public static int Group(int camId) => camId <= 4 ? 0 : camId <= 9 ? 1 : 2;
 
-    /// <summary>`DAT_1806b5110[256]`: `[0] = 0`, `[i] = (float)sqrt((i + 1) / 256.0)` (all 256 entries verified against the .rdata bytes).</summary>
+    /// <summary>`[0] = 0`, `[i] = (float)sqrt((i + 1) / 256.0)`.</summary>
     public static readonly float[] StdTable = BuildStdTable();
     static float[] BuildStdTable() { var t = new float[256]; for (int i = 1; i < 256; i++) t[i] = (float)Math.Sqrt((i + 1) / 256.0); return t; }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // State (PackedBayerFusion object, §1)
+    // State (PackedBayerFusion object)
     // ---------------------------------------------------------------------------------------------------------------------------------
     readonly LriFile _lri;
-    public int RefCamId { get; }                       // +0x150
+    public int RefCamId { get; }
     public float Cct { get; }
     public float Tint { get; }
-    public float[] A { get; } = new float[4];          // +0x10 noise slope per quad lane (R, G, B, G)
-    public float[] B { get; } = new float[4];          // +0x20 noise offset
-    public float Black { get; private set; }           // +0x30 (reference frame black)
-    public float White { get; private set; }           // +0x34
-    public int NStack { get; init; } = 1;              // FUN_180112250: frames per stack (1 for single captures)
-    public bool StreamHalfScale { get; }               // stream+0x14 (data_scale == (0.5,0.5)); L16: false
-    public List<int> SourceIds { get; } = new();       // +0x158
+    public float[] A { get; } = new float[4];          // noise slope per quad lane (R, G, B, G)
+    public float[] B { get; } = new float[4];          // noise offset
+    public float Black { get; private set; }           // reference frame black
+    public float White { get; private set; }
+    public int NStack { get; init; } = 1;              // frames per stack (1 for single captures)
+    public bool StreamHalfScale { get; }               // data_scale == (0.5,0.5); L16: false
+    public List<int> SourceIds { get; } = new();
     /// <summary>Sources prepared at once in <see cref="Initialize"/> (each depends only on the reference state, so the count never changes the result).</summary>
     public int Threads { get; set; } = 1;
     /// <summary>Progress of <see cref="Initialize"/>: the "fusion set-up" phase, the reference then one unit per source.</summary>
     public ProgressReporter Progress { get; set; } = ProgressReporter.None;
     public int PyramidLevels { get; }
 
-    /// <summary>Packed reference (+0x80): 4 halves per pixel, quad order (TR, TL, BL, BR); size <see cref="Wp"/>×<see cref="Hp"/>.</summary>
+    /// <summary>Packed reference: 4 halves per pixel, quad order (TR, TL, BL, BR); size <see cref="Wp"/>×<see cref="Hp"/>.</summary>
     public ushort[] PackedRef { get; set; } = null!;
     public int Wp { get; set; }
     public int Hp { get; set; }
-    /// <summary>+0xb0: per-16×16-full-res-block mean reciprocal (vec4), size BrW×BrH.</summary>
+    /// <summary>Per-16×16-full-res-block mean reciprocal (vec4), size BrW×BrH.</summary>
     public Vec4F[] BlockRcp { get; set; } = null!;
     public int BrW { get; set; }
     public int BrH { get; set; }
-    /// <summary>+0xe0: the reference vignetting gain on the (ceil(Wp/8), ceil(Hp/8)) grid.</summary>
+    /// <summary>The reference vignetting gain on the (ceil(Wp/8), ceil(Hp/8)) grid.</summary>
     public float[] VignMap { get; set; } = null!;
     public int VmW { get; set; }
     public int VmH { get; set; }
-    public List<ushort[]> PackedSrc { get; } = new();            // +0x110
+    public List<ushort[]> PackedSrc { get; } = new();
     public List<(int W, int H)> PackedSrcDims { get; } = new();
-    public List<Vec2S[]> Flows { get; } = new();                 // +0x138
+    public List<Vec2S[]> Flows { get; } = new();
     public List<(int W, int H)> FlowDims { get; } = new();
     public bool Initialized { get; private set; }
 
-    // Intermediates kept for comparison against the cp.dll reference
+    // Intermediates kept for comparison against Lumen
     public sealed record SourceFrame(int CamId, string Module, float[] Img, int W, int H, float Black, float White, float Gain, int RedX, int RedY, float[] Neutral, CapturedFrame Frame);
     /// <summary>The float frames in call order: the reference first (gain 1), then the sources.</summary>
     public List<SourceFrame> Frames { get; } = new();
@@ -104,21 +103,20 @@ public sealed class PackedBayerFusion
     public CapturedFrame RefFrame => Frames[0].Frame;
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // Construction (ctor 1801f55c0 + initialize 1801f6560)
+    // Construction (ctor + initialize)
     // ---------------------------------------------------------------------------------------------------------------------------------
-    /// <param name="refCamId">Reference camera id (`FUN_18020be10(stream)`; A1 = 0).</param>
-    /// <param name="cct">(CCT, tint) of the AsShot neutral (`FusionCacheBayer+0xec/+0xf0`).</param>
+    /// <param name="refCamId">Reference camera id (A1 = 0).</param>
+    /// <param name="cct">(CCT, tint) of the AsShot neutral.</param>
     /// <summary>
-    /// Non-reference source frames: `true` = the per-frame black estimate (`CapturedImage+0xb4`, `FUN_180125d10` with the camera's own profile neutral —
-    /// the value Lumen has when the source's pixels are first loaded through the stacked-image / gain-map getters `FUN_18020a6d0`/`FUN_18020b0b0`, i.e. by
-    /// the fusion itself in a level-1 render: A5 42.36 / A3 43.17 / A4 42.75 on 00466, cp.dll level-1 reference runs l1b/l1d); `false` = the sensor DB black (42.0) — what Lumen
-    /// has in the LEVEL-0 (ResAmp) flow, where the sources were already loaded by an earlier path that does not estimate (cp.dll level-0 reference run l0f: implied black
-    /// 42.000 ± 1e-5 for all three sources; the reference keeps 42.51 in both flows). The estimate is a lazy side effect of the first load, so it depends
-    /// on the render order, not on the tuning. CLI override: `LUX_FUSION_SRC_BLACK=db|estimate`.
+    /// Non-reference source frames: `true` = the per-frame black estimate (computed with the camera's own profile neutral). Lumen has
+    /// this value when the fusion itself first loads the source's pixels (through the stacked-image / gain-map getters), i.e. in a
+    /// level-1 render. `false` = the sensor DB black (42.0). Lumen has this value in the LEVEL-0 (ResAmp) flow, where an earlier path
+    /// that does not estimate has already loaded the sources. The reference keeps its estimate in both flows. The estimate is a lazy
+    /// side effect of the first load, so it depends on the render order, not on the tuning. CLI override: `LUX_FUSION_SRC_BLACK=db|estimate`.
     /// </summary>
     public bool SourceFrameBlackEstimate { get; }
 
-    /// <summary>The stream's per-module `lt::StackFusion` results on a stacked capture (`FUN_18020a6d0`); null for a single-frame capture.</summary>
+    /// <summary>The stream's per-module `lt::StackFusion` results on a stacked capture; null for a single-frame capture.</summary>
     public StackProvider? Stacks { get; }
     public string RefModuleName => ModuleName(RefCamId);
 
@@ -126,9 +124,9 @@ public sealed class PackedBayerFusion
     {
         Threads = Math.Max(1, threads); Progress = progress ?? ProgressReporter.None;
         _lri = lri; RefCamId = refCamId; Cct = cct; Tint = tint; Log = log;
-        // `FUN_180112250` — frames per stack. On a stacked capture every frame of the LEVEL-1 fusion (reference and sources) is the
-        // `lt::StackFusion` result of that module (`FUN_18020a6d0` non-null), and `FUN_1801f7a90` takes its other branch,
-        // `out = FUN_1801f8780(stacked, {black, gain})`, instead of the ushort hot-pixel/highlight-restore path (BuildFrame).
+        // Frames per stack. On a stacked capture every frame of the LEVEL-1 fusion (reference and sources) is the
+        // `lt::StackFusion` result of that module, and the frame builder takes its other branch,
+        // `out = (stacked − black)·gain`, instead of the ushort hot-pixel/highlight-restore path (BuildFrame).
         NStack = lri.StackFrames;
         Stacks = stacks;
         if (NStack >= 2 && stacks is null)
@@ -136,7 +134,7 @@ public sealed class PackedBayerFusion
         SourceFrameBlackEstimate = Environment.GetEnvironmentVariable("LUX_FUSION_SRC_BLACK") switch { "db" => false, "estimate" => true, _ => sourceFrameBlackEstimate };
         var refInfo = ModuleFrameInfo.From(lri, ModuleName(refCamId));
         StreamHalfScale = refInfo.IsHalfScale;
-        // ctor 1801f55c0: k = stream+0x14 ? 0.25 : 1.0; model = lt::Sensor::modelForGain(analogGain(ref)); A = (aR, aG, aB, aG)·k, B = (bR, bG, bB, bG)·k
+        // ctor: k = halfScale ? 0.25 : 1.0; model = lt::Sensor::modelForGain(analogGain(ref)); A = (aR, aG, aB, aG)·k, B = (bR, bG, bB, bG)·k
         float k = StreamHalfScale ? BitConverter.Int32BitsToSingle(0x3e800000) : One;
         var noise = refInfo.Noise ?? throw new InvalidOperationException("reference frame has no sensor noise model");
         var m = noise.ModelForGain(refInfo.AnalogGain);
@@ -152,7 +150,7 @@ public sealed class PackedBayerFusion
         throw new InvalidOperationException($"camera id {camId} not in the LRI");
     }
 
-    /// <summary>`FUN_1801f3620`: unique camera ids of the stream in capture order; keep those that are enabled, not the reference,
+    /// <summary>Unique camera ids of the stream in capture order; keep those that are enabled, not the reference,
     /// in the reference's group and colour (red position `(x|y) ≥ 0`).</summary>
     void BuildSourceList()
     {
@@ -162,7 +160,7 @@ public sealed class PackedBayerFusion
         {
             var mod = kv.Value.Module;
             int id = (int)mod.Id;
-            if (!mod.IsEnabled || !mod.SensorDpcOn) continue;          // CapturedImage+0x30 (is_enabled / sensor_dpc_on — both default true; spec §8.1)
+            if (!mod.IsEnabled || !mod.SensorDpcOn) continue;          // is_enabled / sensor_dpc_on — both default true
             if (id == RefCamId) continue;
             if (Group(id) != refGroup) continue;
             var red = mod.SensorBayerRedOverride;
@@ -179,7 +177,7 @@ public sealed class PackedBayerFusion
         Frames.Add(refFrame);
         int W = refFrame.W, H = refFrame.H;
 
-        // §3.4 reference: float→ushort, FastCollapse, sqrt LUT, pyramid
+        // reference: float→ushort, FastCollapse, sqrt LUT, pyramid
         var refU16 = BlockFlow.ToUshort(refFrame.Img, W, H);
         RefCollapsed = BlockFlow.FastCollapse(refU16, W, H, out int wc, out int hc); Wc = wc; Hc = hc;
         BlockFlow.ApplySqrtLut(RefCollapsed);
@@ -189,7 +187,7 @@ public sealed class PackedBayerFusion
         float sRef = One / (refFrame.White - refFrame.Black);
         PackedRef = Pack(Scale(refFrame.Img, sRef), W, H, out int wp, out int hp); Wp = wp; Hp = hp;
 
-        // +0xe0 vignetting map: (ceil(Wp/8), ceil(Hp/8)) of 1.0, then RemoveVignettingGeneric<float,1>(map, map, rectF = ref image rect, ref, 1.0, false)
+        // vignetting map: (ceil(Wp/8), ceil(Hp/8)) of 1.0, then RemoveVignettingGeneric<float,1>(map, map, rectF = ref image rect, ref, 1.0, false)
         VmW = CeilDiv(Wp, 8); VmH = CeilDiv(Hp, 8);
         VignMap = new float[VmW * VmH];
         Array.Fill(VignMap, One);
@@ -200,7 +198,7 @@ public sealed class PackedBayerFusion
         var validity = BlockFlow.ValidityFromGainMap(VignMap, VmW, VmH, VmW);
         Progress.Tick();
 
-        // per source (initialize L150–330): each source's frame, crop, collapse, flow and packing depend only on the reference state
+        // per source: each source's frame, crop, collapse, flow and packing depend only on the reference state
         // above, so the sources are prepared at once and appended in id order — the lists keep exactly the sequential layout.
         PackedSrc.Clear(); PackedSrcDims.Clear(); Flows.Clear(); FlowDims.Clear(); SourceCrops.Clear();
         var ids = SourceIds.ToArray();
@@ -245,7 +243,7 @@ public sealed class PackedBayerFusion
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // §3.2 per-source float frame FUN_1801f7a90
+    // per-source float frame
     // ---------------------------------------------------------------------------------------------------------------------------------
     SourceFrame BuildFrame(int camId, float gain)
     {
@@ -253,42 +251,41 @@ public sealed class PackedBayerFusion
         var frame = CapturedFrame.Load(_lri, name);
         int w = frame.Width, h = frame.Height;
         var noise = frame.Info.Noise ?? throw new InvalidOperationException($"{name}: no sensor noise model");
-        float white = noise.White;                                                                  // CapturedImage+0xb8
+        float white = noise.White;
         if (frame.Info.HasHotPixelLeakageCalibration) throw new NotSupportedException("HotpixelCalibration::correctHotpixelLeakage is not ported");
         var red = frame.Module.SensorBayerRedOverride;
         int rx = red?.X ?? 0, ry = red?.Y ?? 0;
         var full = new RectI(0, 0, w, h);
         var neutral = NeutralForModule(frame.Module.Id);
-        // CapturedImage+0xb4: the per-frame black estimate (`FUN_180125d10`, stream loader `18020b0b0`/`1802095e0`) is computed for EVERY
-        // frame with that frame's own camera-profile neutral at the capture (CCT, tint) — not the AsShot neutral `CapturedFrame.Load` uses
-        // (identical for the reference on 00466: 42.51; the sources give 42.36 / 43.17 / 42.75 vs 42 with the AsShot neutral — verified
-        // against cp.dll's source frames, 2026-08-27).
+        // The per-frame black estimate is computed for EVERY frame with that frame's own camera-profile neutral at the capture
+        // (CCT, tint) — not the AsShot neutral `CapturedFrame.Load` uses. For the reference both neutrals give the same black; for
+        // the sources they differ.
         float black = noise.Black;
         var f = new float[w * h];
-        var stacked = NStack >= 2 ? Stacks!.Get(name) : null;   // FUN_18020a6d0(stream, camId): null for a single-frame capture
+        var stacked = NStack >= 2 ? Stacks!.Get(name) : null;   // null for a single-frame capture
         if (stacked is null)
         {
             if (frame.Info.IsColour && frame.Info.Sensor == SensorType.SensorAr1335 && (camId == RefCamId || SourceFrameBlackEstimate))
             {
                 var (_, shadow) = CaptureState.SiteStats(frame.Module, frame.Raw, w, h);
-                // 18020b0b0 → FUN_18020aad0 builds a SoftISP (manual_temp) for the frame: the estimate's neutral is the ISP one (lambda_21 / xy path)
+                // Lumen builds a SoftISP (manual_temp) for the frame: the estimate's neutral is the ISP one (lambda_21 / xy path)
                 black = CaptureState.EstimateFrameBlack(shadow, rx, ry, WhiteBalance.NeutralFromTempTint(Cct, Tint, ProfileOf(frame.Module.Id)), noise.Black);
             }
-            // FUN_18039f640 → ImagePatchHotPixels(out, src, redpos, analogGain, sensor, 1.0)
+            // ImagePatchHotPixels(out, src, redpos, analogGain, sensor, 1.0)
             var lut = noise.SigmaTables(frame.Info.AnalogGain);
             var hp = new ushort[w * h];
             HotPixelKernel.RunInto(frame.Raw, w, h, full, rx, ry, One, lut[0], lut[1], lut[2], hp, w, 0);
             // RestoreHighlightsBayer(hp, redpos, neutral(profile(cam), cct/tint), black, white)
             var hr = new ushort[w * h];
             HighlightRestoreKernel.Run(hp, w, 0, full, hr, w, 0, full, rx, ry, neutral, black, white);
-            // FUN_1801216a0: ((float)raw − black) · gain
+            // ((float)raw − black) · gain
             for (int i = 0; i < f.Length; i++) f[i] = ((float)hr[i] - black) * gain;
         }
         else
         {
-            // FUN_1801f7a90 L76–85 (`FUN_18020a6d0` non-null): `out = FUN_1801f8780(stacked, {black, gain})` = `(stacked − black)·gain` on the module's
+            // Stacked branch: `out = (stacked − black)·gain` on the module's
             // lt::StackFusion float frame — no hot-pixel patch and no highlight restore here (the stack fusion applied both per frame); `black` =
-            // frame 0's CapturedImage+0xb4 (`FUN_18020bcb0(stream, camId)` = `FUN_180110190(hdr, stream+0x10 = 0, camId)`), i.e. the stack's own
+            // the black of frame 0 of the stack, i.e. the stack's own
             // reference black, whose estimate/DB rule lives in StackProvider.
             black = stacked.Black;
             var sf = stacked.Fused;
@@ -302,11 +299,11 @@ public sealed class PackedBayerFusion
         // RemoveVignettingGeneric<float,1>(out, out, rectF(0,0,w,h), img, 1.0, false)
         var (cols, rows, grid) = LensShadingKernel.ModelGrid(_lri.Header, frame.Module);
         VignettingFloat.Apply(f, w, h, new RectF(0f, 0f, (float)w, (float)h), w, h, cols, rows, LensShadingKernel.Transform(grid, One, false));
-        if (Environment.GetEnvironmentVariable("LUX_FUSION_DUMP") is string dpre)   // diagnostic twin of the oracle's fsrc_wrap (`<prefix>_fus_src<i>_cam<id>.bin`): the FUN_1801f7a90 output
+        if (Environment.GetEnvironmentVariable("LUX_FUSION_DUMP") is string dpre)   // diagnostic (`<prefix>_fus_src<i>_cam<id>.bin`): the per-source float frame
             DumpFloat($"{dpre}_srcframe_cam{camId}.bin", f, w, h);
         return new SourceFrame(camId, name, f, w, h, black, white, gain, rx, ry, neutral, frame);
     }
-    /// <summary>Diagnostic dump in the oracle's image format: int[4] {w, h, stride, bpp} then the rows.</summary>
+    /// <summary>Diagnostic dump: int[4] {w, h, stride, bpp} then the rows.</summary>
     public static void DumpFloat(string path, float[] data, int w, int h)
     {
         var b = new byte[16 + (long)w * h * 4];
@@ -315,14 +312,14 @@ public sealed class PackedBayerFusion
         File.WriteAllBytes(path, b);
     }
 
-    /// <summary>`FUN_180421170(hwInfo, camId)` → `FUN_18041eea0(profile, cctTint)`: the neutral from the camera's own colour calibration
+    /// <summary>The neutral from the camera's own colour calibration
     /// (falls back to the reference's when the camera has none), i.e. `WhiteBalance.NeutralFromTempTint` on a per-camera profile.
     /// Only the two colour matrices and illuminants of the profile enter the neutral, so the HSV fits are not built.</summary>
     float[] NeutralForModule(CameraID id) => NeutralFromTempTintDirect(Cct, Tint, ProfileOf(id));
 
     LumenProfile ProfileOf(CameraID id) => CameraProfile(_lri, id);
 
-    /// <summary>`FUN_180421170(hwInfo, camId)`: the camera's own colour-calibration profile (only the illuminant entries; falls back to the
+    /// <summary>The camera's own colour-calibration profile (only the illuminant entries; falls back to the
     /// reference camera's when the camera has fewer than two).</summary>
     public static LumenProfile CameraProfile(LriFile lri, CameraID id)
     {
@@ -334,8 +331,8 @@ public sealed class PackedBayerFusion
         return new LumenProfile(lo, hi, entries);
     }
 
-    /// <summary>`FUN_18041eea0(profile, out, (cct, tint))` (disasm 18041eeb0–18041ef83): `xy = FUN_1800d0cb0(cct, tint)`;
-    /// `M = FUN_1800d13d0(cct, t1, t2, CM1, CM2)` — the matrix at the GIVEN cct (lambda_21 / `NeutralFromXy` re-derive the temperature
+    /// <summary>The neutral at (cct, tint): `xy = xy(cct, tint)`;
+    /// `M = ColorMatrix(cct, t1, t2, CM1, CM2)` — the matrix at the GIVEN cct (lambda_21 / `NeutralFromXy` re-derive the temperature
     /// from xy); `invY = 1/y; X = x·invY; Z = ((1 − y) − x)·invY; n0 = (M2·Z) + ((M0·X) + M1); den = (M5·Z) + ((M3·X) + M4);
     /// n2 = (Z·M8) + ((X·M6) + M7); g = 1/den; (n0·g, 1, g·n2)`.</summary>
     public static float[] NeutralFromTempTintDirect(float cct, float tint, LumenProfile p)
@@ -365,9 +362,9 @@ public sealed class PackedBayerFusion
         return entries;
     }
 
-    /// <summary>`FUN_18010fc80(hwInfo, &amp;camId)`: `g = (gain_ref·(float)exp_ref) / (gain_src·(float)exp_src)`; when the source has a
-    /// vignetting model, is colour and the reference has one: `g = g · (rb_src / rb_ref)` with `rb = VignettingCharacterization+0x30`
-    /// = `relative_brightness` (port note).</summary>
+    /// <summary>`g = (gain_ref·(float)exp_ref) / (gain_src·(float)exp_src)`; when the source has a
+    /// vignetting model, is colour and the reference has one: `g = g · (rb_src / rb_ref)` with `rb` = the
+    /// `relative_brightness` of the vignetting characterization.</summary>
     public float SourceGain(int camId)
     {
         var refM = _lri.Modules[ModuleName(RefCamId)].Module; var srcM = _lri.Modules[ModuleName(camId)].Module;
@@ -388,12 +385,12 @@ public sealed class PackedBayerFusion
     static float RelativeBrightness(VignettingCharacterization vc) => vc.HasRelativeBrightness ? vc.RelativeBrightness : 0f;
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // §3.3 reference extras
+    // reference extras
     // ---------------------------------------------------------------------------------------------------------------------------------
     static int CeilDiv(int v, int d) => v >= 0 ? (v + d - 1) / d : -((-v) / d);
     static int FloorDiv(int v, int d) => v >= 0 ? v / d : -(((-v) + d - 1) / d);
 
-    /// <summary>`FUN_1801d7140`: `(ceil(W/16), ceil(H/16))` vec4 image; per block `inv = 1/(validRows·validCols)`, sum over the 2×2 quads
+    /// <summary>`(ceil(W/16), ceil(H/16))` vec4 image; per block `inv = 1/(validRows·validCols)`, sum over the 2×2 quads
     /// (rows 0,2,.. &lt; validRows; columns 0,2,.. &lt; validCols) of `rcpps(maxps((p[y][x+1], p[y][x], p[y+1][x], p[y+1][x+1]), 0.1))`,
     /// result `inv · sum` per lane.</summary>
     public static Vec4F[] BlockMeanRcp(float[] p, int W, int H, out int bw, out int bh)
@@ -427,8 +424,8 @@ public sealed class PackedBayerFusion
         return o;
     }
 
-    /// <summary>`FUN_1801d7600(pos, map)`: mean of the up-to-4 samples (x,y),(x+1,y),(x,y+1),(x+1,y+1) present in the map, literal
-    /// guard order of the decomp; 0 when none.</summary>
+    /// <summary>Mean of the up-to-4 samples (x,y),(x+1,y),(x,y+1),(x+1,y+1) present in the map, in Lumen's
+    /// guard order; 0 when none.</summary>
     public static float Mean2x2(float[] map, int w, int h, int stride, int x, int y)
     {
         float f = 0f; int cnt = 0;
@@ -457,7 +454,7 @@ public sealed class PackedBayerFusion
     [MethodImpl(MethodImplOptions.AggressiveInlining)] static Vector128<float> Load(Vec4F v) => Vector128.Create(v.R, v.G, v.B, v.A);
     [MethodImpl(MethodImplOptions.AggressiveInlining)] static Vec4F Store(Vector128<float> v) => new(v.GetElement(0), v.GetElement(1), v.GetElement(2), v.GetElement(3));
 
-    /// <summary>`initialize::lambda_1` (1801f9450, disasm 1801f9491–1801f94ea): `f = Mean2x2(map)`, `v = Mean2x2Vec(blockRcp)`,
+    /// <summary>`initialize::lambda_1`: `f = Mean2x2(map)`, `v = Mean2x2Vec(blockRcp)`,
     /// `r = rcpps(v); t = v·r; d = (1 − t)·r; s = (black + r) + d; s = s·A; s = invW·s; s = s + B; s = maxps(s, 1e-5)`;
     /// returns `((f·f)·W2)·s` with `invW = 1/white`, `W2 = white·white`.</summary>
     public Vec4F NoiseFn(int bx, int by)
@@ -479,9 +476,9 @@ public sealed class PackedBayerFusion
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // §3.5 packing / unpacking
+    // packing / unpacking
     // ---------------------------------------------------------------------------------------------------------------------------------
-    /// <summary>`FUN_1801f8aa0`: `out = in · s` per element.</summary>
+    /// <summary>`out = in · s` per element.</summary>
     static float[] Scale(float[] src, float s)
     {
         var o = new float[src.Length];
@@ -489,8 +486,8 @@ public sealed class PackedBayerFusion
         return o;
     }
 
-    /// <summary>`PackBayerImageProtoType&lt;vec4x16f,float&gt;` (1801e6610 / lambda_0 1801e9e90): "src needs to be even."; output `(W/2, H/2)`
-    /// of 4 halves `(h(p[2y][2x+1]), h(p[2y][2x]), h(p[2y+1][2x]), h(p[2y+1][2x+1]))` with the software RTZ conversion `FUN_1800e8150`.</summary>
+    /// <summary>`PackBayerImageProtoType&lt;vec4x16f,float&gt;`: "src needs to be even."; output `(W/2, H/2)`
+    /// of 4 halves `(h(p[2y][2x+1]), h(p[2y][2x]), h(p[2y+1][2x]), h(p[2y+1][2x+1]))` with the software RTZ conversion of <c>Half16</c>.</summary>
     public static ushort[] Pack(float[] src, int W, int H, out int wp, out int hp)
     {
         if (((W | H) & 1) != 0) throw new InvalidOperationException("src needs to be even.");
@@ -511,7 +508,7 @@ public sealed class PackedBayerFusion
         return o;
     }
 
-    /// <summary>`FUN_1801e67b0`: quads → full-res float Bayer (`out[2y][2x+1] = q0, out[2y][2x] = q1, out[2y+1][2x] = q2, out[2y+1][2x+1] = q3`).</summary>
+    /// <summary>Quads → full-res float Bayer (`out[2y][2x+1] = q0, out[2y][2x] = q1, out[2y+1][2x] = q2, out[2y+1][2x+1] = q3`).</summary>
     public static float[] Unpack(Vec4F[] src, int wp, int hp)
     {
         int W = wp * 2; var o = new float[W * hp * 2];
@@ -525,7 +522,7 @@ public sealed class PackedBayerFusion
         return o;
     }
 
-    /// <summary>`FUN_1801e6900`: weight quads → 2×2 of `max(q0..q3)` (`shufpd 1 / maxps` → `(max(q2,q0), max(q3,q1))`, then
+    /// <summary>Weight quads → 2×2 of `max(q0..q3)` (`(max(q2,q0), max(q3,q1))` with MAXPS semantics, then
     /// `l0 &lt;= l1 ? l1 : l0`).</summary>
     public static float[] UnpackWeight(Vec4F[] src, int wp, int hp)
     {
@@ -543,7 +540,7 @@ public sealed class PackedBayerFusion
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // §4 process FUN_1801f5840 + kernel FUN_1801e6a20
+    // process + merge kernel
     // ---------------------------------------------------------------------------------------------------------------------------------
     public sealed record ProcessResult(RectI Roi, float[] Out, float[] Weight, Vec4F[] FusedPacked, Vec4F[] WeightPacked, RectI HalfRoi);
 
@@ -565,7 +562,7 @@ public sealed class PackedBayerFusion
             var (cols, rows, grid) = LensShadingKernel.ModelGrid(_lri.Header, refFrame.Frame.Module);
             VignettingVec4.Apply(fused, rw, rh, new RectF((float)x0, (float)y0, (float)x1, (float)y1), refFrame.W, refFrame.H, cols, rows, LensShadingKernel.Transform(grid, 0f, true));
         }
-        // FUN_1801f5fa0: + black on all four lanes
+        // + black on all four lanes
         var blackV = Vector128.Create(Black);
         for (int i = 0; i < fused.Length; i++) fused[i] = Store(Load(fused[i]) + blackV);
         var outp = Unpack(fused, rw, rh);
@@ -573,7 +570,7 @@ public sealed class PackedBayerFusion
         return new ProcessResult(roi, outp, weight, fused, wImg, half);
     }
 
-    /// <summary>The merge kernel `FUN_1801e6a20(out, wOut, refPacked, srcs, flows, noiseFn, halfRoi, cN, range)` (§4.1).</summary>
+    /// <summary>The merge kernel (out, wOut, refPacked, srcs, flows, noiseFn, halfRoi, cN, range).</summary>
     public (Vec4F[] Fused, Vec4F[] Weight, int W, int H) Merge(RectI halfRoi, float cN, float range)
     {
         if (PackedSrc.Count != Flows.Count) throw new InvalidOperationException("Number of src_images must match number of flow_fields!");
@@ -600,7 +597,7 @@ public sealed class PackedBayerFusion
         int nSrc = PackedSrc.Count;
         for (int by = byStart; by < byEnd; by += 8)
         {
-            int bpy = by / 8;                    // truncating division (decomp: (v + (v<0 ? 7 : 0)) >> 3)
+            int bpy = by / 8;                    // truncating division (Lumen: (v + (v<0 ? 7 : 0)) >> 3)
             int fyc = Math.Max(bpy, 0);
             for (int bx = bxStart; bx < bxEnd; bx += 8)
             {
@@ -651,9 +648,9 @@ public sealed class PackedBayerFusion
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // §5 FusionCacheBayer: tiles, weight → uint8, STD plane, render geometry
+    // FusionCacheBayer: tiles, weight → uint8, STD plane, render geometry
     // ---------------------------------------------------------------------------------------------------------------------------------
-    /// <summary>`FUN_1802092b0`: `v = (int)(w·256) − 1; if (v &lt; 1) v = 0; (byte)v`.</summary>
+    /// <summary>`v = (int)(w·256) − 1; if (v &lt; 1) v = 0; (byte)v`.</summary>
     public static byte[] WeightToByte(float[] w)
     {
         var o = new byte[w.Length];
@@ -661,8 +658,8 @@ public sealed class PackedBayerFusion
         return o;
     }
 
-    /// <summary>`FUN_180507b20` (nStack &lt; 2): `k = s == 0 ? 0 : ((t·r) + (−3))·((−0.5)·t)` with `r = rsqrtss(s), t = s·r`
-    /// (disasm 180507f4c–180507f78); `std[i] = DAT_1806b5110[w8[i]]·k` (`FUN_180209010`).</summary>
+    /// <summary>STD scale (nStack &lt; 2): `k = s == 0 ? 0 : ((t·r) + (−3))·((−0.5)·t)` with `r = rsqrtss(s), t = s·r`;
+    /// `std[i] = StdTable[w8[i]]·k`.</summary>
     public static float StdK(float noiseScale)
     {
         float r = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(noiseScale)).ToScalar();
@@ -679,10 +676,10 @@ public sealed class PackedBayerFusion
         return o;
     }
 
-    /// <summary>`FUN_18050cbf0(profile, analogGain)`: halo 17 / 33 / 65 / 129 for gain ≤ 2 / ≤ 4 / ≤ 6 / else.</summary>
+    /// <summary>Halo 17 / 33 / 65 / 129 for gain ≤ 2 / ≤ 4 / ≤ 6 / else.</summary>
     public static int Halo(float analogGain) => !(Two < analogGain) ? 0x11 : !(Four < analogGain) ? 0x21 : !(Six < analogGain) ? 0x41 : 0x81;
 
-    /// <summary>`render` (180507b20) grown rect: `hl = halo&gt;&gt;1, hr = max(halo−1,0)&gt;&gt;1`, grow by `min(x0,hl)` left/top and
+    /// <summary>`render` grown rect: `hl = halo&gt;&gt;1, hr = max(halo−1,0)&gt;&gt;1`, grow by `min(x0,hl)` left/top and
     /// `min(W−x1, hr)` right/bottom.</summary>
     public static RectI GrownRect(RectI r, int halo, int W, int H)
     {
@@ -691,7 +688,7 @@ public sealed class PackedBayerFusion
         return new RectI(r.X0 - gl, r.Y0 - gt, r.X1 + gr, r.Y1 + gb);
     }
 
-    /// <summary>`TileCache` grid of the fusion caches (`FUN_1804be9f0`, tile 512×512): `n = max(1, (256 + extent)/512)`; the last tile absorbs
+    /// <summary>`TileCache` grid of the fusion caches (tile 512×512): `n = max(1, (256 + extent)/512)`; the last tile absorbs
     /// the remainder.</summary>
     public const int TileSize = 512;
     public static (int Nx, int Ny) TileGrid(int W, int H) => (Math.Max(1, (TileSize / 2 + W) / TileSize), Math.Max(1, (TileSize / 2 + H) / TileSize));
@@ -735,7 +732,7 @@ public sealed class PackedBayerFusion
     }
 }
 
-/// <summary>`lt::A::RemoveVignettingGeneric&lt;float,1&gt;` (outer `180130760`, cell rects `FUN_180134090`, lambda `18013dc80`) for a float
+/// <summary>`lt::A::RemoveVignettingGeneric&lt;float,1&gt;` for a float
 /// tile of <paramref name="tileW"/>×<paramref name="tileH"/> covering the frame rectangle <paramref name="fr"/> (frame units): the same
 /// geometry as `LensShadingKernel.Apply`, single lane, per-pixel gain in double rounded to float, `out = gain·in`.</summary>
 public static class VignettingFloat
@@ -773,8 +770,8 @@ public static class VignettingFloat
     /// <summary>Lumen indexes the node grid without clamping; keep the port's rule for the (never hit on a full-frame rect) overflow.</summary>
     internal static float G(float[] grid, int i) => i >= 0 && i < grid.Length ? grid[i] : grid[^1];
 
-    /// <summary>Outer geometry (180130760 / 180131010): `sx = tileW/(x1−x0)`, `xoff = x0·sx`, `hspace = frameW·sx/(cols−1)`, `col0 = (int)(xoff·(1/hspace))`,
-    /// `col1 = (int)ceil(sx·x1·(1/hspace))` (roundss 10), likewise vertically.</summary>
+    /// <summary>Outer geometry: `sx = tileW/(x1−x0)`, `xoff = x0·sx`, `hspace = frameW·sx/(cols−1)`, `col0 = (int)(xoff·(1/hspace))`,
+    /// `col1 = (int)ceil(sx·x1·(1/hspace))` (ceiling in single precision), likewise vertically.</summary>
     internal static void Cells(int tileW, int tileH, RectF fr, int frameW, int frameH, int cols, int rows, out float hspace, out float vspace, out float xoff, out float yoff, out int ox, out int oy, out int col0, out int row0, out int col1, out int row1)
     {
         float sx = (float)tileW / (fr.X1 - fr.X0), sy = (float)tileH / (fr.Y1 - fr.Y0);
@@ -787,9 +784,9 @@ public static class VignettingFloat
     }
 }
 
-/// <summary>`lt::A::RemoveVignettingGeneric&lt;vec4x32f,0&gt;` (outer `180131010`, lambda `18013dfc0`, disasm 18013e035–18013e221): the
+/// <summary>`lt::A::RemoveVignettingGeneric&lt;vec4x32f,0&gt;`: the
 /// vec4 variant used by `process()` with `m = 0, inverse = true` (grid `1/g`); identical geometry, per-pixel gain in double
-/// (`cvtsi2sd x; addsd xdD; mulsd slope; addsd left; cvtsd2ss`) and **all four lanes** multiplied (`mulps`).</summary>
+/// (`(float)(((double)x + xdD)·slope + left)`) and **all four lanes** multiplied.</summary>
 public static class VignettingVec4
 {
     public static void Apply(Vec4F[] img, int tileW, int tileH, RectF fr, int frameW, int frameH, int cols, int rows, float[] grid)

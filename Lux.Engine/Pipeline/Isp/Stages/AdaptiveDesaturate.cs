@@ -5,24 +5,24 @@ using System.Runtime.Intrinsics.X86;
 namespace Lux.Engine.Pipeline.Isp.Stages;
 
 /// <summary>
-/// `lt::Internal::AdaptiveDesaturate` (dispatcher `180420d10`, tile lambda `1804223a0`, mask builder `FUN_180422d00`)
-/// = `AdaptiveDesaturation:default` on the Color domain (setter `180404920`, slot pad 1 / align 1). Arguments: the
-/// tuning cutoffs (pipeline+0x1b28: shadow 0.01, highlight 0.8) and the Stats neutral.
+/// Lumen's `lt::Internal::AdaptiveDesaturate` (dispatcher, tile lambda, mask builder)
+/// = `AdaptiveDesaturation:default` on the Color domain (slot pad 1 / align 1). Arguments: the
+/// tuning cutoffs (shadow 0.01, highlight 0.8) and the Stats neutral.
 ///
 /// Per tile (grown by 1 px, clamped to the image): mask = 1.0 where R &gt; hl/n_R ∧ G &gt; hl/n_G ∧ B &gt; hl/n_B, else 0;
-/// mask blurred by the 3-tap gaussian `FUN_1800bb720(3, σ=1, scale=1)` = [e^-½, 1, e^-½]/Σ
+/// mask blurred by the 3-tap gaussian `GaussianKernel(3, σ=1, scale=1)` = [e^-½, 1, e^-½]/Σ
 /// (`ImageConvSeparable2D&lt;3,3,float,float&gt;`, vertical then horizontal, edge-clamped); RGB blurred by the 3×3 box
-/// (kernel (⅓,⅓,⅓), `ImageConvSeparable2D&lt;3,3,vec4,float&gt;`, same passes). Per pixel (asm `1804227f0–18042289e`):
+/// (kernel (⅓,⅓,⅓), `ImageConvSeparable2D&lt;3,3,vec4,float&gt;`, same passes). Per pixel:
 /// mean = (G + (R + B))·⅓ of the *input* pixel; x = max(0, max(R,G,B)_blur·(1/shadow)); s = min(1, sqrt(x)) with
 /// sqrt(x) = ((x·r)·r + (−3))·((x·r)·(−½)), r = rsqrtss(x), 0 when x = 0; h = min(1, mask_blur·(1/k₁));
 /// out = (h·(mean − in))·s + ((in − mean)·s + mean); alpha lane kept.
 /// </summary>
 public static class AdaptiveDesaturateKernel
 {
-    public const int Pad = 3, Align = 1;   // live slot meta (cp.dll's live ISP-stage listing: slot 8 docall 416520 pad 3 align 1; runner rect dump 2026-08-27)
-    public const float Third = 0.33333334f;   // 0x3eaaaaab (dispatcher local_38)
+    public const int Pad = 3, Align = 1;   // the slot meta of Lumen's live pipeline: pad 3, align 1
+    public const float Third = 0.33333334f;   // 0x3eaaaaab
 
-    /// <summary>`FUN_1800bb720(k, n, σ, scale)`: k[i] = expf((i − c)²·(−½/σ²)), c = (n−1)·½, then k *= scale/Σk
+    /// <summary>Gaussian kernel (n, σ, scale): k[i] = expf((i − c)²·(−½/σ²)), c = (n−1)·½, then k *= scale/Σk
     /// (Σ accumulated in index order).</summary>
     public static float[] GaussianKernel(int n, float sigma, float scale)
     {
@@ -44,11 +44,11 @@ public static class AdaptiveDesaturateKernel
         rect = rect.Intersect(src.Rect);
         var dst = new Image<Vec4F>(rect);
         if (rect.IsEmpty) return dst;
-        // grown region, clamped to the source (lambda L20–60)
+        // grown region, clamped to the source
         var g = rect.Inflate(1).Intersect(src.Rect);
         int gw = g.Width, gh = g.Height;
         float thrR = highlightCutoff * (1f / neutral[0]), thrG = highlightCutoff * (1f / neutral[1]), thrB = highlightCutoff * (1f / neutral[2]);
-        // mask plane (FUN_180422d00): 1.0 where all three channels exceed their cutoff (the compare is `0 < c − thr`)
+        // mask plane: 1.0 where all three channels exceed their cutoff (the compare is `0 < c − thr`)
         var mask = new float[gw * gh];
         var rgb = new Vec4F[gw * gh];
         for (int y = 0; y < gh; y++)
@@ -75,7 +75,7 @@ public static class AdaptiveDesaturateKernel
                 var p = rgb[gi]; var b = rgbBlur[gi];
                 float mean = (p.G + (p.R + p.B)) * Third;
                 float maxc = MathF.Max(MathF.Max(b.B, b.R), MathF.Max(b.B, b.G));
-                float xx = maxc * invShadow; if (!(xx > 0f)) xx = 0f;   // maxss(x, 0)
+                float xx = maxc * invShadow; if (!(xx > 0f)) xx = 0f;   // MAXSS order: NaN gives 0
                 float s;
                 if (xx == 0f) s = 0f;
                 else { float r = RsqrtS(xx); float xr = xx * r; s = ((xr * r) + -3f) * (xr * -0.5f); }
@@ -90,7 +90,7 @@ public static class AdaptiveDesaturateKernel
         return dst;
     }
 
-    /// <summary>`ImageConvSeparable2D&lt;3,3,float,float&gt;` (helpers `1800ce030` vertical, `1800ce380` horizontal):
+    /// <summary>`ImageConvSeparable2D&lt;3,3,float,float&gt;` (vertical pass, then horizontal pass):
     /// v = (k0·above + k1·centre) + k2·below, then (k0·left + k1·centre) + k2·right, clamped at the image edge.</summary>
     public static float[] Conv3x3(float[] src, int w, int h, float[] k)
     {
@@ -109,7 +109,7 @@ public static class AdaptiveDesaturateKernel
         return dst;
     }
 
-    /// <summary>`ImageConvSeparable2D&lt;3,3,vec4,float&gt;` (lambda `180350b20`, horizontal helper `FUN_180350fe0`):
+    /// <summary>`ImageConvSeparable2D&lt;3,3,vec4,float&gt;`:
     /// v = (k2·above + k1·centre) + k0·below, then (k2·left + k1·centre) + k0·right — the vec4 variant broadcasts
     /// the kernel reversed (equal to the float variant for symmetric kernels). Alpha is filtered too.</summary>
     public static Vec4F[] Conv3x3(Vec4F[] src, int w, int h, float[] k)

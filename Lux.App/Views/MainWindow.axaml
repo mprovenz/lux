@@ -1,0 +1,142 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Lux.App.ViewModels"
+        xmlns:v="using:Lux.App.Views"
+        x:Class="Lux.App.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="Lux"
+        Icon="/Assets/Icon/lux-256.png"
+        Width="1440" Height="900" MinWidth="960" MinHeight="600"
+        WindowStartupLocation="CenterScreen"
+        DragDrop.AllowDrop="True">
+  <Window.DataTemplates>
+    <DataTemplate DataType="vm:LumenImportViewModel"><v:LumenImportDialog /></DataTemplate>
+    <DataTemplate DataType="vm:PromptViewModel"><v:PromptDialog /></DataTemplate>
+    <DataTemplate DataType="vm:ConfirmViewModel"><v:ConfirmDialog /></DataTemplate>
+    <DataTemplate DataType="vm:ChoiceDialogViewModel"><v:ChoiceDialog /></DataTemplate>
+    <DataTemplate DataType="vm:StorageNoticeViewModel"><v:StorageNoticeDialog /></DataTemplate>
+    <DataTemplate DataType="vm:PatchDialogViewModel"><v:PatchDialog /></DataTemplate>
+  </Window.DataTemplates>
+  <Window.KeyBindings>
+    <KeyBinding Gesture="Ctrl+D1" Command="{Binding ShowPageCommand}" CommandParameter="{x:Static vm:Page.Library}" />
+    <KeyBinding Gesture="Ctrl+D2" Command="{Binding ShowPageCommand}" CommandParameter="{x:Static vm:Page.Develop}" />
+    <KeyBinding Gesture="Ctrl+D3" Command="{Binding ShowPageCommand}" CommandParameter="{x:Static vm:Page.Queue}" />
+    <KeyBinding Gesture="Ctrl+D4" Command="{Binding ShowPageCommand}" CommandParameter="{x:Static vm:Page.Camera}" />
+    <KeyBinding Gesture="Ctrl+OemComma" Command="{Binding ShowPageCommand}" CommandParameter="{x:Static vm:Page.Settings}" />
+  </Window.KeyBindings>
+
+  <Panel>
+    <DockPanel>
+      <!-- header: name, tabs, filter, view switch -->
+      <Border Classes="header" DockPanel.Dock="Top">
+        <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto">
+          <TextBlock Text="Lux" FontWeight="SemiBold" Margin="4,0,12,0" VerticalAlignment="Center" />
+          <StackPanel x:Name="TabsPanel" Grid.Column="1" Orientation="Horizontal" Spacing="4">
+            <Button Classes="tab" Classes.selected="{Binding IsLibrary}" Content="Library"
+                    Command="{Binding ShowPageCommand}" CommandParameter="{x:Static vm:Page.Library}"
+                    ToolTip.Tip="Library (Ctrl+1)" />
+            <Button Classes="tab" Classes.selected="{Binding IsDevelop}" Content="Develop" IsEnabled="{Binding !IsFirstRun}"
+                    Command="{Binding ShowPageCommand}" CommandParameter="{x:Static vm:Page.Develop}"
+                    ToolTip.Tip="Develop (Ctrl+2)" />
+            <Button Classes="tab" Classes.selected="{Binding IsQueue}" Content="{Binding QueueTabLabel}" IsEnabled="{Binding !IsFirstRun}"
+                    Command="{Binding ShowPageCommand}" CommandParameter="{x:Static vm:Page.Queue}"
+                    ToolTip.Tip="Every background job: analysis, cache, thumbnails, exports, imports (Ctrl+3)" />
+            <Button Classes="tab" Classes.selected="{Binding IsCamera}" Content="Camera"
+                    Command="{Binding ShowPageCommand}" CommandParameter="{x:Static vm:Page.Camera}"
+                    ToolTip.Tip="Camera (Ctrl+4)" />
+          </StackPanel>
+          <!-- Develop: the open capture and the view modes -->
+          <TextBlock Grid.Column="2" Classes="mono secondary" Text="{Binding Develop.HeaderText}" IsVisible="{Binding IsDevelop}"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="12,0" />
+          <StackPanel Grid.Column="3" Grid.ColumnSpan="2" Orientation="Horizontal" IsVisible="{Binding IsDevelop}" Spacing="0">
+            <Button Classes="tab" Classes.selected="{Binding Develop.IsSingle}" Content="Single" Padding="12,0"
+                    Command="{Binding Develop.SetModeCommand}" CommandParameter="{x:Static vm:DevelopMode.Single}" ToolTip.Tip="The photo alone" />
+            <Button Classes="tab" Classes.selected="{Binding Develop.IsPhotoDepth}" Content="Photo + depth" Padding="12,0"
+                    Command="{Binding Develop.SetModeCommand}" CommandParameter="{x:Static vm:DevelopMode.PhotoDepth}"
+                    ToolTip.Tip="The photo beside its depth map, pan and zoom locked together (D)" />
+            <Button Classes="tab" Classes.selected="{Binding Develop.IsBeforeAfter}" Content="Before / after" Padding="12,0"
+                    Command="{Binding Develop.SetModeCommand}" CommandParameter="{x:Static vm:DevelopMode.BeforeAfter}"
+                    ToolTip.Tip="Compare with the photo without tone and colour adjustments (\)" />
+          </StackPanel>
+          <TextBox Grid.Column="3" x:Name="FilterBox" Width="200" Watermark="Filter" VerticalAlignment="Center"
+                   IsVisible="{Binding ShowLibraryTools}" Text="{Binding Library.FilterText}"
+                   AutomationProperties.Name="Filter captures" ToolTip.Tip="Filter by name, folder, album or edit version (Ctrl+F)" />
+          <Border Grid.Column="4" Margin="8,0,0,0" BorderBrush="{DynamicResource LuxLineMid}" BorderThickness="1" CornerRadius="2"
+                  VerticalAlignment="Center" IsVisible="{Binding ShowLibraryTools}">
+            <StackPanel Orientation="Horizontal">
+              <Button Classes="seg" Classes.selected="{Binding Library.IsGrid}" Content="Grid"
+                      Command="{Binding Library.SetModeCommand}" CommandParameter="{x:Static vm:BrowseMode.Grid}" ToolTip.Tip="Compact grid (G)" />
+              <Button Classes="seg" Classes.selected="{Binding Library.IsTimeline}" Content="Timeline"
+                      Command="{Binding Library.SetModeCommand}" CommandParameter="{x:Static vm:BrowseMode.Timeline}" ToolTip.Tip="By day (T)" />
+              <Button Classes="seg" Classes.selected="{Binding Library.IsList}" Content="List"
+                      Command="{Binding Library.SetModeCommand}" CommandParameter="{x:Static vm:BrowseMode.List}" ToolTip.Tip="Sortable list (L)" />
+            </StackPanel>
+          </Border>
+          <Button Grid.Column="5" Classes="tab" Classes.selected="{Binding IsSettings}" Content="Settings" Margin="8,0,0,0"
+                  Command="{Binding ShowPageCommand}" CommandParameter="{x:Static vm:Page.Settings}" ToolTip.Tip="Settings (Ctrl+,)" />
+        </Grid>
+      </Border>
+
+      <!-- status bar -->
+      <Border Classes="statusbar" DockPanel.Dock="Bottom">
+        <DockPanel>
+          <StackPanel x:Name="StatusRight" DockPanel.Dock="Right" Orientation="Horizontal" Spacing="20">
+            <TextBlock x:Name="StatusPointerText" Classes="mono" Text="{Binding StatusPointer}" IsVisible="{Binding IsDevelop}" MinWidth="230" />
+            <TextBlock Text="{Binding UpdateText}" IsVisible="{Binding UpdateText, Converter={x:Static ObjectConverters.IsNotNull}}"
+                       Foreground="{DynamicResource LuxAccent}" />
+            <Button Classes="link small" MinHeight="24" Padding="0" Content="Restart to update" Command="{Binding RestartToUpdateCommand}"
+                    IsVisible="{Binding CanRestartToUpdate}" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding StatusCache}" />
+            <TextBlock Text="{Binding StatusDevice}" />
+          </StackPanel>
+          <StackPanel x:Name="StatusLeft" Orientation="Horizontal" Spacing="20" ClipToBounds="True">
+            <TextBlock Text="{Binding Notice}" IsVisible="{Binding Notice, Converter={x:Static ObjectConverters.IsNotNull}}"
+                       Foreground="{DynamicResource LuxAccent}" />
+            <Button Classes="link small" MinHeight="24" Padding="0" Content="{Binding NoticeAction}" Command="{Binding RunNoticeActionCommand}"
+                    IsVisible="{Binding NoticeAction, Converter={x:Static ObjectConverters.IsNotNull}}" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding StatusLeft}" />
+            <TextBlock Text="{Binding StatusAnalysis}" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
+
+      <!-- pages -->
+      <Panel>
+        <Panel IsVisible="{Binding ShowEmpty}">
+          <v:EmptyView />
+        </Panel>
+        <Panel IsVisible="{Binding ShowLibraryPage}">
+          <v:LibraryView x:Name="LibraryPage" DataContext="{Binding Library}" />
+        </Panel>
+        <Panel IsVisible="{Binding IsDevelop}">
+          <v:DevelopView x:Name="DevelopPage" DataContext="{Binding Develop}" />
+        </Panel>
+        <Panel IsVisible="{Binding IsQueue}">
+          <v:QueueView DataContext="{Binding Queue}" />
+        </Panel>
+        <Panel IsVisible="{Binding IsCamera}">
+          <v:CameraView x:Name="CameraPage" DataContext="{Binding Camera}" />
+        </Panel>
+        <Panel IsVisible="{Binding IsSettings}">
+          <v:SettingsView DataContext="{Binding Settings}" />
+        </Panel>
+      </Panel>
+    </DockPanel>
+
+    <!-- a folder dragged over the window: drop it to add it -->
+    <Border IsVisible="{Binding IsFolderDropTarget}" Background="#99202020" IsHitTestVisible="False">
+      <Panel Margin="24">
+        <Rectangle Stroke="{DynamicResource LuxAccent}" StrokeThickness="2" StrokeDashArray="6,4" RadiusX="2" RadiusY="2" />
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
+          <TextBlock Classes="title" Text="Drop a folder to add it to the library" HorizontalAlignment="Center" />
+          <TextBlock Classes="secondary" Text="Its subfolders are included. Lux never changes the capture files." HorizontalAlignment="Center" />
+        </StackPanel>
+      </Panel>
+    </Border>
+
+    <!-- dialogs: drawn over the dimmed shell -->
+    <Border Background="{DynamicResource LuxScrim}" IsVisible="{Binding IsDialogOpen}">
+      <ContentControl Content="{Binding Dialog}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24" />
+    </Border>
+  </Panel>
+</Window>

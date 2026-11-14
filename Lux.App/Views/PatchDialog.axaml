@@ -1,0 +1,62 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             x:Class="Lux.App.Views.PatchDialog"
+             x:DataType="vm:PatchDialogViewModel">
+  <!-- Copy adjustments / paste adjustments / save as preset (Lumen's patch dialog): the groups to include. -->
+  <Border Classes="dialog" Width="560">
+    <StackPanel>
+      <Border Padding="20,16" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,0,0,1">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="dialogtitle" Text="{Binding Title}" />
+          <TextBlock Classes="secondary wrap" Text="{Binding Subtitle}" />
+        </StackPanel>
+      </Border>
+      <StackPanel Margin="20,16" Spacing="6">
+        <StackPanel Spacing="6" IsVisible="{Binding IsPreset}" Margin="0,0,0,8">
+          <TextBlock Text="Name" />
+          <TextBox x:Name="NameField" Classes="tall" Text="{Binding Name}" Watermark="Preset name" AutomationProperties.Name="Preset name">
+            <TextBox.KeyBindings><KeyBinding Gesture="Enter" Command="{Binding OkCommand}" /></TextBox.KeyBindings>
+          </TextBox>
+        </StackPanel>
+        <CheckBox Classes="optionrow" IsChecked="{Binding AllOn}" IsThreeState="True" Content="Everything" FontWeight="SemiBold" />
+        <Border Classes="rule" />
+        <ItemsControl ItemsSource="{Binding Groups}" AutomationProperties.Name="What to include">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:GroupOption">
+              <StackPanel>
+                <CheckBox Classes="optionrow" IsChecked="{Binding IsOn}" IsThreeState="False" IsEnabled="{Binding IsAvailable}" AutomationProperties.Name="{Binding Name}">
+                  <Grid ColumnDefinitions="140,*">
+                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontWeight="Medium" />
+                    <TextBlock Grid.Column="1" Classes="secondary small" Text="{Binding Detail}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                  </Grid>
+                </CheckBox>
+                <!-- per-slider choice (Lumen's dialog ticks each property) -->
+                <ItemsControl ItemsSource="{Binding Sliders}" IsVisible="{Binding HasSliders}" Margin="28,0,0,2">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SliderOption">
+                      <CheckBox IsChecked="{Binding IsOn}" IsEnabled="{Binding IsAvailable}" MinHeight="30" Width="160" AutomationProperties.Name="{Binding Name}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                          <TextBlock Classes="mono small secondary" Text="{Binding Detail}" VerticalAlignment="Center" />
+                        </StackPanel>
+                      </CheckBox>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Classes="warning wrap" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      </StackPanel>
+      <Border Padding="20,12" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,1,0,0">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+          <Button Content="Cancel" Padding="16,0" Command="{Binding CancelCommand}" />
+          <Button Classes="primary" Content="{Binding OkLabel}" Command="{Binding OkCommand}" IsEnabled="{Binding CanOk}" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </Border>
+</UserControl>

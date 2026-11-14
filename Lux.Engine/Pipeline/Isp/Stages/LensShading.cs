@@ -4,11 +4,11 @@ using Lux.Engine.Imaging;
 namespace Lux.Engine.Pipeline.Isp.Stages;
 
 /// <summary>
-/// `lt::A::RemoveVignettingGeneric&lt;vec4x32f,1&gt;` (dispatcher `18012feb0`, grid builder `FUN_18013cd40`, cell rects
-/// `FUN_180134090`, tile lambda `18013d980`) = `LensShading:default` on the Color domain (`setLensShading` lambda_53
-/// `1804184b0`, called with the payload float rect, the CapturedImage, `lens_shading.multiplier` (pipeline+0x1b30)
-/// and the inverse flag (+0x1b34)). Gain grid: the module's `VignettingCharacterization` model for the capture's
-/// mirror hall code (single model for fixed lenses; movable mirrors lerp the two neighbouring hall codes, SoT §4),
+/// Lumen's `lt::A::RemoveVignettingGeneric&lt;vec4x32f,1&gt;` (dispatcher, grid builder, cell rects, tile lambda)
+/// = `LensShading:default` on the Color domain (the `setLensShading` stage lambda calls it with the payload float rect,
+/// the CapturedImage, `lens_shading.multiplier` and the inverse flag). Gain grid: the module's `VignettingCharacterization`
+/// model for the capture's mirror hall code (single model for fixed lenses; movable mirrors lerp the two neighbouring
+/// hall codes),
 /// transformed to `g' = (g − 1)·m + 1` (or `((g − 1)·m + 1)/g` when inverse), then bilinearly interpolated over
 /// the frame: node spacing `hspace = W_frame·sx/(cols−1)`, `vspace = H_frame·sy/(rows−1)` with `sx = W_tile/(x1−x0)`,
 /// per pixel `fx = (x + (xoff − col·hspace))·(1/floor(hspace))`, gain = lerp(lerp(g00,g10,fy), lerp(g01,g11,fy), fx);
@@ -28,15 +28,14 @@ public static class LensShadingKernel
             var v = models[0].Vignetting;
             return ((int)v.Width, (int)v.Height, v.Data.ToArray());
         }
-        // movable mirror: neighbouring hall codes around the capture's mirror position (FUN_18013cd40 L26–300)
-        int hall = m.MirrorPosition;   // CapturedImage+0x50 = CameraModule.mirror_position (NOT af_info.mirror_position: B1/B2/B3 of 00466 differ between the two — verified by the B stereo images 2026-08-27)
-        // FUN_18013cd40 L70–160 on the std::map<hallCode, model>: hall ≤ min key → the min model; hall ≥ max key → the max model;
+        // movable mirror: neighbouring hall codes around the capture's mirror position
+        int hall = m.MirrorPosition;   // CameraModule.mirror_position (NOT af_info.mirror_position; the two values can differ)
+        // On the std::map<hallCode, model>: hall ≤ min key → the min model; hall ≥ max key → the max model;
         // otherwise `hi = lower_bound(hall)` (the first model with code ≥ hall; == hall → that model alone) and `lo = the model
-        // before it`, then `t = ((float)hall − (float)hi) / (float)(lo − hi)`, `u = 1 − t`, grid = g_hi·u + g_lo·t (L324–338).
+        // before it`, then `t = ((float)hall − (float)hi) / (float)(lo − hi)`, `u = 1 − t`, grid = g_hi·u + g_lo·t.
         // That is the same interpolation as (hall − lo)/(hi − lo) but ROUNDED the other way round: the lower model's weight is
-        // the direct division here, the upper model's is `1 − t`. Porting it as (hall − lo)/(hi − lo) with `1 − t` on the lower
-        // model gave grids one ulp off for some hall codes (L16_00425/00426/00453: B5 at 544/544/681 between the models) and
-        // telephoto ISP outputs one ulp off in a third of the pixels (a-dense-stereo-race-closure.md §8).
+        // the direct division here, the upper model's is `1 − t`. The form (hall − lo)/(hi − lo) with `1 − t` on the lower
+        // model gives grids one ulp off for some hall codes, and telephoto ISP outputs one ulp off in a third of the pixels.
         var sorted = models.OrderBy(x => x.HallCode).ToList();
         int hiIdx = sorted.FindIndex(x => (int)x.HallCode >= hall);
         if (hiIdx < 0) { var mx = sorted[^1].Vignetting; return ((int)mx.Width, (int)mx.Height, mx.Data.ToArray()); }
@@ -49,7 +48,7 @@ public static class LensShadingKernel
         return ((int)gHi.Width, (int)gHi.Height, d);
     }
 
-    /// <summary>`FUN_18013cd40` tail: `(g + (−1))·m + 1`, or `((g + (−1))·m + 1)/g` when inverse.</summary>
+    /// <summary>The grid builder's tail: `(g + (−1))·m + 1`, or `((g + (−1))·m + 1)/g` when inverse.</summary>
     public static float[] Transform(float[] grid, float m, bool inverse)
     {
         var o = new float[grid.Length];
@@ -65,13 +64,13 @@ public static class LensShadingKernel
         float sx = (float)tileW / (floatRect.X1 - floatRect.X0), sy = (float)tileH / (floatRect.Y1 - floatRect.Y0);
         float xoff = floatRect.X0 * sx, yoff = floatRect.Y0 * sy;
         float hspace = ((float)frameW * sx) / (float)(cols - 1), vspace = ((float)frameH * sy) / (float)(rows - 1);
-        float invH = 1f / MathF.Floor(hspace), invV = 1f / MathF.Floor(vspace);   // roundss imm 9 = floor
+        float invH = 1f / MathF.Floor(hspace), invV = 1f / MathF.Floor(vspace);
         int ox = (int)xoff, oy = (int)yoff;                                        // tile origin in frame pixels
         int col0 = (int)(xoff * (1f / hspace)), row0 = (int)(yoff * (1f / vspace));
         int col1 = (int)MathF.Ceiling(sx * floatRect.X1 * (1f / hspace)), row1 = (int)MathF.Ceiling(sy * floatRect.Y1 * (1f / vspace));
         for (int row = row0; row < row1; row++)
         {
-            // cell rect (FUN_180134090): [(int)(row·vspace) − oy, (int)((row+1)·vspace) − oy) clamped to the tile
+            // cell rect: [(int)(row·vspace) − oy, (int)((row+1)·vspace) − oy) clamped to the tile
             int cy0 = Math.Max((int)((float)row * vspace) - oy, 0), cy1 = Math.Min((int)(vspace * (float)(row + 1)) - oy, tileH);
             for (int col = col0; col < col1; col++)
             {
@@ -85,15 +84,15 @@ public static class LensShadingKernel
                     float fy = ((float)y + (yoff - (float)row * vspace)) * invV;
                     float left = fy * (g10 - g00) + g00;
                     float right = fy * (g11 - g01) + g01;
-                    float slope = (right - left) * invH;   // asm 18013daef–daf3: per-row (right − left)·invH
-                    // asm 18013daf8–db63: the per-pixel gain is evaluated in double and rounded to float
+                    float slope = (right - left) * invH;   // per-row (right − left)·invH
+                    // the per-pixel gain is evaluated in double and rounded to float
                     double slopeD = slope, leftD = left, xdD = xoff - (float)col * hspace;
                     var span = img.Row(y + rect.Y0 - img.Rect.Y0);
                     for (int x = cx0; x < cx1; x++)
                     {
                         float gain = (float)(((double)x + xdD) * slopeD + leftD);
                         ref var p = ref span[x + rect.X0 - img.Rect.X0];
-                        p.R *= gain; p.G *= gain; p.B *= gain;   // blendps …,8 keeps alpha
+                        p.R *= gain; p.G *= gain; p.B *= gain;   // alpha keeps its value
                     }
                 }
             }
@@ -103,8 +102,8 @@ public static class LensShadingKernel
 
 public static class LensShadingMono
 {
-    /// <summary>`RemoveVignettingGeneric&lt;float,1&gt;` (outer `180130760`, kernel `18013dc80`): the single-lane variant of
-    /// <see cref="LensShadingKernel.Apply"/> for the mono SoftISP (spec `a4d803768fac564ad.md` §1.6) — same cell geometry, per-row float
+    /// <summary>`RemoveVignettingGeneric&lt;float,1&gt;`: the single-lane variant of
+    /// <see cref="LensShadingKernel.Apply"/> for the mono SoftISP — same cell geometry, per-row float
     /// lerps, per-pixel gain in double rounded to float, `out = gain · in`. <paramref name="tileX"/>/<paramref name="tileY"/> = the tile
     /// origin in frame pixels (floatRect = the tile ROI, sx = sy = 1).</summary>
     public static void Apply(float[] img, int w, int h, int tileX, int tileY, int frameW, int frameH, int cols, int rows, float[] grid)

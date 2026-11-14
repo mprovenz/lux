@@ -37,6 +37,10 @@ internal sealed class VisualFormats
                          List<Exporter.Output> outputs, List<string> refusals, Action<string>? log)
     { _lri = lri; _req = req; _session = session; _outDir = outDir; _stem = stem; _outputs = outputs; _refusals = refusals; _log = log; }
 
+    /// <summary>The engine's hook for the Lux-only formats (<see cref="ExportRequest.LuxFormats"/>).</summary>
+    public static readonly LuxFormatsWriter Writer = (lri, req, session, outDir, stem, outputs, refusals, log) =>
+        new VisualFormats(lri, req, session, outDir, stem, outputs, refusals, log).Run();
+
     ParallaxRequest? P => _req.Parallax;
     LensRequest? L => _req.LensFrames;
 
@@ -194,11 +198,20 @@ internal sealed class VisualFormats
         }
     }
 
+    /// <summary>`--parallax-encoder ffmpeg`: the earlier ffmpeg recipes for every container (set once per `convert` run).</summary>
+    internal static bool UseFfmpeg { get; set; }
+
     void Encode(ParallaxFormat f, IReadOnlyList<Rgba> played, string path)
     {
         int ms = P!.Ms ?? ParallaxFormats.DefaultMs(f);
         _log?.Invoke($"{played.Count} frames played, {ms} ms each -> {System.IO.Path.GetFileName(path)}");
-        Animation.Encode(Animation.Ffmpeg() ?? throw new InvalidOperationException("ffmpeg not found on PATH"), played, path, ms, P.Quality, P.Crf);
+        // GIF, APNG and WebP (lossless) are Lux's own writers; AVIF (and every container with --parallax-encoder ffmpeg) goes through ffmpeg
+        if (UseFfmpeg || !AnimationEncoder.TryParse(P.Container, out var c))
+        {
+            Animation.Encode(Animation.Ffmpeg() ?? throw new InvalidOperationException("ffmpeg not found on PATH"), played, path, ms, P.Quality, P.Crf);
+            return;
+        }
+        AnimationEncoder.WriteFile(path, c, played, Enumerable.Repeat(ms, played.Count).ToArray(), new AnimationEncodeOptions { Loops = 0 });
     }
 
     // ---- lens-frames ----------------------------------------------------------------------------------------

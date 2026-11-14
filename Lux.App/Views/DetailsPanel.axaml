@@ -1,0 +1,87 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             xmlns:v="using:Lux.App.Views"
+             xmlns:c="using:Lux.App.Controls"
+             x:Class="Lux.App.Views.DetailsPanel"
+             x:DataType="vm:LibraryViewModel">
+  <Border Classes="sidepanel" Width="{DynamicResource LuxDetailsWidth}" Padding="12">
+    <Panel>
+      <TextBlock IsVisible="{Binding !Details.HasCurrent}" Classes="secondary wrap" Text="{Binding Details.EmptyText}"
+                 HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" />
+      <ScrollViewer IsVisible="{Binding Details.HasCurrent}" HorizontalScrollBarVisibility="Disabled" Margin="0,0,-12,0">
+        <StackPanel Spacing="12" Margin="0,0,12,0">
+          <Panel>
+            <!-- the preview: "Processing image" over the blurred best picture while a better quality is being made -->
+            <c:ThumbnailView x:Name="Preview" CaptureId="{Binding Details.Current.Id, FallbackValue={x:Null}}"
+                             Version="{Binding Details.Current.ThumbVersion, FallbackValue=0}"
+                             Orientation="{Binding Details.Current.Orientation, FallbackValue=0}"
+                             Dimmed="{Binding Details.Current.HasProblem, FallbackValue=False}"
+                             Processing="{Binding Details.PreviewProcessing}" Progress="{Binding Details.PreviewProgress}"
+                             Placeholder="{DynamicResource LuxPlaceholder}" />
+            <Border Classes="badge warn" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding Details.Current.HasProblem, FallbackValue=False}">
+              <TextBlock Text="{Binding Details.Current.ProblemText, FallbackValue=''}" />
+            </Border>
+          </Panel>
+          <StackPanel Spacing="2">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Classes="mono medium" Text="{Binding Details.Current.Name, FallbackValue=''}" />
+              <Ellipse Classes="marker" Classes.notsaved="{Binding Details.Current.NotSavedWithPhoto, FallbackValue=False}"
+                       IsVisible="{Binding Details.Current.HasStorageMarker, FallbackValue=False}"
+                       ToolTip.Tip="{Binding Details.Current.StorageMarkerTip, FallbackValue=''}" VerticalAlignment="Center" />
+            </StackPanel>
+            <TextBlock Classes="secondary wrap" Text="{Binding Details.Current.DetailsLine, FallbackValue=''}" />
+            <TextBlock Classes="stars" Text="{Binding Details.Current.StarsOutOfFive, FallbackValue=''}"
+                       AutomationProperties.Name="{Binding Details.Current.RatingLabel, FallbackValue=''}" ToolTip.Tip="Rate with the keys 0–5" />
+          </StackPanel>
+          <Border Background="{DynamicResource LuxBar}" Padding="8">
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
+              <Grid.Styles>
+                <Style Selector="TextBlock"><Setter Property="Margin" Value="0,2" /></Style>
+                <Style Selector="TextBlock.v"><Setter Property="HorizontalAlignment" Value="Right" /><Setter Property="TextTrimming" Value="CharacterEllipsis" /></Style>
+              </Grid.Styles>
+              <TextBlock Classes="secondary" Text="Depth map" />
+              <TextBlock Grid.Column="1" Classes="v" Text="{Binding Details.Current.DepthText, FallbackValue=''}" />
+              <TextBlock Grid.Row="1" Classes="secondary" Text="Depth edits" />
+              <TextBlock Grid.Row="1" Grid.Column="1" Classes="v" Text="{Binding Details.Current.DepthEditsDisplay, FallbackValue=''}" />
+              <TextBlock Grid.Row="2" Classes="secondary" Text="Depth effect" />
+              <TextBlock Grid.Row="2" Grid.Column="1" Classes="mono v" Text="{Binding Details.Current.DepthEffectText, FallbackValue=''}" />
+              <TextBlock Grid.Row="3" Classes="secondary" Text="Tone, colour" />
+              <TextBlock Grid.Row="3" Grid.Column="1" Classes="v" Text="{Binding Details.Current.AdjustmentsText, FallbackValue=''}" />
+              <TextBlock Grid.Row="4" Classes="secondary" Text="Cached render" />
+              <TextBlock Grid.Row="4" Grid.Column="1" Classes="mono v" Classes.accent="{Binding Details.CurrentIsFull}"
+                         Text="{Binding Details.Current.CachedRender, FallbackValue=''}" />
+              <TextBlock Grid.Row="5" Classes="secondary" Text="Edits, rating" />
+              <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                <Ellipse Classes="marker" Classes.notsaved="{Binding Details.Current.NotSavedWithPhoto, FallbackValue=False}"
+                         IsVisible="{Binding Details.Current.HasStorageMarker, FallbackValue=False}" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding Details.Current.StorageText, FallbackValue=''}" ToolTip.Tip="{Binding Details.Current.StorageMarkerTip, FallbackValue=''}" />
+              </StackPanel>
+              <TextBlock Grid.Row="6" Classes="secondary" Text="Albums" IsVisible="{Binding Details.AlbumsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <TextBlock Grid.Row="6" Grid.Column="1" Classes="v" Text="{Binding Details.AlbumsText}"
+                         IsVisible="{Binding Details.AlbumsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </Grid>
+          </Border>
+          <!-- a local copy kept aside after a conflict -->
+          <Border Classes="note" IsVisible="{Binding Details.HasSuperseded}" BorderBrush="{DynamicResource LuxLineLight}" BorderThickness="1">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <TextBlock Classes="wrap small" Text="An older copy of this photo's edits was kept aside on this computer when its folder changed elsewhere." />
+              <Button Grid.Column="1" Classes="link small" Content="Show" Command="{Binding Details.ShowSupersededCommand}" VerticalAlignment="Center"
+                      ToolTip.Tip="Open the folder with the kept copy" />
+            </Grid>
+          </Border>
+          <TextBlock Classes="warning wrap" Text="{Binding Details.Current.ProblemNote, FallbackValue=''}"
+                     IsVisible="{Binding Details.Current.ProblemNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
+          <v:QualitySelector DataContext="{Binding Details.Quality}" />
+          <Button Classes="primary" HorizontalAlignment="Stretch" Content="Open in Develop" Command="{Binding OpenInDevelopCommand}" />
+          <Grid ColumnDefinitions="*,4,*" RowDefinitions="Auto,4,Auto">
+            <Button HorizontalAlignment="Stretch" Content="{Binding ExportLabel}" Command="{Binding OpenExportCommand}" />
+            <Button Grid.Column="2" HorizontalAlignment="Stretch" Content="Animate…" Command="{Binding OpenAnimateCommand}"
+                    ToolTip.Tip="Rack focus, aperture sweep, wigglegram, parallax or a lens tour, with a live preview (Ctrl+Shift+A)" />
+            <Button x:Name="AlbumButton" Grid.Row="2" Grid.ColumnSpan="3" HorizontalAlignment="Stretch" Content="Add to album" Click="OnAddToAlbum" />
+          </Grid>
+        </StackPanel>
+      </ScrollViewer>
+    </Panel>
+  </Border>
+</UserControl>

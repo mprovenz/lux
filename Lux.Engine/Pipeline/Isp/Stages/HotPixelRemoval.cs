@@ -1,28 +1,28 @@
 namespace Lux.Engine.Pipeline.Isp.Stages;
 
 /// <summary>
-/// `lt::ImagePatchHotPixels` (`18039f0b0`, tile lambda `18039f7a0`), the body of `HotPixelRemoval = default` on the
-/// Bayer-ushort domain (`setHotPixelRemoval` `180400880`: slot pad 9, align 2, scale 1; lambda_11 `180414920` calls it
+/// Lumen's `lt::ImagePatchHotPixels` (with its tile lambda), the body of `HotPixelRemoval = default` on the
+/// Bayer-ushort domain (`setHotPixelRemoval`: slot pad 9, align 2, scale 1; the stage lambda calls it
 /// with the CapturedImage red position, the frame's sensor gain, the `lt::Sensor` σ-tables and k = 1.0).
 ///
 /// Pass 1 (per pixel, rows/cols of the rect ±4): take the 8 same-colour neighbours — the 4 axial ones at distance 2
 /// and, on R/B sites, the 4 diagonals at distance 2 or, on G sites, the 4 diagonals at distance 1 — run Lumen's
 /// min/max network on them (an order statistic near the 2nd maximum), `excess = sat(centre − stat)`,
-/// `base = centre − excess`; the pixel is a candidate when `excess > σ[base] · k · 4` (`DAT_180682408`), stored as
+/// `base = centre − excess`; the pixel is a candidate when `excess > σ[base] · k · 4`, stored as
 /// `base | 0x8000`. Pass 2 (rect): a candidate is patched to `base` unless its flagged neighbours say it is part of
 /// a structure — R/B sites: with exactly one flagged same-colour ring neighbour, patch only if no near neighbour and
 /// no ring→far (distance 4) pair is flagged; with none, patch if fewer than 2 near neighbours are flagged; G sites:
 /// the analogous rule with the axial-4 near set and the knight-position pairs. σ is the per-CFA-channel noise table
-/// selected by sensor gain (`FUN_180120f50`), indexed by the raw DN.
+/// selected by sensor gain (<see cref="SensorNoise.SigmaTables"/>), indexed by the raw DN.
 /// </summary>
 public static class HotPixelKernel
 {
     public const int Pad = 9, Align = 2;
     static readonly int[]? _dbg = Environment.GetEnvironmentVariable("LUX_HP_DEBUG") is string d ? d.Split(',').Select(int.Parse).ToArray() : null;
-    public const float ThresholdScale = 4f;   // DAT_180682408
+    public const float ThresholdScale = 4f;
 
-    /// <summary>Run on a whole frame; returns a frame-sized buffer with the rect patched (zeros elsewhere), like the
-    /// cp.dll tile lambda writing into a freshly allocated output image.</summary>
+    /// <summary>Run on a whole frame; returns a frame-sized buffer with the rect patched (zeros elsewhere), like Lumen's
+    /// tile lambda writing into a freshly allocated output image.</summary>
     public static ushort[] Run(ushort[] raw, int w, int h, RectI rect, int redX, int redY, float k, float[] lutR, float[] lutG, float[] lutB, out int patched)
     {
         var outp = new ushort[(long)w * h];
@@ -34,7 +34,7 @@ public static class HotPixelKernel
     /// (row stride <paramref name="dstStride"/>, <paramref name="dstOffset"/> = index of the rect's top-left).</summary>
     public static int RunInto(ushort[] raw, int w, int h, RectI rect, int redX, int redY, float k, float[] lutR, float[] lutG, float[] lutB, ushort[] dst, int dstStride, int dstOffset)
     {
-        // LUT per CFA site: row parity → (col parity 0, col parity 1), from the red position (ImagePatchHotPixels L20–40)
+        // LUT per CFA site: row parity → (col parity 0, col parity 1), from the red position
         float[][] site = new float[4][];
         int i6, i8, i7, i9;
         if (redY == 0) { i8 = redX == 0 ? 1 : 0; i6 = redX != 0 ? 1 : 0; i7 = 2 - i8; i9 = i8 + 1; }
@@ -46,7 +46,7 @@ public static class HotPixelKernel
 
         int bx0 = rect.X0 - 4, by0 = rect.Y0 - 4, bw = rect.Width + 8, bh = rect.Height + 8;
         var flags = new ushort[bw * bh];
-        // Frame-border rule (`FUN_18001a330(view, src, tileRect, 6)`, spec agent 2026-08-26): the per-tile source view is padded by 6 with a
+        // Frame-border rule: the per-tile source view is padded by 6 with a
         // parity-preserving edge extension — an out-of-frame pixel (X,Y) is the median-ish (`sorted[n>>1]`) of the in-frame taps of
         // {Xs±{0,2}} × {Ys±{0,2}} around the nearest in-frame pixel of the same parity; in-frame pixels are read verbatim. No clamping.
         var padCache = new Dictionary<long, ushort>();
@@ -153,7 +153,7 @@ public static class HotPixelKernel
         return patched;
     }
 
-    /// <summary>The 8-input min/max network of the tile lambda (scalar tail, `18039f7a0` L470–530), literal order.</summary>
+    /// <summary>The 8-input min/max network of the tile lambda (scalar tail), literal order.</summary>
     public static uint Network(uint up, uint down, uint left, uint right, uint d1, uint d2, uint d3, uint d4)
     {
         uint a = Math.Min(up, down), A = Math.Max(up, down);
@@ -186,12 +186,12 @@ public sealed class HotPixelRemovalStage : IStage
         var src = p.Raw ?? throw new InvalidOperationException("HotPixelRemoval needs a Bayer ushort source");
         var abs = p.ToAbsolute(p.IntRect).Intersect(src.Rect);
         var red = p.Context.Module.SensorBayerRedOverride;
-        // lambda_11 180414920: FUN_180120f50(Stats+0x198 sensor, module gain FUN_1801255c0) — the stats' sensor at THIS frame's gain
+        // the stats' sensor σ tables at THIS frame's gain
         var lut = p.Stats.Noise?.SigmaTables(p.Frame.AnalogGain) ?? p.Stats.NoiseSigma ?? throw new InvalidOperationException("HotPixelRemoval needs the sensor σ tables (Stats.Noise)");
         if (Environment.GetEnvironmentVariable("LUX_HP_DUMP") is string dumpPrefix)
             for (int c = 0; c < lut.Length; c++) { var b = new byte[lut[c].Length * 4]; Buffer.BlockCopy(lut[c], 0, b, 0, b.Length); File.WriteAllBytes($"{dumpPrefix}_sigma{c}.f32", b); }
         var outImg = new Image<ushort>(abs);
         HotPixelKernel.RunInto(src.Data, src.Stride, src.Data.Length / src.Stride, abs, red?.X ?? 0, red?.Y ?? 0, 1f, lut[0], lut[1], lut[2], outImg.Data, outImg.Stride, 0);
-        p.Raw = outImg;   // lambda_11: the patched image replaces the payload source
+        p.Raw = outImg;   // the patched image replaces the payload source
     }
 }

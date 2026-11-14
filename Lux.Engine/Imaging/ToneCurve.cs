@@ -1,9 +1,9 @@
 namespace Lux.Engine.Imaging;
 
 /// <summary>
-/// Light's "TMO_ACR" tone operator (kernel-algorithms §7), recovered from cp.dll. The default
+/// Light's "TMO_ACR" tone operator, as Lumen implements it. The default
 /// tone_mapping is mode 3: a smooth black-level "toe" encode → 1024-bin LUT → hue-preserving RGBTone.
-/// The LUT is the verbatim mode-3 table from cp.dll .rdata (bit-exact vs the DNG ProfileToneCurve).
+/// The LUT is Lumen's verbatim mode-3 table (bit-exact vs the DNG ProfileToneCurve).
 /// </summary>
 public static class ToneCurve
 {
@@ -148,7 +148,7 @@ public static class ToneCurve
         return (v - 0.005f) * 1.0050251f;
     }
 
-    // Highlight roll-off: the §7 LUT is defined on [0,1] (1.0 = white point), so a naive Clamp blows every
+    // Highlight roll-off: the LUT is defined on [0,1] (1.0 = white point), so a naive Clamp blows every
     // scene value past the white point to pure white — losing all highlight detail/colour (e.g. a sunset sky
     // reaching ~3× white). Instead, values below HlKnee pass through unchanged (midtones stay bit-exact vs
     // the DNG curve) and the highlight range (HlKnee..HlWhite) is linearly compressed into (HlKnee..1], so

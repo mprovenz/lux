@@ -1,8 +1,12 @@
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 using static Lux.Engine.Pipeline.ResAmp.SseOps;
 
 namespace Lux.Engine.Pipeline.ResAmp;
 
-/// <summary>§5.1 steps (2)–(5): the 16×16 SAD full search on the u8 phase-0 map (`mpsadbw`/`phminposuw`), the 5×5 1/3-px sub-phase
+/// <summary>Coarse alignment steps (2)–(5): the 16×16 SAD full search on the u8 phase-0 map (`mpsadbw`/`phminposuw`), the 5×5 1/3-px sub-phase
 /// search, the 3×3 quadratic sub-step and the 16.16 bilinear 16×16 patch from the module's blurred image.</summary>
 internal static class CoarseAlign
 {
@@ -103,14 +107,15 @@ internal static class CoarseAlign
             {
                 int ix = x16 >> 16; float wx = (float)(x16 & 0xffff) * inv16;
                 int p00 = row0 + ix * 4, p01 = p00 + 4, p10 = row1 + ix * 4, p11 = p10 + 4;
-                for (int e = 0; e < 4; e++)
-                {
-                    float a = (D[p10 + e] - D[p00 + e]) * wy + D[p00 + e];
-                    float u = D[p01 + e] - a;
-                    float t = (D[p11 + e] - D[p01 + e]) * wy;
-                    u = u + t; u = u * wx;
-                    blk[(j * 16 + i) * 4 + e] = u + a;
-                }
+                // the four lanes as one Vector128 (each lane its scalar steps)
+                var d00 = Vector128.Create((ReadOnlySpan<float>)D.AsSpan(p00, 4)); var d01 = Vector128.Create((ReadOnlySpan<float>)D.AsSpan(p01, 4));
+                var d10 = Vector128.Create((ReadOnlySpan<float>)D.AsSpan(p10, 4)); var d11 = Vector128.Create((ReadOnlySpan<float>)D.AsSpan(p11, 4));
+                var WY = Vector128.Create(wy);
+                var av = (d10 - d00) * WY + d00;
+                var uv = d01 - av;
+                var tv = (d11 - d01) * WY;
+                uv = uv + tv; uv = uv * Vector128.Create(wx);
+                (uv + av).CopyTo(blk.AsSpan((j * 16 + i) * 4, 4));
                 x16 += step;
             }
             y16 += step;
@@ -122,6 +127,22 @@ internal static class CoarseAlign
     static void Sad8(byte[] m, int rowp, int stride, ReadOnlySpan<byte> patch, Span<int> sum)
     {
         sum.Clear();
+        if (Sse2.IsSupported)
+        {
+            // integer sums of absolute byte differences — any order gives the same value; psadbw per 16-byte row
+            ref byte mb0 = ref MemoryMarshal.GetArrayDataReference(m); ref byte pb0 = ref MemoryMarshal.GetReference(patch);
+            for (int r = 0; r < 16; r++)
+            {
+                var p = Vector128.LoadUnsafe(ref pb0, (nuint)(r * 16));
+                nuint mb = (nuint)(rowp + r * stride);
+                for (int k = 0; k < 8; k++)
+                {
+                    var d = Sse2.SumAbsoluteDifferences(Vector128.LoadUnsafe(ref mb0, mb + (nuint)k), p).AsUInt64();
+                    sum[k] += (int)(d.GetElement(0) + d.GetElement(1));
+                }
+            }
+            return;
+        }
         for (int r = 0; r < 16; r++)
         {
             int mb = rowp + r * stride, pb = r * 16;
@@ -139,10 +160,18 @@ internal static class CoarseAlign
         v = 0xffff; idx = 0;
         for (int k = 0; k < 8; k++) { uint s = (uint)Math.Min(sum[k], 65535); if (s < v) { v = s; idx = k; } }
     }
-    /// <summary>|P − M| SAD over 16×16 (psubb(pmaxub,pminub) + paddusw lanes + horizontal adds; exact).</summary>
+    /// <summary>|P − M| SAD over 16×16 (per byte max − min, unsigned saturating 16-bit lane sums, then horizontal adds; exact).</summary>
     static int Sad16(byte[] m, int q, int stride, ReadOnlySpan<byte> patch)
     {
         int s = 0;
+        if (Sse2.IsSupported)
+        {
+            ref byte mb0 = ref MemoryMarshal.GetArrayDataReference(m); ref byte pb0 = ref MemoryMarshal.GetReference(patch);
+            var acc = Vector128<ulong>.Zero;
+            for (int r = 0; r < 16; r++)
+                acc += Sse2.SumAbsoluteDifferences(Vector128.LoadUnsafe(ref pb0, (nuint)(r * 16)), Vector128.LoadUnsafe(ref mb0, (nuint)(q + r * stride))).AsUInt64();
+            return (int)(acc.GetElement(0) + acc.GetElement(1));
+        }
         for (int r = 0; r < 16; r++)
         {
             int mb = q + r * stride, pb = r * 16;

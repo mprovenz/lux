@@ -2,39 +2,39 @@ using Lux.Engine.Pipeline.Registration;
 
 namespace Lux.Engine.Pipeline.ResAmp;
 
-/// <summary>cp.dll `lt::Vec2&lt;int&gt;` (8 B).</summary>
+/// <summary>Lumen's `lt::Vec2&lt;int&gt;`.</summary>
 public struct Vec2I
 {
     public int X, Y;
     public Vec2I(int x, int y) { X = x; Y = y; }
-    /// <summary>The "invalid projected grid point" marker of `ImageResolutionAmp::lambda_0` §4.1 (both lanes).</summary>
+    /// <summary>The "invalid projected grid point" marker of `ImageResolutionAmp::lambda_0` (both lanes).</summary>
     public const int Invalid = unchecked((int)0x80000000);
     public bool IsInvalid => X == Invalid && Y == Invalid;
     public override string ToString() => $"({X},{Y})";
 }
 
 /// <summary>
-/// Operations on `lt::WarpField` (<see cref="WarpField"/>, 0x50 B, spec `a-resamp.md` §1.4): column-major float `M[16]`
+/// Operations on `lt::WarpField` (<see cref="WarpField"/>): column-major float `M[16]`
 /// (`M[4c+r] = M(r,c)`) mapping a wide-reference full-resolution point `(x·d, y·d, d, 1)` to the tele-cache pixel (module view at canvas
-/// scale σ), the depth image (`+0x40`, the `UpsampleLayer` 4160×3120 metric depth) and the grid scales `sx`/`sy` (`+0x48/+0x4c`, both 1.0f on
+/// scale σ), the depth image (the `UpsampleLayer` 4160×3120 metric depth) and the grid scales `sx`/`sy` (both 1.0f on
 /// the L16 after `initResAmp` step 8).
 /// </summary>
 public static class WarpFieldOps
 {
-    /// <summary>`FUN_180301460(out, srcCalib, dstCalib, depth)`: identity + (1,1), `M = FUN_1803010a0(src, dst)` (`Mat4D.FlowMatrix`: `P_dst·inv(P_src)`
+    /// <summary>Identity + (1,1), `M = Mat4D.FlowMatrix(src, dst)` (`P_dst·inv(P_src)`
     /// in double, rounded to float column-major), then the depth pointer.</summary>
     public static WarpField FromCalibs(CalibData src, CalibData dst, float[] depth, int depthW, int depthH, int depthStride)
         => new() { M = Mat4D.FlowMatrix(src, dst), Depth = depth, DepthW = depthW, DepthH = depthH, DepthStride = depthStride, Sx = 1.0f, Sy = 1.0f };
 
-    /// <summary>`FUN_180301ac0(wf, out)`: `(1.0f / sx, 1.0f / sy)` (divss).</summary>
+    /// <summary>`(1.0f / sx, 1.0f / sy)` (divss).</summary>
     public static (float X, float Y) InverseScale(WarpField wf) => (1.0f / wf.Sx, 1.0f / wf.Sy);
 
-    /// <summary>`FUN_180301af0(wf, s)`: `sx = 1.0f / s.x; sy = 1.0f / s.y`.</summary>
+    /// <summary>`sx = 1.0f / s.x; sy = 1.0f / s.y`.</summary>
     public static void SetScale(WarpField wf, (float X, float Y) s) { wf.Sx = 1.0f / s.X; wf.Sy = 1.0f / s.Y; }
 
     public static WarpField Clone(WarpField wf) => new() { M = (float[])wf.M.Clone(), Depth = wf.Depth, DepthW = wf.DepthW, DepthH = wf.DepthH, DepthStride = wf.DepthStride, Sx = wf.Sx, Sy = wf.Sy };
 
-    /// <summary>The 0x50-byte struct as dumped from cp.dll (`init_wf&lt;id&gt;_M/_builder`, `t&lt;k&gt;_warps`): M @0, depth pointer @0x40 (ignored), sx @0x48, sy @0x4c.</summary>
+    /// <summary>Reads a WarpField from its 0x50-byte binary layout: M at 0, depth pointer at 0x40 (ignored), sx at 0x48, sy at 0x4c.</summary>
     public static WarpField FromBytes(ReadOnlySpan<byte> b, float[]? depth = null, int depthW = 0, int depthH = 0)
     {
         var wf = new WarpField { Depth = depth ?? Array.Empty<float>(), DepthW = depthW, DepthH = depthH, DepthStride = depthW };
@@ -45,18 +45,18 @@ public static class WarpFieldOps
 }
 
 /// <summary>
-/// The tele (non-reference lens group) WarpField chain of `PipelineCache::initResAmp` (spec §1 step 8, §1.4, §7.2, §7.3):
-/// `FUN_1804f1b50` → module CalibData `FUN_1804f6640` (C3), `FUN_1803081a0` (C4 = C3 scaled by σ), reference CalibData `FUN_1804f6330`,
-/// `FUN_180301460` (M), `FUN_180301af0` (sx = 1/σx), then the caller's `1/(1/sx)/σ` rescale.
+/// The tele (non-reference lens group) WarpField chain of `PipelineCache::initResAmp`:
+/// module CalibData (C3), C4 = C3 scaled by σ, reference CalibData,
+/// <c>WarpFieldOps.FromCalibs</c> (M), <c>WarpFieldOps.SetScale</c> (sx = 1/σx), then the caller's `1/(1/sx)/σ` rescale.
 /// </summary>
 public static class TeleWarpFieldBuilder
 {
-    /// <summary>`FUN_1804f6640(api, out, camId, flag = 1)`: `Apply(pose[camId], slot(stage 1))` with the pose used in place (its scale2/shift2 = 0.5 from
-    /// API state 6 still applied), then `FUN_1803081a0(·, (2,2))` and `FUN_1803086a0(·, −0.5, −0.5)` = C3.</summary>
+    /// <summary>`Apply(pose[camId], slot(stage 1))` with the pose used in place (its scale2/shift2 = 0.5 from
+    /// API state 6 still applied), then scale (2,2) and shift (−0.5, −0.5) = C3.</summary>
     public static CalibDataFull ModuleCalib(ViewPose pose, CalibDataFull stage1Slot)
         => ViewTransform.Shift(ViewTransform.Scale(ViewTransform.Apply(pose, stage1Slot), 2.0f, 2.0f), -0.5f, -0.5f);
 
-    /// <summary>`FUN_1804f6330(api, out, refId, flag = 1)`: a copy of `pose[ref]` with `scale2 = (1,1)` (`FUN_1802e4340`) and `shift2 = (0,0)` (`FUN_1802e4350`),
+    /// <summary>A copy of `pose[ref]` with `scale2 = (1,1)` and `shift2 = (0,0)`,
     /// applied to the reference stage-1 slot.</summary>
     public static CalibDataFull ReferenceCalib(ViewPose refPose, CalibDataFull refStage1Slot)
     {
@@ -68,8 +68,8 @@ public static class TeleWarpFieldBuilder
         return ViewTransform.Apply(p, refStage1Slot);
     }
 
-    /// <summary>`FUN_1804f1b50` after the CalibData lookups: `modS = FUN_1803081a0(C3, scale)`, `wf = FUN_180301460(ref, modS, depth)`,
-    /// `FUN_180301af0(wf, scale)` (sx = 1/σx, sy = 1/σy) = the `init_wf&lt;id&gt;_builder` state.</summary>
+    /// <summary>After the CalibData lookups: `modS = scale(C3, scale)`, `wf = FromCalibs(ref, modS, depth)`,
+    /// `SetScale(wf, scale)` (sx = 1/σx, sy = 1/σy).</summary>
     public static WarpField Build(CalibDataFull moduleC3, CalibDataFull reference, (float X, float Y) scale, float[] depth, int depthW, int depthH)
     {
         var modS = ViewTransform.Scale(moduleC3, scale.X, scale.Y);
@@ -78,7 +78,7 @@ public static class TeleWarpFieldBuilder
         return wf;
     }
 
-    /// <summary>`initResAmp` step 8 after the builder: `a = FUN_180301ac0(wf)`, `c = (a.x / σx, a.y / σy)`, `FUN_180301af0(wf, c)` → on the L16 exactly (1.0f, 1.0f).</summary>
+    /// <summary>`initResAmp` step 8 after the builder: `a = InverseScale(wf)`, `c = (a.x / σx, a.y / σy)`, `SetScale(wf, c)` → on the L16 exactly (1.0f, 1.0f).</summary>
     public static WarpField Rescale(WarpField wf, (float X, float Y) scale)
     {
         var a = WarpFieldOps.InverseScale(wf);
@@ -86,15 +86,14 @@ public static class TeleWarpFieldBuilder
         return wf;
     }
 
-    /// <summary>The whole chain from the registration state (`api+0x3c8` pose map + stage-1 slots) for one tele camera.</summary>
+    /// <summary>The whole chain from the registration state (pose map + stage-1 slots) for one tele camera.</summary>
     public static WarpField BuildFromPoses(ViewPose modulePose, CalibDataFull moduleSlot, ViewPose refPose, CalibDataFull refSlot, (float X, float Y) scale, float[] depth, int depthW, int depthH)
         => Rescale(Build(ModuleCalib(modulePose, moduleSlot), ReferenceCalib(refPose, refSlot), scale, depth, depthW, depthH), scale);
 }
 
 /// <summary>
-/// `ImageResolutionAmp::lambda_0` §2.3 tile geometry (canvas tile → 8-aligned wide-reference region + the 8-px coarse grid) and §4.1
-/// (the WarpField projection of that grid into a module's tele-cache pixels), transcribed from the disassembly (18043ac3a–18043af57,
-/// 18043b5d0–18043b775).
+/// `ImageResolutionAmp::lambda_0` tile geometry (canvas tile → 8-aligned wide-reference region + the 8-px coarse grid) and
+/// the WarpField projection of that grid into a module's tele-cache pixels.
 /// </summary>
 public static class WarpFieldGrid
 {
@@ -105,7 +104,7 @@ public static class WarpFieldGrid
         public int H => Y1c - Y0c;
     }
 
-    /// <summary>§2.3: `xs = cvttss2si((float)rect · invS)`; `ax0 = xs0 &amp; ~7`; `X1 = 8·trunc((xs1 + 7)/8)`; `x0c = ax0 − 8` unless `xs0 − ax0 &gt; 1`;
+    /// <summary>`xs = cvttss2si((float)rect · invS)`; `ax0 = xs0 &amp; ~7`; `X1 = 8·trunc((xs1 + 7)/8)`; `x0c = ax0 − 8` unless `xs0 − ax0 &gt; 1`;
     /// `x1c = (X1 | 1) + 8` unless `(X1 | 1) − xs1 &gt; 1`; grid dims `(w &gt;&gt; 3) + 1`.</summary>
     public static TileGeometry Geometry(RectI rect, float invScale)
     {
@@ -128,11 +127,11 @@ public static class WarpFieldGrid
     {
         public int Bw => MaxX - MinX;
         public int Bh => MaxY - MinY;
-        /// <summary>§4.1: the module is skipped unless `bw &gt; 0 &amp;&amp; minx != 0x7fffffff &amp;&amp; bh &gt; 0`.</summary>
+        /// <summary>The module is skipped unless `bw &gt; 0 &amp;&amp; minx != 0x7fffffff &amp;&amp; bh &gt; 0`.</summary>
         public bool Skipped => !(Bw > 0 && MinX != int.MaxValue && Bh > 0);
     }
 
-    /// <summary>§4.1 (18043b5d0–18043b775): for every grid point inside the wide reference (`refW`×`refH`): `fx = (float)gx·sx`, `d = depth[(int)fy][(int)fx]`,
+    /// <summary>For every grid point inside the wide reference (`refW`×`refH`): `fx = (float)gx·sx`, `d = depth[(int)fy][(int)fx]`,
     /// `v = (((d·C2 + C3) + (fx·d)·C0) + (fy·d)·C1)` lane-wise, `inv = 1/v.z`, `py = v.y·inv`, `px = inv·v.x`, valid iff `−8 ≤ p &lt; (float)(dim + 7)`
     /// (NaN invalid), `proj = cvttss2si(p + 0.5f)`, bbox = signed min/max of the valid points. Invalid points hold `0x80000000` in both lanes.</summary>
     public static Projection Project(WarpField wf, Image<Vec2I> grid, int refW, int refH, int modW, int modH)
@@ -154,7 +153,7 @@ public static class WarpFieldGrid
                 var g = grid.At(i, j); int gx = g.X, gy = g.Y;
                 if (((gx | gy) >> 31) != 0 || gx >= refW || gy >= refH) { proj.At(i, j) = new Vec2I(Vec2I.Invalid, Vec2I.Invalid); continue; }
                 float fx = (float)gx * wf.Sx, fy = (float)gy * wf.Sy;
-                int dix = (int)fx, diy = (int)fy;                                   // cvttss2si, no clamping
+                int dix = (int)fx, diy = (int)fy;                                   // truncates toward zero, no clamping
                 float d = depth[(long)diy * dStride + dix];
                 float Y = fy * d, X = fx * d;
                 float vx = ((d * c20 + c30) + X * c00) + Y * c10;
@@ -162,7 +161,7 @@ public static class WarpFieldGrid
                 float vz = ((d * c22 + c32) + X * c02) + Y * c12;
                 float inv = 1.0f / vz;
                 float py = vy * inv;
-                if (!(py < limH) || !(py >= -8.0f)) { proj.At(i, j) = new Vec2I(Vec2I.Invalid, Vec2I.Invalid); continue; }   // ucomiss: NaN → invalid
+                if (!(py < limH) || !(py >= -8.0f)) { proj.At(i, j) = new Vec2I(Vec2I.Invalid, Vec2I.Invalid); continue; }   // a NaN fails both compares → invalid
                 float px = inv * vx;
                 if (!(px < limW) || !(px >= -8.0f)) { proj.At(i, j) = new Vec2I(Vec2I.Invalid, Vec2I.Invalid); continue; }
                 int ix = (int)(px + 0.5f), iy = (int)(py + 0.5f);
@@ -173,7 +172,7 @@ public static class WarpFieldGrid
         return new Projection(proj, minx, miny, maxx, maxy);
     }
 
-    /// <summary>§4.2: `Nm = ceil(16·scale)`, `s32i = (int)(32·scale)`, `hh = s32i &gt;&gt; 1`, `m1 = hh + Nm`, `m2 = m1 + 4`; the module render rect is
+    /// <summary>`Nm = ceil(16·scale)`, `s32i = (int)(32·scale)`, `hh = s32i &gt;&gt; 1`, `m1 = hh + Nm`, `m2 = m1 + 4`; the module render rect is
     /// `(minx − m2, miny − m2, maxx + 4 + m1, maxy + 4 + m1)`.</summary>
     public static RectI RenderRect(in Projection p, float scale)
     {

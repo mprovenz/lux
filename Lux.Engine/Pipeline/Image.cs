@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace Lux.Engine.Pipeline;
 
-/// <summary>cp.dll's <c>vec4x32f</c> pixel: R,G,B + a 4th lane (alpha / weight, kept at 1.0 by every stage).</summary>
+/// <summary>Lumen's <c>vec4x32f</c> pixel: R,G,B + a 4th lane (alpha / weight, kept at 1.0 by every stage).</summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct Vec4F
 {
@@ -10,7 +10,7 @@ public struct Vec4F
     public Vec4F(float r, float g, float b, float a = 1f) { R = r; G = g; B = b; A = a; }
 }
 
-/// <summary>Integer rectangle [X0,X1)×[Y0,Y1) in some parent coordinate frame (cp.dll <c>Rectangle&lt;int&gt;</c>).</summary>
+/// <summary>Integer rectangle [X0,X1)×[Y0,Y1) in some parent coordinate frame (Lumen's <c>Rectangle&lt;int&gt;</c>).</summary>
 public readonly record struct RectI(int X0, int Y0, int X1, int Y1)
 {
     public int Width => X1 - X0;
@@ -22,8 +22,8 @@ public readonly record struct RectI(int X0, int Y0, int X1, int Y1)
 }
 
 /// <summary>
-/// Mirror of <c>lt::Image&lt;T&gt;</c> (rect @0, width @0x10, height @0x14, stride @0x18, data @0x20): a row-major
-/// buffer with a stride and the rectangle it covers in its parent (level) frame, so ROI/tile semantics match cp.dll.
+/// Mirror of <c>lt::Image&lt;T&gt;</c> (rect, width, height, stride, data): a row-major
+/// buffer with a stride and the rectangle it covers in its parent (level) frame, so ROI/tile semantics match Lumen.
 /// </summary>
 public sealed class Image<T> where T : unmanaged
 {

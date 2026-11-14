@@ -4,17 +4,16 @@ using Lux.Engine.Pipeline.Isp;
 namespace Lux.Engine.Pipeline.Export;
 
 /// <summary>
-/// `ExportImageFormat` 1 — the binary PPM writer (spec `a-display-isp.md` §12.5).
+/// `ExportImageFormat` 1 — the binary PPM writer.
 ///
-/// fmt 1 is a sibling of fmt 3, not of fmt 0: `exportImage::lambda_2` (`0x180523d60`) gates the display/output ISP on
-/// `(fmt | 4) == 4`, so 1, 2 and 3 all render the **`vec4x32f` float image** through `FUN_1805253c0` + the DNG tile
-/// lambda and the DNG resampler `FUN_18052dfc0`. fmt 1 then converts that float image to 8-bit inline at
-/// `0x180529730` — `mulps [0x180682420]` (255.0) / `cvtps2dq` / `packssdw` / `packuswb`, i.e. **round-half-to-even
+/// fmt 1 is a sibling of fmt 3, not of fmt 0: Lumen's `exportImage` render step gates the display/output ISP on
+/// `(fmt | 4) == 4`, so 1, 2 and 3 all render the **`vec4x32f` float image** through `renderForExport` + the DNG tile
+/// lambda and the DNG resampler. fmt 1 then converts that float image to 8-bit inline —
+/// a multiply by 255.0, then `cvtps2dq` / `packssdw` / `packuswb`, i.e. **round-half-to-even
 /// with saturation**, the same kernel as the display store (`DisplayOutput.DisplayByte`), NOT the export converter's
-/// round-half-away-from-zero — and hands the `vec4x8ui` image to `FUN_18030d670(img8, ".ppm", stream)`.
+/// round-half-away-from-zero — and hands the `vec4x8ui` image to Lumen's image writer (`".ppm"`).
 ///
-/// Ghidra renders the conversion as `(int)(v * 255.0f)`, which reads as truncation; the disassembly is authoritative
-/// and it is not.
+/// The conversion is not a truncating `(int)(v * 255.0f)`: it rounds half to even.
 /// </summary>
 public static class PpmWriter
 {
@@ -38,7 +37,7 @@ public static class PpmWriter
             var src = rgba.Slice(y * w * 4, w * 4);
             for (int x = 0; x < w; x++)
             {
-                // `mulps [0x180682420]` (255.0) then `cvtps2dq`/`packssdw`/`packuswb` — DisplayByte is only the
+                // a multiply by 255.0, then `cvtps2dq`/`packssdw`/`packuswb` — DisplayByte is only the
                 // convert-and-saturate half, so the ×255 belongs here, exactly as `ToRgba8Display` does it.
                 row[3 * x] = DisplayOutput.DisplayByte(src[4 * x] * 255f);
                 row[3 * x + 1] = DisplayOutput.DisplayByte(src[4 * x + 1] * 255f);

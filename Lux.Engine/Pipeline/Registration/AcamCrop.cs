@@ -6,17 +6,17 @@ using Lux.Engine.Pipeline.Geometry;
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// `FUN_180185b60(rect, CapturedImage*)` (spec `a2f2b4866a7ff17e1.md`): the A-camera "valid region" after undistortion —
-/// the border of the distorted frame is mapped through the inverse radial distortion (30-knot LUT from `FUN_1801855a0`, the same
+/// The A-camera "valid region" after undistortion —
+/// the border of the distorted frame is mapped through the inverse radial distortion (30-knot LUT from <c>Table</c>, the same
 /// curve as the CRA LUT, in pixels) and the inscribed axis-aligned rect is returned; the StereoAsyncAPI ctor turns it into
-/// `shift1 = (x0, y0)`, `scale1 = max(w/(x1−x0), h/(y1−y0))` (`FUN_180304720`, uniform). Op-exact per the disassembly notes.
+/// `shift1 = (x0, y0)`, `scale1 = max(w/(x1−x0), h/(y1−y0))` (<c>Pose</c>, uniform). Lumen's exact operation order.
 /// </summary>
 public static class AcamCrop
 {
     static readonly float Inv90 = BitConverter.Int32BitsToSingle(0x3c360b61), Inv120 = BitConverter.Int32BitsToSingle(0x3c088889);
     const double Third = 1.0 / 3.0, Sixth = 1.0 / 6.0;
 
-    /// <summary>`FUN_1801855a0` + the caller's post-processing: LUT abscissa `Yc` (distorted radius, px) and values `Dc = X − Y` (px).</summary>
+    /// <summary>The LUT and the caller's post-processing: LUT abscissa `Yc` (distorted radius, px) and values `Dc = X − Y` (px).</summary>
     public static (float[] Yc, float[] Dc, float X0, float InvDx) Table(RatPolyMapping poly, float pixMm, float refScaleX, float scaleX)
     {
         double inv = refScaleX > 0f ? (double)(1.0f / refScaleX) : 1.0;
@@ -37,7 +37,7 @@ public static class AcamCrop
         return (Y, D, x0, invdx);
     }
 
-    /// <summary>§3: the radial factor q = r'/r for a squared radius r2 (rsqrt lane = scalar or packed — same per lane on one CPU).</summary>
+    /// <summary>The radial factor q = r'/r for a squared radius r2 (rsqrt lane = scalar or packed — same per lane on one CPU).</summary>
     static float Q(float r2, float[] Dc, float x0, float invdx)
     {
         float rs = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(r2)).ToScalar();
@@ -85,7 +85,7 @@ public static class AcamCrop
         return new RectI(X0, Y0, X1, Y1);
     }
 
-    // packed accumulation: 4 lanes (i mod 4), maxps/minps per lane from the initial value, then the horizontal reduction of the disassembly
+    // packed accumulation: 4 lanes (i mod 4), maxps/minps per lane from the initial value, then Lumen's horizontal reduction
     static float ReduceMax(float[] v, int nPacked, float init)
     {
         var m = new[] { init, init, init, init };
@@ -100,16 +100,16 @@ public static class AcamCrop
         float a = MinPs(m[2], m[0]), b = MinPs(m[3], m[1]);
         return (a < b) ? a : b;
     }
-    static float MaxPs(float acc, float x) => (acc > x) ? acc : x;   // maxps dst,src: dst = (dst > src) ? dst : src
+    static float MaxPs(float acc, float x) => (acc > x) ? acc : x;   // MAXPS semantics: NaN gives x
     static float MinPs(float acc, float x) => (acc < x) ? acc : x;
     static float MaxSs(float dst, float src) => (dst > src) ? dst : src;
     static float MinSs(float dst, float src) => (dst < src) ? dst : src;
 
-    /// <summary>`FUN_180304720(rect, (w,h), uniform=1)`: shift1 = rect origin, scale1 = max(w/(x1−x0), h/(y1−y0)).</summary>
+    /// <summary>Shift1 = rect origin, scale1 = max(w/(x1−x0), h/(y1−y0)) (uniform).</summary>
     public static ((float X, float Y) Shift1, (float X, float Y) Scale1) Pose(RectI r, int w, int h)
     {
         float sx = (float)w / (float)(r.X1 - r.X0), sy = (float)h / (float)(r.Y1 - r.Y0);
-        float s = (sx > sy) ? sx : sy;   // maxss(sx, sy)
+        float s = (sx > sy) ? sx : sy;   // MAXSS order: NaN gives sy
         return (((float)r.X0, (float)r.Y0), (s, s));
     }
 }

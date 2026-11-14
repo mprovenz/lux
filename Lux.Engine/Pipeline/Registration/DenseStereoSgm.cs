@@ -5,8 +5,7 @@ using System.Runtime.Intrinsics.X86;
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// `lt::StereoLayer&lt;0&gt;` (`1803124a0`, `compute` `180315ee0`, SGM kernel `FUN_180320570`, WTA `180346aa0`, range from the previous layer
-/// `FUN_1803156d0`, skip masks `FUN_180315c00`) — spec `aafb79e583bc2256a.md` §4–§9 + `af7599ee7055b1397.md`.
+/// `lt::StereoLayer&lt;0&gt;`: `compute`, the SGM kernel, the WTA, the range from the previous layer and the skip masks.
 /// One layer = plane range per pixel → cost volume (u16 aggregate, u8 raw) → two wavefront SGM passes over sheared tiles with the
 /// persistent double-buffered line buffers of the kernel → per-pixel first-minimum WTA → `depth = planes[start + arg]`.
 /// </summary>
@@ -21,16 +20,16 @@ public sealed class DenseLayer
     public ushort[] Start = null!, Count = null!, Cap = null!;
     public ushort[][] Agg = null!; public byte[][] Raw = null!;   // per pixel: agg[cap]; raw[cap] (computed pixels only)
     public ushort[][]? AggPass1;                     // diagnostic copy after the first pass
-    public int MinLo, MaxHi;                        // this+0x248 / +0x24c (rounded)
-    public float[] Depth = null!;                   // this+0x2b8
+    public int MinLo, MaxHi;                        // rounded
+    public float[] Depth = null!;
     public DenseStereo.CostContext Ctx = null!;
 
-    // ---- line buffers (FUN_180314740), persistent across both passes ----
+    // ---- line buffers, persistent across both passes ----
     ushort[] _L = null!, _Min = null!; ushort[] _RangeS = null!, _RangeC = null!; Vector128<float>[] _Pix = null!;
     int _slotStride, _halfL, _halfM, _halfR;
     static readonly bool _xsMax = Environment.GetEnvironmentVariable("LUX_SGM_XSW") == "1";
 
-    /// <summary>`FUN_180313e00` (layer 0) / `FUN_180313730` (from the previous layer): planes, guidance, skip mask, ranges, cost volume.</summary>
+    /// <summary>Layer set-up, for layer 0 or from the previous layer: planes, guidance, skip mask, ranges, cost volume.</summary>
     public static DenseLayer Init(StereoParams p, int index, Rgba8Image[] filtered, bool[] gray, IReadOnlyList<CalibData> calibs, float near, float far, int align, DenseLayer? prev)
     {
         var L = new DenseLayer { P = p, Index = index, Align = align, Images = filtered, Gray = gray, Calibs = calibs };
@@ -61,7 +60,7 @@ public sealed class DenseLayer
         return L;
     }
 
-    /// <summary>`FUN_180315c00`: mode 0 → all computed; mode 2 → `GetSkippingMaskGrid&lt;1&gt;` (mt19937 default seed per 64×64 tile, one computed pixel per 2×2 cell).</summary>
+    /// <summary>Skip mask: mode 0 → all computed; mode 2 → `GetSkippingMaskGrid&lt;1&gt;` (mt19937 default seed per 64×64 tile, one computed pixel per 2×2 cell).</summary>
     public static byte[] SkipMask(int mode, int w, int h)
     {
         var m = new byte[w * h];
@@ -86,7 +85,7 @@ public sealed class DenseLayer
         return m;
     }
 
-    /// <summary>`FUN_1803156d0`: per-pixel plane range from the previous layer's depth (index map via reciprocal boundaries, 4-wide min/max
+    /// <summary>Per-pixel plane range from the previous layer's depth (index map via reciprocal boundaries, 4-wide min/max
     /// filter restricted to computed pixels, ±1 plane margin).</summary>
     static void RangeFromPrevious(DenseLayer L, DenseLayer prev)
     {
@@ -139,8 +138,8 @@ public sealed class DenseLayer
         L.MaxHi = maxHi; L.MinLo = minLo;
     }
 
-    /// <summary>`FUN_1803153f0(this, prev, align)` (asm 1803154a3–180315569): bytes = costvol + w·h·4 + 20·(2w+4) + 2·((4·maxHi+5)·(2w+4) + 8w+16)
-    /// + Σ images(h·stride·4) + w·h·8, with the cost volume sized from the range of the previous layer (`FUN_180346dc0`: Σ 8 + cap·(skipped ? 2 : 3)).</summary>
+    /// <summary>Memory estimate of a layer, as Lumen computes it: bytes = costvol + w·h·4 + 20·(2w+4) + 2·((4·maxHi+5)·(2w+4) + 8w+16)
+    /// + Σ images(h·stride·4) + w·h·8, with the cost volume sized from the range of the previous layer (Σ 8 + cap·(skipped ? 2 : 3)).</summary>
     public static long MemoryEstimate(StereoParams p, Rgba8Image[] images, IReadOnlyList<CalibData> calibs, float near, float far, int align, DenseLayer prev)
     {
         var L = new DenseLayer { P = p, Align = align, Images = images, Calibs = calibs };
@@ -171,7 +170,7 @@ public sealed class DenseLayer
     public int Threads = 1;
     bool _rawReady;
 
-    /// <summary>`compute` (this+0x54): `runPass(+1)`, `runPass(−1)` (each = raster order over the sheared wavefront tiles), then WTA.
+    /// <summary>`compute`: `runPass(+1)`, `runPass(−1)` (each = raster order over the sheared wavefront tiles), then WTA.
     /// The raw matching cost of a pixel depends only on the images, planes and the pixel's plane range, so with <see cref="Threads"/> &gt; 1
     /// the costs of every computed pixel are produced row-parallel first (into `Raw`, exactly the bytes pass 1 would store) and pass 1
     /// then reads them like pass 2 does — same values, same aggregation order.</summary>
@@ -285,30 +284,30 @@ public sealed class DenseLayer
         }
         _RangeS[cur * _halfR + slot] = (ushort)start; _RangeC[cur * _halfR + slot] = (ushort)cap;
     }
-    // Neighbour-block reads run up to 8 lanes past a path block (§7.3: `Lp = N[q+1..q+8]`, "whatever is in the buffer"). Inside the
+    // Neighbour-block reads run up to 8 lanes past a path block (`Lp = N[q+1..q+8]`, whatever is in the buffer). Inside the
     // allocation that is the next block / the next half (the array is laid out exactly like Lumen's, so the same words are read); past the
     // END of the allocation — the margin slot w+1 of half B, i.e. the up-right neighbour of the last column on an odd row whose padding
     // lanes (count..cap) reach beyond maxHi — Lumen reads the zero-filled pages behind its buffer, so `m = 0` and the lane's path cost
-    // saturates to 0. Returning the 2000 guard there gave `L = raw` instead (+255 per visit; the last column is visited twice in pass 1) and
-    // moved the WTA of the cells the up-right path feeds (L16_00448 / 00549, layer 1, right border; a-dense-stereo-race-closure.md §8).
+    // saturates to 0. With the 2000 guard there, `L = raw` instead (+255 per visit; pass 1 visits the last column twice), and the WTA
+    // of the cells that the up-right path feeds changes.
     int Rd(int i) => i < 0 ? 2000 : i < _L.Length ? _L[i] : 0;
 }
 
-/// <summary>The six-layer pyramid driver (`FUN_18030cd00` per layer, memory-mode choice `FUN_18030caf0`).</summary>
+/// <summary>The six-layer pyramid driver, with the memory-mode choice.</summary>
 public static class DenseStereoPyramid
 {
-    public const long Budget = 0x40000000;   // FUN_18030be60(pyr, 1 GiB)
+    public const long Budget = 0x40000000;   // 1 GiB
     public static DenseLayer[] Run(Rgba8Image[] images, bool[] gray, IReadOnlyList<CalibData> calibs, float near = DenseStereo.Near, float far = DenseStereo.Far, Action<string>? log = null, int threads = 1)
     {
         var pars = StereoParams.L16Pyramid();
         var filtered = new Rgba8Image[images.Length];
-        for (int k = 0; k < images.Length; k++) filtered[k] = DenseStereo.BoxFilter3(images[k]);   // FUN_180313f40, shared by all layers
+        for (int k = 0; k < images.Length; k++) filtered[k] = DenseStereo.BoxFilter3(images[k]);   // shared by all layers
         var layers = new DenseLayer[pars.Length]; DenseLayer? prev = null;
         for (int i = 0; i < pars.Length; i++)
         {
             int align = 8;
             if (prev is not null)
-            {   // FUN_18030caf0: mode 1 (align 8) if the estimate fits the 1 GiB budget, else mode 2 (align 2), else upsample-only (unsupported here)
+            {   // mode 1 (align 8) if the estimate fits the 1 GiB budget, else mode 2 (align 2), else upsample-only (unsupported here)
                 long est8 = DenseLayer.MemoryEstimate(pars[i], filtered, calibs, near, far, 8, prev);
                 if (est8 >= Budget) { long est2 = DenseLayer.MemoryEstimate(pars[i], filtered, calibs, near, far, 2, prev); if (est2 >= Budget) throw new NotSupportedException("StereoLayer memory budget exceeded: the BilateralUpsample fallback (mode 0) is not ported"); align = 2; }
             }
@@ -322,7 +321,7 @@ public static class DenseStereoPyramid
         return layers;
     }
 
-    /// <summary>Layer 6 = `UpsampleLayer(12.0f, 2)` run in mode 0 (`FUN_18030cd00`: `UpsampleLayer::slot(0x08)(prev)`) on the finest StereoLayer; `guide` =
-    /// `StereoAsyncAPI+0x1f8` (the full-res `StereoISP::GetReferenceImage` of the reference capture), `(setW, setH)` = the LayerStack size (W0/2, H0/2).</summary>
+    /// <summary>Layer 6 = `UpsampleLayer(12.0f, 2)` run in mode 0 (its upsample step on `prev`) on the finest StereoLayer; `guide` =
+    /// <c>StereoAsyncApi.ReferenceGuide</c> (the full-res `StereoISP::GetReferenceImage` of the reference capture), `(setW, setH)` = the LayerStack size (W0/2, H0/2).</summary>
     public static DenseUpsampleLayer.Result Upsample(DenseLayer top, Rgba8Image guide, int setW, int setH) => DenseUpsampleLayer.Run(top.Depth, top.W, top.H, guide, setW, setH);
 }

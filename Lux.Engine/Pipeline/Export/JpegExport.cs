@@ -4,18 +4,18 @@ using Lux.Engine.Pipeline.Isp;
 namespace Lux.Engine.Pipeline.Export;
 
 /// <summary>
-/// `ExportImageFormat` 0 (JPEG) and 4 (JPEG + GDepth) of `RendererPrivate::exportImage` — `a-display-isp.md` §12.2.
+/// `ExportImageFormat` 0 (JPEG) and 4 (JPEG + GDepth) of Lumen's `RendererPrivate::exportImage`.
 ///
 /// The JPEG path is **not** the DNG path with a different writer. Where the DNG renders `vec4x32f` tiles through the
-/// bare tile callback `0x180526690` (cache fetch + vignetting, no ISP), fmt 0/4 hands `renderForExport&lt;vec4x8ui&gt;`
-/// (`FUN_180524320`) the **display tile generator** `renderer+0x688` = `lambda_2` `0x18049fb10`, i.e. the whole output
-/// ISP of §1–§10b, and writes the result into a `vec4x8ui` view of the display pyramid. Per tile:
+/// bare tile callback (cache fetch + vignetting, no ISP), fmt 0/4 hands `renderForExport&lt;vec4x8ui&gt;`
+/// the **display tile generator**, i.e. the whole output ISP (<see cref="DisplayRender"/>),
+/// and writes the result into a `vec4x8ui` view of the display pyramid. Per tile:
 /// <code>
 ///   grow the export-level tile rect by the halo 64 inside the PIPELINE level dims  (DisplayRender.Geometry)
-///   fetch the fused tile from the PipelineCache                                    (FUN_1804bd710)
+///   fetch the fused tile from the PipelineCache
 ///   run the output SoftISP over the grown tile, crop back                          (DisplayRender.Run)
-///   srcView *= (255,255,255,255)                                                   (FUN_1801ea0c0, in place)
-///   dstView  = ImageConvertPixelType&lt;vec4x8ui, vec4x32f&gt;(srcView)                  (1804bb290 → 18004dcb0)
+///   srcView *= (255,255,255,255)                                                   (in place)
+///   dstView  = ImageConvertPixelType&lt;vec4x8ui, vec4x32f&gt;(srcView)
 /// </code>
 /// then the **8-bit** image is resampled to the requested size with the same two branches as the DNG
 /// (`scale &gt; 1.5` → Lanczos-2 blur + bilinear `ImageWarp&lt;1,0&gt;`, else 64-phase Catmull-Rom `ImageWarpClamped&lt;2&gt;`),
@@ -23,7 +23,7 @@ namespace Lux.Engine.Pipeline.Export;
 /// saturate) on every store.
 ///
 /// Unlike the DNG the whole image is one region: `exportImage` calls `GetExportTransformOutput` once for
-/// `rect = (0,0,W,H)` and `lambda_3` allocates a single destination (`FUN_1805290f0` L242–330), so there are no
+/// `rect = (0,0,W,H)` and allocates a single destination, so there are no
 /// 2048² writer blocks here.
 /// </summary>
 public sealed class JpegExportRenderer
@@ -33,7 +33,7 @@ public sealed class JpegExportRenderer
     readonly Func<int, (SoftIsp Isp, IspStats Stats)> _ispOfLevel; readonly CapturedFrame _frame;
 
     public Action<string>? Log;
-    /// <summary>Diagnostic knob `LUX_JPEG_ROUND=rne`: use the §12.1 *display* store (`cvtps2dq`, round-half-to-even)
+    /// <summary>Diagnostic knob `LUX_JPEG_ROUND=rne`: use the *display* store (`cvtps2dq`, round-half-to-even)
     /// where the export path uses `ImageConvertPixelType` (round-half-away-from-zero). Only for showing that the two
     /// are distinguishable on real data — the export is always the half-away one.</summary>
     public static readonly bool UseDisplayRounding = Environment.GetEnvironmentVariable("LUX_JPEG_ROUND") == "rne";
@@ -42,17 +42,21 @@ public sealed class JpegExportRenderer
     /// <summary>Diagnostic: ("r8in", the gathered 8-bit source) and ("r8out", the resampled 8-bit result).</summary>
     public Action<string, int, int, byte[]>? StageHook;
 
+    /// <summary>The fused-tile source of the display tile generator (mode 0): the PipelineCache when `DefaultFNumber &lt;= f-number
+    /// setting`, else the DOFCache. Null = the PipelineCache; see <see cref="ExportRenderer.TileSource"/>.</summary>
+    public Func<int, RectI, (int W, int H), float[]>? TileSource { get; set; }
+
     public JpegExportRenderer(PipelineCache cache, ExportLevels levels, ExportTransform transform, (int W, int H) size,
                               bool forceLevel0, Func<int, (SoftIsp, IspStats)> ispOfLevel, CapturedFrame frame)
     {
         _cache = cache; _lv = levels; _tr = transform; _size = size; _force0 = forceLevel0; _ispOfLevel = ispOfLevel; _frame = frame;
     }
 
-    /// <summary>The single `GetExportTransformOutput` this export makes (`exportImage` and `lambda_4` agree — one
+    /// <summary>The single `GetExportTransformOutput` this export makes (`exportImage` and its render step agree — one
     /// region, no 2048² blocks). fmt 4's depth map is warped with the very same object.</summary>
     public TransformOutput Transform => ExportTransformOutput.Compute(_tr, _size, new RectI(0, 0, _size.W, _size.H), _lv.ExportDims, _force0);
 
-    /// <summary>`FUN_1805290f0` L242–441 for `(fmt | 4) == 4`: render the whole ROI as RGBA8, then resample to
+    /// <summary>Lumen's JPEG export for `(fmt | 4) == 4`: render the whole ROI as RGBA8, then resample to
     /// <c>size</c>. The result is `size.W · size.H · 4` bytes, row-major RGBA.</summary>
     public byte[] Render()
     {
@@ -64,12 +68,12 @@ public sealed class JpegExportRenderer
         int sw = to.Source.Width, sh = to.Source.Height;
         StageHook?.Invoke("r8in", sw, sh, src);
         byte[] outp;
-        if (1.5f < to.ScaleX || 1.5f < to.ScaleY)   // DAT_180687524
+        if (1.5f < to.ScaleX || 1.5f < to.ScaleY)
         {
-            int kx = (int)(to.ScaleX * 3.5f), ky = (int)(to.ScaleY * 3.5f);   // DAT_1806ef740
+            int kx = (int)(to.ScaleX * 3.5f), ky = (int)(to.ScaleY * 3.5f);
             var kernelX = ExportResample.LanczosKernel((kx & ~1) + 1, to.ScaleX);
             var kernelY = ExportResample.LanczosKernel((ky & ~1) + 1, to.ScaleY);
-            // ImageConvSeparable2D<vec4x8ui> (1800bd6b0): u8 -> float, float intermediate (loadImage bpp 0x10), u8 store
+            // ImageConvSeparable2D<vec4x8ui>: u8 -> float, float intermediate, u8 store
             var blurred = ToU8(ExportResample.ConvSeparable(ToFloat(src), sw, sh, kernelX, kernelY));
             outp = WarpBilinearU8(blurred, sw, sh, _size.W, _size.H, to);
         }
@@ -78,15 +82,17 @@ public sealed class JpegExportRenderer
         return outp;
     }
 
-    /// <summary>`renderForExport&lt;vec4x8ui&gt;` `FUN_180524320`: every 512-grid tile of the export level that overlaps
-    /// <paramref name="src"/> is produced whole by the display tile generator, scaled by 255 and converted to RGBA8;
-    /// the overlap with <paramref name="src"/> is copied into the destination.</summary>
     /// <summary>Tiles rendered at once inside <see cref="RenderSource"/>; 1 = the sequential order (see <see cref="ExportRenderer.Threads"/>).</summary>
     public int Threads { get; set; } = 1;
+    /// <summary>Cancels a render between tiles (a tile, once started, completes).</summary>
+    public CancellationToken Cancel { get; set; }
     /// <summary>Progress: "jpeg tiles" per <see cref="RenderSource"/> call, one unit per export tile.</summary>
     public ProgressReporter Progress { get; set; } = ProgressReporter.None;
     readonly object _hookLock = new();
 
+    /// <summary>`renderForExport&lt;vec4x8ui&gt;`: every 512-grid tile of the export level that overlaps
+    /// <paramref name="src"/> is produced whole by the display tile generator, scaled by 255 and converted to RGBA8;
+    /// the overlap with <paramref name="src"/> is copied into the destination.</summary>
     public byte[] RenderSource(int level, RectI src)
     {
         var (W, H) = _lv.ExportDims[level];
@@ -105,10 +111,11 @@ public sealed class JpegExportRenderer
             var (tx, ty) = t;
             var tile = _lv.TileRect(level, tx, ty);
             var geo = DisplayRender.Geometry(tile, pd, _lv.Origins[level], _lv.CacheDims, level);
-            var px = _cache.Render(_lv.BaseLevel + geo.CacheLevel, geo.Grown, pd);       // FUN_1804bd710
+            var px = TileSource is { } source ? source(_lv.BaseLevel + geo.CacheLevel, geo.Grown, pd)   // the DOFCache fetch
+                                              : _cache.Render(_lv.BaseLevel + geo.CacheLevel, geo.Grown, pd);
             var grown = new Image<Vec4F>(geo.Grown.Width, geo.Grown.Height);
             System.Runtime.InteropServices.MemoryMarshal.Cast<float, Vec4F>(px.AsSpan()).CopyTo(grown.Data);
-            var img = DisplayRender.Run(isp, _frame, stats, grown, geo, level);          // the whole output ISP + lambda_2's crop
+            var img = DisplayRender.Run(isp, _frame, stats, grown, geo, level);          // the whole output ISP + the tile generator's crop
             if (TileHook is not null) lock (_hookLock) TileHook(level, tile, img);
             Log?.Invoke($"  jpeg tile L{level} ({tx},{ty}) export ({tile.X0},{tile.Y0},{tile.X1},{tile.Y1}) grown ({geo.Grown.X0},{geo.Grown.Y0},{geo.Grown.X1},{geo.Grown.Y1}) float ({geo.Float.X0:R},{geo.Float.Y0:R},{geo.Float.X1:R},{geo.Float.Y1:R})");
             var c = tile.Intersect(src);   // this tile's own region of the output — disjoint across tiles
@@ -121,8 +128,8 @@ public sealed class JpegExportRenderer
                 {
                     var v = row[x - tile.X0];
                     if (UseDisplayRounding)
-                    {   // diagnostic only (LUX_JPEG_ROUND=rne): the §12.1 display store, to show that the two
-                        // converters are distinguishable on real data and that the JPEG uses the §12.2 one.
+                    {   // diagnostic only (LUX_JPEG_ROUND=rne): the display store, to show that the two
+                        // converters are distinguishable on real data and that the JPEG uses the export one.
                         dst[o++] = DisplayOutput.DisplayByte(v.R * 255f); dst[o++] = DisplayOutput.DisplayByte(v.G * 255f);
                         dst[o++] = DisplayOutput.DisplayByte(v.B * 255f); dst[o++] = DisplayOutput.DisplayByte(v.A * 255f);
                     }
@@ -135,8 +142,8 @@ public sealed class JpegExportRenderer
             }
             Progress.Tick();
         }
-        if (Threads <= 1 || tiles.Count <= 1) { foreach (var t in tiles) One(t); }
-        else Parallel.ForEach(tiles, new ParallelOptions { MaxDegreeOfParallelism = Threads }, One);
+        if (Threads <= 1 || tiles.Count <= 1) { foreach (var t in tiles) { Cancel.ThrowIfCancellationRequested(); One(t); } }
+        else Parallel.ForEach(tiles, new ParallelOptions { MaxDegreeOfParallelism = Threads, CancellationToken = Cancel }, One);
         return dst;
     }
 
@@ -144,7 +151,7 @@ public sealed class JpegExportRenderer
 
     static readonly float[] WarpTable = Lux.Engine.Pipeline.Geometry.WarpResample.BuildTable();
 
-    /// <summary>`ImageWarpClamped&lt;2, vec4x8ui&gt;` (`18052f580`, tile lambda `18052fc00`): identical geometry and kernel to
+    /// <summary>`ImageWarpClamped&lt;2, vec4x8ui&gt;` (with its tile lambda): identical geometry and kernel to
     /// the `vec4x32f` instantiation — `p = (int)((map − 1)·64)`, 64-phase Catmull-Rom, clamped 4×4 gather at the border,
     /// zero fill outside, `max(−0.25·P, N) + P` recombination — with the samples widened from u8 and the result stored
     /// through `cvtps2dq`/`packssdw`/`packuswb`. Kept byte-in/byte-out so a full-size (8320×6240) export does not need
@@ -182,7 +189,47 @@ public sealed class JpegExportRenderer
         return dst;
     }
 
-    /// <summary>`ImageWarp&lt;1, 0, vec4x8ui&gt;` (`1805304e0`, lambda `180530a50`): the bilinear half of the `scale &gt; 1.5`
+    /// <summary><see cref="WarpClamped2U8"/> for a part of the output: the output pixels of <paramref name="outRect"/> (whole-output coordinates,
+    /// the same <paramref name="to"/> as the whole image) from a window of the source (<paramref name="win"/>, source-rect-local, which must hold
+    /// every tap those pixels read). Pixel for pixel the same arithmetic as the whole-image warp — a viewer showing part of an export uses it.
+    /// <paramref name="sw"/> × <paramref name="sh"/> is the whole source rect (the clamp bounds).</summary>
+    public static byte[] WarpClamped2U8Window(byte[] winSrc, RectI win, int sw, int sh, RectI outRect, TransformOutput to)
+    {
+        int ww = win.Width, ow = outRect.Width, oh = outRect.Height;
+        var dst = new byte[(long)ow * oh * 4];
+        var res = new float[4];
+        Span<float> block = stackalloc float[64];
+        for (int yy = 0; yy < oh; yy++)
+        {
+            int y = outRect.Y0 + yy;
+            for (int xx = 0; xx < ow; xx++)
+            {
+                int x = outRect.X0 + xx;
+                var (u, v) = to.Map((float)x, (float)y);
+                int px = (int)((u + -1f) * 64f), py = (int)((v + -1f) * 64f);
+                int ix = px >> 6, iy = py >> 6;
+                long o = ((long)yy * ow + xx) * 4;
+                if (!(ix < sw && 0 < ix + 4 && iy < sh && 0 < iy + 4)) continue;   // zero fill
+                for (int r = 0; r < 4; r++)
+                {
+                    int cy = Math.Clamp(iy + r, 0, sh - 1) - win.Y0;
+                    for (int c = 0; c < 4; c++)
+                    {
+                        int cx = Math.Clamp(ix + c, 0, sw - 1) - win.X0;
+                        if ((uint)cx >= (uint)ww || (uint)cy >= (uint)win.Height) throw new ArgumentException("the source window does not hold every tap of the output rect");
+                        long si = ((long)cy * ww + cx) * 4; int bi = (r * 4 + c) * 4;
+                        block[bi] = winSrc[si]; block[bi + 1] = winSrc[si + 1]; block[bi + 2] = winSrc[si + 2]; block[bi + 3] = winSrc[si + 3];
+                    }
+                }
+                Lux.Engine.Pipeline.Geometry.WarpResample.Resample(block, 4, 0, WarpTable, px & 63, py & 63, res, 0);
+                dst[o] = DisplayOutput.DisplayByte(res[0]); dst[o + 1] = DisplayOutput.DisplayByte(res[1]);
+                dst[o + 2] = DisplayOutput.DisplayByte(res[2]); dst[o + 3] = DisplayOutput.DisplayByte(res[3]);
+            }
+        }
+        return dst;
+    }
+
+    /// <summary>`ImageWarp&lt;1, 0, vec4x8ui&gt;`: the bilinear half of the `scale &gt; 1.5`
     /// branch — `p = (int)(map·64)`, weights `(1 − i/64, i/64)`, clamped 2×2 at the border, zero fill.</summary>
     public static byte[] WarpBilinearU8(byte[] src, int sw, int sh, int dw, int dh, TransformOutput to)
     {
@@ -212,6 +259,6 @@ public sealed class JpegExportRenderer
     }
 
     /// <summary>`cvtps2dq` + `packssdw` + `packuswb` — round-half-to-even then saturate, the store every `vec4x8ui`
-    /// image expression uses (§12.1, and the two u8 resamplers of §12.2).</summary>
+    /// image expression uses (the display store, and the two u8 resamplers of the JPEG export).</summary>
     static byte[] ToU8(float[] f) { var b = new byte[f.Length]; for (int i = 0; i < f.Length; i++) b[i] = DisplayOutput.DisplayByte(f[i]); return b; }
 }

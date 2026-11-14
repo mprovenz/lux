@@ -8,13 +8,12 @@ namespace Lux.Engine.Pipeline.Export;
 /// <summary>
 /// One module frame through the ported module ISP and Lux's display pass — **the** per-module render, shared by
 /// `convert --formats lens-frames` (one JPEG per module), `parallax-wiggle` (the four A-group frames) and the
-/// parallax formats' disocclusion donors. It used to exist as three transcriptions (`LensJpegExporter.ExportOne`,
-/// `WiggleCmd.RenderModule`, `Lux.Parallax/Modules.Render`); this is the one copy.
+/// parallax formats' disocclusion donors.
 ///
 /// The raw→linear-RGB half is the ported module ISP (<see cref="SoftIsp"/> + <see cref="ModuleIspTuning"/>, i.e.
 /// Lumen's own <c>lt::SoftISP</c> stage list), so its output is linear camera RGB with the ISP's own
 /// (<c>manual_temp</c>-derived, per-module) neutral already applied. The DISPLAY half (camera RGB → ForwardMatrix →
-/// §7 tone curve → sRGB gamma) is Lux's own <see cref="ColorPipeline"/>: Lumen has no per-module export, so there is
+/// tone curve → sRGB gamma) is Lux's own <see cref="ColorPipeline"/>: Lumen has no per-module export, so there is
 /// no artefact to check that half against. Modules with no CFA are rendered greyscale.
 ///
 /// The output is float sRGB in 0..1 at native module resolution; the caller quantises, downscales or resamples as
@@ -50,7 +49,7 @@ public static class ModuleRender
             // the *reference* colour frame), so the CFA-only stages have no meaning here and are turned off locally;
             // the ported tuning itself is untouched. cross_talk_correction needs an IR blend estimated from the CFA's
             // R/B site ratios, which a mono sensor has none of; color_noise_reduction is a CHROMA denoiser that
-            // degenerates on R=G=B and blanks whole 32x32 tiles (measured on A2); hot_pixel_removal and
+            // degenerates on R=G=B and blanks whole 32x32 tiles; hot_pixel_removal and
             // highlight_restore index by (redX, redY), and the mono sentinel (-1,-1) indexes out of range. The
             // collapse demosaics of levels 2-4 take their no-CFA branch (the plain cell mean, CollapseDemosaicKernel.RunMono).
             tuning.Set("cross_talk_correction.type", "none").Set("color_noise_reduction.type", "none")

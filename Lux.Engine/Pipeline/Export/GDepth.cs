@@ -7,41 +7,37 @@ namespace Lux.Engine.Pipeline.Export;
 
 /// <summary>
 /// `ExportImageFormat` **4** — the companion JPEG plus Google's **GDepth** XMP depth map
-/// (`a-display-isp.md` §12.4, `FUN_1805290f0` L400–600). Everything in this file is transcribed from cp.dll:
-/// the float → gray8 encoder `FUN_18052e520`, the near/far scan, the two XMP templates and the extended-XMP
-/// chunking. The literal strings are the `.rdata` blocks at `0x1806f3e2c` / `0x1806f3e4a` / `0x1806f3e6e` /
-/// `0x1806f3f5d` / `0x1806f3f79` / `0x1806f40cc` / `0x1806f40db` / `0x1806f414b` / `0x1806f4162` / `0x1806f417d`,
-/// read out of the binary rather than retyped.
+/// (format 4 of Lumen's exporter). Everything in this file reproduces Lumen:
+/// the float → gray8 encoder, the near/far scan, the two XMP templates and the extended-XMP
+/// chunking. The literal strings are Lumen's own, byte for byte.
 ///
-/// The **depth source** is `DepthCache.cs`: `(*(exporter + 0xf8))(…)` → `FUN_1804cd2d0(renderer+0x480, …)` through the
-/// lambda `0x180526ec0`, which adds `renderer+0x2d0[level]` to the rect and passes `&amp;renderer+0x288[level]`. The cache
-/// holds `min(1/(1/FullDepth), 100000)` on the canvas grid at pipeline level 1 — see <see cref="DepthImageCache"/>.
+/// The **depth source** is <see cref="DepthImageCache"/>: the exporter reads the depth cache through the `exportImage` lambda,
+/// which adds the level origin to the rect and passes the pipeline-level dims. The cache
+/// holds `min(1/(1/FullDepth), 100000)` on the canvas grid at pipeline level 1.
 ///
-/// **Verified byte-for-byte** against three cp.dll reference artefacts (the fmt-4 export run, which reaches the fmt-4 branch
-/// `Lumen.exe` itself never takes): `o466_l3_gd.jpg` (1040×780), `o466_full_gd.jpg` (8320×6240) and `o306_l3_gd.jpg`
-/// (1304×978) — every APP1 block, the MD5 guid, the chunking and the embedded grayscale depth JPEG match with **0**
-/// differing bytes, `Near`/`Far` included.
+/// The output matches Lumen's format-4 export byte for byte (`Lumen.exe` itself never takes the format-4 branch): every APP1
+/// block, the MD5 guid, the chunking and the embedded grayscale depth JPEG, `Near`/`Far` included.
 /// </summary>
 public static class GDepth
 {
-    // ---- the .rdata fragments, verbatim
-    public const string StdNamespace = "http://ns.adobe.com/xap/1.0/";                 // 0x1806f3e2c, emitted with its NUL (0x1D bytes)
-    public const string ExtNamespace = "http://ns.adobe.com/xmp/extension/";           // 0x1806f3e4a, with NUL = 0x23 bytes
-    const string ExtPrefix = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Adobe XMP Core 5.1.0-jc003\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GDepth=\"http://ns.google.com/photos/1.0/depthmap/\" GDepth:Data=\"";   // 0x1806f3e6e, 238 B
-    const string ExtSuffix = "\" /> </rdf:RDF></x:xmpmeta>";                            // 0x1806f3f5d, 27 B
-    const string StdHead = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Adobe XMP Core 5.1.0-jc003\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GDepth=\"http://ns.google.com/photos/1.0/depthmap/\" xmlns:xmpNote=\"http://ns.adobe.com/xmp/note/\" GDepth:Format=\"RangeInverse\" GDepth:Mime=\"image/jpeg\" GDepth:Near=\"";   // 0x1806f3f79, 338 B
-    const string StdFar = "\" GDepth:Far=\"";                                           // 0x1806f40cc
-    const string StdMid = "\" GDepth:measureType=\"OpticalAxis\" GDepth:Manufacturer=\"Light Labs, Inc.\" GDepth:Units=\"mm\" GDepth:ImageWidth=\"";   // 0x1806f40db
-    const string StdHeight = "\" GDepth:ImageHeight=\"";                                // 0x1806f414b
-    const string StdGuid = "\" xmpNote:HasExtendedXMP=\"";                              // 0x1806f4162
-    const string StdTail = "\" /></rdf:RDF></x:xmpmeta>";                               // 0x1806f417d
+    // ---- Lumen's literal strings, verbatim
+    public const string StdNamespace = "http://ns.adobe.com/xap/1.0/";                 // emitted with its NUL (0x1D bytes)
+    public const string ExtNamespace = "http://ns.adobe.com/xmp/extension/";           // with NUL = 0x23 bytes
+    const string ExtPrefix = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Adobe XMP Core 5.1.0-jc003\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GDepth=\"http://ns.google.com/photos/1.0/depthmap/\" GDepth:Data=\"";   // 238 B
+    const string ExtSuffix = "\" /> </rdf:RDF></x:xmpmeta>";                            // 27 B
+    const string StdHead = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Adobe XMP Core 5.1.0-jc003\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GDepth=\"http://ns.google.com/photos/1.0/depthmap/\" xmlns:xmpNote=\"http://ns.adobe.com/xmp/note/\" GDepth:Format=\"RangeInverse\" GDepth:Mime=\"image/jpeg\" GDepth:Near=\"";   // 338 B
+    const string StdFar = "\" GDepth:Far=\"";
+    const string StdMid = "\" GDepth:measureType=\"OpticalAxis\" GDepth:Manufacturer=\"Light Labs, Inc.\" GDepth:Units=\"mm\" GDepth:ImageWidth=\"";
+    const string StdHeight = "\" GDepth:ImageHeight=\"";
+    const string StdGuid = "\" xmpNote:HasExtendedXMP=\"";
+    const string StdTail = "\" /></rdf:RDF></x:xmpmeta>";
 
     /// <summary>`0xFFF5 − (35 + 32)` — the extended-XMP payload that fits one APP1 alongside the 67-byte header and
     /// the two big-endian `uint32`s.</summary>
     public const int MaxChunkPayload = 0xFFF5 - (35 + 32);
 
-    /// <summary>The near/far scan of `0x180529d60–0x180529e59`: `min` seeded with `+FLT_MAX` (`DAT_1806b0ca4`) and
-    /// `max` with `−FLT_MAX` (`DAT_1806bcd44`) over the **warped** float depth image.</summary>
+    /// <summary>The near/far scan: `min` seeded with `+FLT_MAX` and
+    /// `max` with `−FLT_MAX` over the **warped** float depth image.</summary>
     public static (float Near, float Far) NearFar(float[] depth, int w, int h, int stride)
     {
         float near = float.MaxValue, far = -float.MaxValue;
@@ -56,10 +52,10 @@ public static class GDepth
     }
 
     /// <summary>
-    /// `FUN_18052e520` with the expression `FUN_18052ecf0` builds: per sample
+    /// The float → gray8 encoder with its expression: per sample
     /// <c>E = recip(d·(far − near)) · (d − near) · (255·far) + 0.5</c>, where `recip` is `rcpps` plus **one**
     /// Newton step `(1 − x·r)·r + r` in the vectorised body (512-pixel blocks) and a true `divss` in the row
-    /// remainder (`0x18052e72e` / `0x18052eb69`). The row is then written by the float→u8 converter `0x1800944d0`,
+    /// remainder. The row is then written by the float→u8 converter,
     /// which applies its **own** `clamp(E + copysign(0.5, E), 0, 255)` + truncate — so the `+0.5` lands twice, and
     /// that is reproduced literally.
     /// </summary>
@@ -67,7 +63,7 @@ public static class GDepth
     {
         float span = far - near, k = 255.0f * far;
         var gray = new byte[(long)w * h];
-        int blockEnd = (w / 512) * 512;   // local_fc: the rcpps body runs over whole 512-pixel blocks
+        int blockEnd = (w / 512) * 512;   // the rcpps body runs over whole 512-pixel blocks
         for (int y = 0; y < h; y++)
         {
             long o = (long)y * w; int so = y * stride;
@@ -80,27 +76,27 @@ public static class GDepth
                 {
                     float a = System.Runtime.Intrinsics.Vector128.GetElement(
                         IntelApprox.Reciprocal(System.Runtime.Intrinsics.Vector128.Create(t)), 0);
-                    r = (1.0f - t * a) * a + a;      // one Newton step, _DAT_1806824a0 = 1.0f
+                    r = (1.0f - t * a) * a + a;      // one Newton step
                 }
-                else r = 1.0f / t;                    // the scalar tail's divss
+                else r = 1.0f / t;                    // the scalar tail: true division
                 float e = r * (d - near) * k + 0.5f;
-                gray[o + x] = Isp.DisplayOutput.ExportByte(e);   // 1800944d0: +copysign(0.5) again, clamp, truncate
+                gray[o + x] = Isp.DisplayOutput.ExportByte(e);   // +copysign(0.5) again, clamp, truncate
             }
         }
         return gray;
     }
 
-    /// <summary>`precision(1)` + `std::fixed` (`FUN_18052edc0(stream, 2, 1)` on the ostringstream that formats
+    /// <summary>`precision(1)` + `std::fixed` (the ostringstream that formats
     /// Near/Far).</summary>
     public static string Fixed1(float v) => ((double)v).ToString("F1", CultureInfo.InvariantCulture);
 
     /// <summary>Build the APP1 payloads: the standard XMP packet first, then the extension chunks in FIFO order —
-    /// exactly the deque `0x1800fd9fe` drains into `jpeg_write_marker(0xE1, …)`.</summary>
+    /// exactly the order in which Lumen's deque drains into `jpeg_write_marker(0xE1, …)`.</summary>
     public static List<byte[]> BuildApp1(byte[] depthJpeg, float near, float far, int depthWidth, int depthHeight)
     {
-        string extended = ExtPrefix + System.Convert.ToBase64String(depthJpeg) + ExtSuffix;   // FUN_18000ffe0, alphabet 0x180681ad0, '=' padded, unwrapped
+        string extended = ExtPrefix + System.Convert.ToBase64String(depthJpeg) + ExtSuffix;   // standard alphabet, '=' padded, unwrapped
         var extBytes = Encoding.ASCII.GetBytes(extended);
-        // FUN_180010f20: plain MD5 (IV 0x180681c60) formatted with "%02X" → 32 UPPERCASE hex characters
+        // plain MD5 formatted with "%02X" → 32 UPPERCASE hex characters
         string guid = System.Convert.ToHexString(System.Security.Cryptography.MD5.HashData(extBytes));
 
         var std = new StringBuilder();
@@ -178,7 +174,7 @@ public static class GDepth
     }
 
     // ---- single-channel instantiations of the two resamplers (`ImageConvSeparable2D<float>`, `ImageWarpClamped<2,float>`
-    //      `FUN_180530d80`, `ImageWarp<1,0,float>` `FUN_180530e60`); identical arithmetic to the vec4 versions.
+    //      and `ImageWarp<1,0,float>`); identical arithmetic to the vec4 versions.
 
     static float[] ConvSeparable1(float[] src, int w, int h, float[] kx, float[] ky)
     {

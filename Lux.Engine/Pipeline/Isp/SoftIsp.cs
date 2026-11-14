@@ -30,9 +30,9 @@ public sealed class CapturedFrame
         if (info.IsColour && info.Sensor == SensorType.SensorAr1335 && info.Noise is not null)
         {
             var (_, shadow) = CaptureState.SiteStats(mref.Module, raw, w, h);
-            // 18020b0b0 → FUN_180125d10(frame, neutral, 42.0, 1.2, 40): the neutral is the per-frame SoftISP's (FUN_18020aad0: manual_temp at the
-            // capture (CCT, tint) through the CAMERA'S OWN colour profile), not the AsShot neutral — identical for the reference (A1 42.51 on 00466)
-            // but different for the other modules (A5 42.36, A3 43.17, A4 42.75; fusion port note a-fusion-port.md item 3).
+            // The neutral is the per-frame SoftISP's (manual_temp at the capture (CCT, tint) through the CAMERA'S OWN colour profile),
+            // not the AsShot neutral. Lumen's frame-black estimate uses it with the arguments (42.0, 1.2, 40). For the reference module
+            // the two neutrals give the same black; for the other modules the blacks differ.
             var colour = Color.LumenProfile.Compute(lri);
             var wb = Color.WhiteBalance.CaptureWb.From(lri, colour);
             var neutral = Color.WhiteBalance.NeutralFromTempTint(wb.Cct, wb.Tint, global::Lux.Engine.Pipeline.BayerFusion.PackedBayerFusion.CameraProfile(lri, mref.Module.Id));
@@ -43,9 +43,9 @@ public sealed class CapturedFrame
 }
 
 /// <summary>
-/// The `lt::SoftISP` wrapper (0x78 B, ctor `1803d8360`): a tuning tree, the cached stats and the stage graph rebuilt
-/// only when a tuning value changed (`FUN_1803d8cf0`), and the Bayer-ushort process entry `FUN_1803dcd90` →
-/// `FUN_180411380` → runner. Stage bodies are S6; this class is the frame the kernels plug into.
+/// The `lt::SoftISP` wrapper: a tuning tree, the cached stats and the stage graph, rebuilt
+/// only when a tuning value changed, and the Bayer-ushort process entry → runner. The stage classes hold the
+/// kernels; this class is the frame they plug into.
 /// </summary>
 public sealed class SoftIsp
 {
@@ -61,12 +61,12 @@ public sealed class SoftIsp
 
     public SoftIsp Set(string key, object value) { lock (_sync) { _tuning.Set(key, value); _dirty = true; _stats = null; } return this; }
 
-    /// <summary>`FUN_180410ac0`: mono sensors get neutral (1,1,1); otherwise the AWB functor installed by
-    /// `setWhiteBalance` — `manual_temp` (lambda_21) → neutral from (temp, tint) through the profile; `manual_color` →
-    /// the `neutral_color` value. Camera→output is the identity for `output.color_space = none` (L88–199).</summary>
+    /// <summary>Mono sensors get neutral (1,1,1); otherwise the AWB functor installed by
+    /// `setWhiteBalance` — `manual_temp` → neutral from (temp, tint) through the profile; `manual_color` →
+    /// the `neutral_color` value. Camera→output is the identity for `output.color_space = none`.</summary>
     public IspStats ComputeStats(ModuleFrameInfo f) => ComputeStats(f, null);
 
-    /// <summary>`FUN_180410ac0` L200–213: with the frame, also the IR-correction blend estimate
+    /// <summary>With the frame, also the IR-correction blend estimate
     /// (`cross_talk_correction = ir_correction` and a valid red position).</summary>
     public IspStats ComputeStats(CapturedFrame frame) => ComputeStats(frame.Info, frame);
 
@@ -100,8 +100,8 @@ public sealed class SoftIsp
         var red = frame?.Module.SensorBayerRedOverride;
         if (frame is not null && red is not null && (red.X | red.Y) >= 0 && _tuning.Type("cross_talk_correction") == "ir_correction")
         {
-            // FUN_180410ac0 L200–213 → FUN_180420e80 → FUN_180133db0: CCT of the WB xy, light = median DN of `CapturedImage+0x1d8`
-            // index 1 × gain × exposure. That vector is stored in colour order (`FUN_180126b00`), so index 1 is the Gr site.
+            // CCT of the WB xy; light = median DN of the per-site histogram at
+            // index 1 × gain × exposure. Lumen stores that vector in colour order, so index 1 is the Gr site.
             var noise = f.Noise ?? throw new InvalidOperationException("ir_correction needs the sensor black/white levels");
             var raster = CaptureState.SiteStats(frame.Module, frame.Raw, frame.Width, frame.Height).Hists;
             var hists = CaptureState.LumenHistograms(raster, red.X, red.Y);
@@ -115,7 +115,7 @@ public sealed class SoftIsp
         var (cc, outCs) = ColorSpaces(f.IsColour, xy);
         HsvMap? hsv = null;
         if (f.IsColour && _tuning.Type("color_correction") == "optimized")
-        {   // lambda_60 `180419ed0`: FUN_18041eff0(profileCopy, &hsvOut, Stats+0xc) BEFORE the ForwardMatrix build
+        {   // the HSV map is interpolated BEFORE the ForwardMatrix build
             float cctH = WhiteBalance.XyToCctF(xy.X, xy.Y).Cct;
             float th1 = WhiteBalance.IlluminantCctF(_profile.Low.InternalIlluminant), th2 = WhiteBalance.IlluminantCctF(_profile.High.InternalIlluminant);
             hsv = HsvMap.Interpolate(HsvMap.FromGrid(_profile.Low.Fit.Grid), HsvMap.FromGrid(_profile.High.Fit.Grid), th1, th2, cctH);
@@ -124,15 +124,15 @@ public sealed class SoftIsp
         return _stats = new IspStats { Neutral = neutral, Cct = cct, Tint = tint, NeutralXy = xy, IrBlend = irBlend, Profile = _profile, NoiseSigma = f.Noise?.SigmaTables(f.AnalogGain), SensorBlack = sBlack, SensorWhite = sWhite, Noise = f.Noise, CcSpace = cc, OutSpace = outCs, HsvMap = hsv };
     }
 
-    /// <summary>`FUN_180410ac0` L45–75 (mono) / L121–199 (colour): the ColorCorrection Stats functor (`setColorCorrection` lambda_56/57/58, pipeline +0x78)
-    /// fills Stats+0x14, then the output space Stats+0x48 from `output.color_space` (+0x1bd8) / `output.white_point` (+0x1bdc):
-    /// CC none (space 1): output none → both = `FUN_18038a230` (ProPhoto D50); else out = `Standard(space, wp, 1)` and CC = `FromMatrix(out.M, wp)`;
+    /// <summary>The ColorCorrection Stats functor (set by `setColorCorrection`) builds the camera space; the output space then
+    /// comes from `output.color_space` / `output.white_point`:
+    /// CC none (space 1): output none → both = <see cref="ColorSpace.ProPhotoD50"/>; else out = `Standard(space, wp, 1)` and CC = `FromMatrix(out.M, wp)`;
     /// CC real: output none → out = CC; else out = `Standard(space, wp, 1)`. Mono sensors: CC = `FromMatrix(I, wp(0))`, out = CC.</summary>
     (ColorSpace Cc, ColorSpace Out) ColorSpaces(bool colour, (float X, float Y) xy)
     {
         int outSpace = StageEnums.Enum("output.color_space", _tuning.Str("output.color_space"));
         int wpEnum = StageEnums.Enum("output.white_point", _tuning.Str("output.white_point"));
-        if (wpEnum == 0) wpEnum = ColorSpace.NativeIlluminantOf(outSpace);   // factory 1803d8cf0 L263–271: native → FUN_1800ce580(space) (sRGB → D65)
+        if (wpEnum == 0) wpEnum = ColorSpace.NativeIlluminantOf(outSpace);   // Lumen's pipeline factory: native → the native illuminant of the space (sRGB → D65)
         if (!colour)
         {
             var cs = ColorSpace.FromMatrix(new float[] { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, WhitePoint.Of(0));
@@ -142,10 +142,10 @@ public sealed class SoftIsp
         switch (_tuning.Type("color_correction"))
         {
             case "none": cc = ColorSpace.None(); break;
-            // lambda_60 (`optimized`) is lambda_56 (`default`) plus the HSVMap above — the camera→working matrix is bit-identical
+            // `optimized` is `default` plus the HSVMap above — the camera→working matrix is bit-identical
             case "optimized":
             case "default":
-            {   // lambda_56: FUN_18041efa0(profile, out, Stats+0xc): CCT of the WB xy (FUN_1800d0ef0) → FUN_1800d13d0(cct, T1, T2, FM1 (+0x58), FM2 (+0x7c)); wp = illuminant 5 (FUN_18041ebd0)
+            {   // CCT of the WB xy → ForwardMatrix interpolated between FM1 and FM2 at that CCT; wp = illuminant 5
                 float t = WhiteBalance.XyToCctF(xy.X, xy.Y).Cct;
                 float[] fm1 = _profile.Low.Fit.ForwardMatrix, fm2 = _profile.High.Fit.ForwardMatrix;
                 if (Environment.GetEnvironmentVariable("LUX_CC_FM") is string ov)
@@ -157,7 +157,7 @@ public sealed class SoftIsp
                 if (Environment.GetEnvironmentVariable("LUX_CC_DEBUG") == "1") Console.Error.WriteLine($"[cc] xy ({xy.X:R},{xy.Y:R}) cct {t:R} ({BitConverter.SingleToInt32Bits(t):x8}) t1 {t1:R} ({BitConverter.SingleToInt32Bits(t1):x8}) t2 {t2:R} ({BitConverter.SingleToInt32Bits(t2):x8}) illum {_profile.Low.InternalIlluminant}/{_profile.High.InternalIlluminant}");
                 var m = WhiteBalance.MatrixAtTemperature(t, t1, t2, fm1, fm2);
                 if (Environment.GetEnvironmentVariable("LUX_CC_M") is string mo)
-                {   // diagnostic: the 9 floats of a cp.dll Stats+0x14 matrix (bit patterns "hex hex …" or decimals) — bypasses the FM refit + interpolation entirely
+                {   // diagnostic: the 9 floats of Lumen's camera matrix (bit patterns "hex hex …" or decimals) — bypasses the FM refit + interpolation entirely
                     var parts = mo.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     m = parts.Select(q => q.StartsWith("0x") ? BitConverter.Int32BitsToSingle(unchecked((int)System.Convert.ToUInt32(q, 16))) : float.Parse(q)).ToArray();
                     Console.Error.WriteLine("[diagnostic] LUX_CC_M: camera matrix overridden");
@@ -165,7 +165,7 @@ public sealed class SoftIsp
                 cc = ColorSpace.FromMatrix(m, WhitePoint.Of(5));
                 break;
             }
-            case "manual":   // lambda_58: pipeline +0x1ab8 = color_correction.matrix, wp D50
+            case "manual":   // color_correction.matrix, wp D50
                 cc = ColorSpace.FromMatrix(_tuning.Vec("color_correction.matrix").Select(v => (float)v).ToArray(), WhitePoint.Of(5)); break;
             default: throw new NotSupportedException($"color_correction '{_tuning.Type("color_correction")}' (Stats functor lambda_60, HSV maps) is not built yet");
         }
@@ -179,7 +179,7 @@ public sealed class SoftIsp
         return (cc, ColorSpace.Standard(outSpace, WhitePoint.Of(wpEnum), 1));
     }
 
-    /// <summary>`FUN_1803de110(isp, &amp;stats)`: attach stats computed for another capture (the stereo ISP shares the reference capture's stats).</summary>
+    /// <summary>Attach stats computed for another capture (the stereo ISP shares the reference capture's stats).</summary>
     public SoftIsp UseStats(IspStats stats) { lock (_sync) _stats = stats; return this; }
     public IspStats? CurrentStats => _stats;
 
@@ -193,7 +193,7 @@ public sealed class SoftIsp
         }
     }
 
-    /// <summary>ROI clamp of `FUN_1803dc7b0` ("empty source RAW image!" / "invalid output ROI!").</summary>
+    /// <summary>The ROI clamp of Lumen's ISP entry ("empty source RAW image!" / "invalid output ROI!").</summary>
     public static RectI ClampRoi(RectI roi, int w, int h)
     {
         if (w <= 0 || h <= 0) throw new InvalidOperationException("empty source RAW image!");
@@ -203,9 +203,7 @@ public sealed class SoftIsp
         return c;
     }
 
-    /// <summary>Bayer-ushort entry (`FUN_1803dcd90` → `FUN_180411380`): clamp the ROI, take stats, run the Bayer domain
-    /// stage list over a whole-frame view, return the RGB result for the ROI.</summary>
-    /// <summary>`FUN_1803dc980(isp, out, bayerFloat, refImg, rect, std)` → `FUN_180411b40`: the BayerFloat domain runner (pipeline index 5 of the
+    /// <summary>The BayerFloat domain runner (pipeline index 5 of the
     /// level-1 fusion cache). <paramref name="bayer"/> (and <paramref name="std"/>, same rect) carry the halo'd render rect as their extents;
     /// <paramref name="roi"/> is the un-grown request (frame pixels); `stats` = the cache's Stats (reference capture, neutral = AsShot).</summary>
     public Image<Vec4F> ProcessBayerFloat(CapturedFrame refFrame, IspStats stats, Image<float> bayer, Image<float>? std, RectI roi, int level, Action<string>? log = null, Action<int, IStage, IspPayload>? afterStage = null)
@@ -225,11 +223,11 @@ public sealed class SoftIsp
         return payload.Rgb.Rect == outRect ? payload.Rgb : payload.Rgb.View(outRect);
     }
 
-    /// <summary>`FUN_1803dd0e0(isp, out, vec4Img, refImg, floatRect, std)` → `FUN_1804125c0`: the Color-domain runner (stage vector `pipeline+0x14c8`,
-    /// spec a-monofusion §7). <paramref name="rgb"/> = the vec4 input placed in the RGB working slot (+0x70) with its halo'd rect as extents;
+    /// <summary>The Color-domain runner (the stage vector of the Color block).
+    /// <paramref name="rgb"/> = the vec4 input placed in the RGB working slot with its halo'd rect as extents;
     /// <paramref name="std"/> (same rect, "Input/STD image domain mismatch") the STD plane; <paramref name="floatRect"/> the request (frame pixels; the int
     /// rect is its `(int)` conversion, no frame clamp). Returns the working image cropped to the request.</summary>
-    /// <param name="roi">the runner's ROI = Lumen's `(0,0,src.w,src.h)`. `FUN_1804125c0` derives it from the source
+    /// <param name="roi">the runner's ROI = Lumen's `(0,0,src.w,src.h)`. Lumen derives it from the source
     /// image, NOT from the float rect (which on the display path is in sensor coordinates, not level coordinates);
     /// the default keeps the fusion caller's behaviour of taking it from the float rect.</param>
     public Image<Vec4F> ProcessColorFloat(CapturedFrame refFrame, IspStats stats, Image<Vec4F> rgb, Image<float>? std, RectF floatRect, int level, Action<string>? log = null, RectI? roi = null, Action<int, IStage, IspPayload>? afterStage = null)
@@ -254,6 +252,8 @@ public sealed class SoftIsp
         return payload.Rgb.Rect == outRect ? payload.Rgb : payload.Rgb.View(outRect);
     }
 
+    /// <summary>Bayer-ushort entry: clamp the ROI, take stats, run the Bayer domain
+    /// stage list over a whole-frame view, return the RGB result for the ROI.</summary>
     public Image<Vec4F> ProcessBayer(CapturedFrame frame, RectI roi, int level, Action<string>? log = null)
     {
         var c = ClampRoi(roi, frame.Width, frame.Height);
@@ -267,15 +267,15 @@ public sealed class SoftIsp
         };
         PipelineRunner.Run(stages, payload, c, frame.Width, frame.Height, new RectF(c.X0, c.Y0, c.X1, c.Y1));
         if (payload.Rgb is null) throw new InvalidOperationException("the Bayer stage list produced no RGB image (no demosaic stage ran)");
-        // FUN_180411380 copies the (scaled) ROI out of the last stage's image; the padding grown for the stages is dropped
+        // Lumen copies the (scaled) ROI out of the last stage's image; the padding grown for the stages is dropped
         float s = 1f; foreach (var st in stages) s *= st.Meta.Scale;
         var outRect = new RectI((int)(s * c.X0), (int)(s * c.Y0), (int)(s * c.X0) + (int)(s * c.Width), (int)(s * c.Y0) + (int)(s * c.Height));
         return payload.Rgb.Rect == outRect ? payload.Rgb : payload.Rgb.View(outRect);
     }
 }
 
-/// <summary>The constructor-installed slot 2 of the Color block (`Pipeline::Pipeline` lambda_6, `180420140`): `rgb ⊙= (1/n0, 1/n1, 1/n2, 1)` with the
-/// Stats neutral (`DAT_180681c78 / n` per component, `ImageParallelAssign&lt;ExprMulScalar&lt;vec4x32f&gt;&gt;`), then the working image is cut to the
+/// <summary>The constructor-installed slot 2 of the Color block: `rgb ⊙= (1/n0, 1/n1, 1/n2, 1)` with the
+/// Stats neutral (`1.0 / n` per component, `ImageParallelAssign&lt;ExprMulScalar&lt;vec4x32f&gt;&gt;`), then the working image is cut to the
 /// payload int rect. Pad 1 / align 1 / scale 1.</summary>
 public sealed class ColorScaleStage : IStage
 {
@@ -289,21 +289,25 @@ public sealed class ColorScaleStage : IStage
         var g = System.Runtime.Intrinsics.Vector128.Create(1f / n[0], 1f / n[1], 1f / n[2], 1f);
         var abs = p.ToAbsolute(p.IntRect).Intersect(img.Rect);
         var dst = new Image<Vec4F>(abs);
-        for (int y = abs.Y0; y < abs.Y1; y++)
+        // the same four products per pixel, two pixels per eight-lane vector, rows spread when few stage runs are in progress
+        var g2 = System.Runtime.Intrinsics.Vector256.Create(g, g);
+        using var running = StageParallel.Enter();
+        StageParallel.For(abs.Height, abs.Width * 2, (ya, yb) =>
         {
-            var row = img.Row(y - img.Rect.Y0); var drow = dst.Row(y - abs.Y0);
-            for (int x = abs.X0; x < abs.X1; x++)
+            for (int y = abs.Y0 + ya; y < abs.Y0 + yb; y++)
             {
-                var v = row[x - img.Rect.X0];
-                var o = System.Runtime.Intrinsics.Vector128.Create(v.R, v.G, v.B, v.A) * g;
-                drow[x - abs.X0] = new Vec4F(o.GetElement(0), o.GetElement(1), o.GetElement(2), o.GetElement(3));
+                var row = System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, float>(img.Row(y - img.Rect.Y0).Slice(abs.X0 - img.Rect.X0, abs.Width));
+                var drow = System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, float>(dst.Row(y - abs.Y0));
+                int n = row.Length, i = 0;
+                for (; i + 8 <= n; i += 8) (System.Runtime.Intrinsics.Vector256.Create((ReadOnlySpan<float>)row.Slice(i, 8)) * g2).CopyTo(drow.Slice(i, 8));
+                for (; i < n; i += 4) (System.Runtime.Intrinsics.Vector128.Create((ReadOnlySpan<float>)row.Slice(i, 4)) * g).CopyTo(drow.Slice(i, 4));
             }
-        }
+        });
         p.Rgb = dst;
     }
 }
 
-/// <summary>Diagnostic wrapper: runs the inner stage, then hands the payload to a callback (per-stage dumps for comparison against cp.dll).</summary>
+/// <summary>Diagnostic wrapper: runs the inner stage, then hands the payload to a callback (per-stage inspection).</summary>
 public sealed class StageTap : IStage
 {
     readonly IStage _inner; readonly int _index; readonly Action<int, IStage, IspPayload> _after;

@@ -1,10 +1,11 @@
 namespace Lux.Engine.Pipeline.Isp.Stages;
 
 /// <summary>
-/// The degree-3 fast `log2`/`exp2` pair cp.dll inlines everywhere it needs a power (the sRGB transfer of
-/// `FUN_1800d1da0`, `AdjustContrast&lt;vec4x32f&gt;::lambda_1` `180397300`, both passes of `FUN_180398d00`).
+/// The degree-3 fast `log2`/`exp2` pair that Lumen inlines everywhere it needs a power (the sRGB transfer of
+/// <see cref="Lux.Engine.Pipeline.Color.ColorSpaceConvert"/>, the `AdjustContrast&lt;vec4x32f&gt;` tile kernel, both passes of
+/// <see cref="ToneAdjustLaplacianStage.LocalToneMapLog(Image{float}, float, LaplacianPyramidConfig)"/>).
 /// Genuinely approximate — `Log2(1.0) = −0.0042`, `Log2(2⁻) ≈ 1.0028` — so it must be replicated, never replaced
-/// by `MathF.Log2`/`MathF.Pow`. Constants `0x180682490…0x180682560`. Spec `a-display-isp.md` §10.4.
+/// by `MathF.Log2`/`MathF.Pow`.
 /// </summary>
 public static class FastLog2Exp2
 {

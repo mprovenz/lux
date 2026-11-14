@@ -1,0 +1,135 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    The controls Lux keeps from the Fluent theme (text field, select, slider, scroll bar, menus, tooltips) re-coloured
+    with the Studio tokens. Application resources are searched before the theme's, so these keys win.
+  -->
+  <CornerRadius x:Key="ControlCornerRadius">2</CornerRadius>
+  <CornerRadius x:Key="OverlayCornerRadius">2</CornerRadius>
+  <Color x:Key="SystemAccentColor">#a9dcff</Color>
+  <Color x:Key="SystemAccentColorLight1">#c4e7ff</Color>
+  <Color x:Key="SystemAccentColorLight2">#d3edff</Color>
+  <Color x:Key="SystemAccentColorLight3">#e6f5ff</Color>
+  <Color x:Key="SystemAccentColorDark1">#8fcbf2</Color>
+  <Color x:Key="SystemAccentColorDark2">#74b6e0</Color>
+  <Color x:Key="SystemAccentColorDark3">#5a9fcc</Color>
+
+  <!-- Keyboard focus: a 2 px accent ring with a dark inner line, visible on every ground in the palette -->
+  <StaticResource x:Key="SystemControlFocusVisualPrimaryBrush" ResourceKey="LuxAccent" />
+  <StaticResource x:Key="SystemControlFocusVisualSecondaryBrush" ResourceKey="LuxOnAccent" />
+  <Thickness x:Key="SystemControlFocusVisualPrimaryThickness">2</Thickness>
+  <Thickness x:Key="SystemControlFocusVisualSecondaryThickness">1</Thickness>
+  <Thickness x:Key="SystemControlFocusVisualMargin">-2</Thickness>
+
+  <!-- Text field -->
+  <StaticResource x:Key="TextControlForeground" ResourceKey="LuxText" />
+  <StaticResource x:Key="TextControlForegroundPointerOver" ResourceKey="LuxText" />
+  <StaticResource x:Key="TextControlForegroundFocused" ResourceKey="LuxText" />
+  <StaticResource x:Key="TextControlForegroundDisabled" ResourceKey="LuxTextDisabled" />
+  <StaticResource x:Key="TextControlBackground" ResourceKey="LuxLineDark" />
+  <StaticResource x:Key="TextControlBackgroundPointerOver" ResourceKey="LuxLineDark" />
+  <StaticResource x:Key="TextControlBackgroundFocused" ResourceKey="LuxLineDark" />
+  <StaticResource x:Key="TextControlBackgroundDisabled" ResourceKey="LuxBar" />
+  <StaticResource x:Key="TextControlBorderBrush" ResourceKey="LuxLineMid" />
+  <StaticResource x:Key="TextControlBorderBrushPointerOver" ResourceKey="LuxLineLight" />
+  <StaticResource x:Key="TextControlBorderBrushFocused" ResourceKey="LuxAccent" />
+  <StaticResource x:Key="TextControlBorderBrushDisabled" ResourceKey="LuxLineMid" />
+  <StaticResource x:Key="TextControlPlaceholderForeground" ResourceKey="LuxTextDisabled" />
+  <StaticResource x:Key="TextControlPlaceholderForegroundPointerOver" ResourceKey="LuxTextDisabled" />
+  <StaticResource x:Key="TextControlPlaceholderForegroundFocused" ResourceKey="LuxTextDisabled" />
+  <StaticResource x:Key="TextControlPlaceholderForegroundDisabled" ResourceKey="LuxTextDisabled" />
+  <StaticResource x:Key="TextControlButtonForeground" ResourceKey="LuxTextSecondary" />
+  <StaticResource x:Key="TextControlButtonForegroundPointerOver" ResourceKey="LuxText" />
+  <StaticResource x:Key="TextControlButtonBackgroundPointerOver" ResourceKey="LuxHover" />
+  <x:Double x:Key="TextControlPlaceholderOpacity">1</x:Double>
+  <Color x:Key="TextControlSelectionHighlightColor">#4f7a96</Color>
+  <Thickness x:Key="TextControlBorderThemeThickness">1</Thickness>
+  <Thickness x:Key="TextControlBorderThemeThicknessFocused">1</Thickness>
+  <Thickness x:Key="TextControlThemePadding">10,6,8,6</Thickness>
+  <x:Double x:Key="TextControlThemeMinHeight">32</x:Double>
+
+  <!-- Select -->
+  <StaticResource x:Key="ComboBoxBackground" ResourceKey="LuxLineDark" />
+  <StaticResource x:Key="ComboBoxBackgroundPointerOver" ResourceKey="LuxLineDark" />
+  <StaticResource x:Key="ComboBoxBackgroundPressed" ResourceKey="LuxLineDark" />
+  <StaticResource x:Key="ComboBoxBackgroundUnfocused" ResourceKey="LuxLineDark" />
+  <StaticResource x:Key="ComboBoxBackgroundDisabled" ResourceKey="LuxBar" />
+  <StaticResource x:Key="ComboBoxBorderBrush" ResourceKey="LuxLineMid" />
+  <StaticResource x:Key="ComboBoxBorderBrushPointerOver" ResourceKey="LuxLineLight" />
+  <StaticResource x:Key="ComboBoxBorderBrushPressed" ResourceKey="LuxAccent" />
+  <StaticResource x:Key="ComboBoxBorderBrushDisabled" ResourceKey="LuxLineMid" />
+  <StaticResource x:Key="ComboBoxBackgroundBorderBrushFocused" ResourceKey="LuxAccent" />
+  <StaticResource x:Key="ComboBoxBackgroundBorderBrushUnfocused" ResourceKey="LuxLineMid" />
+  <StaticResource x:Key="ComboBoxForeground" ResourceKey="LuxText" />
+  <StaticResource x:Key="ComboBoxForegroundFocused" ResourceKey="LuxText" />
+  <StaticResource x:Key="ComboBoxForegroundFocusedPressed" ResourceKey="LuxText" />
+  <StaticResource x:Key="ComboBoxForegroundDisabled" ResourceKey="LuxTextDisabled" />
+  <StaticResource x:Key="ComboBoxPlaceHolderForeground" ResourceKey="LuxTextDisabled" />
+  <StaticResource x:Key="ComboBoxDropDownGlyphForeground" ResourceKey="LuxTextSecondary" />
+  <StaticResource x:Key="ComboBoxDropDownGlyphForegroundFocused" ResourceKey="LuxText" />
+  <StaticResource x:Key="ComboBoxDropDownGlyphForegroundFocusedPressed" ResourceKey="LuxText" />
+  <StaticResource x:Key="ComboBoxDropDownGlyphForegroundDisabled" ResourceKey="LuxTextDisabled" />
+  <StaticResource x:Key="ComboBoxDropDownBackground" ResourceKey="LuxBar" />
+  <StaticResource x:Key="ComboBoxDropDownBorderBrush" ResourceKey="LuxLineLight" />
+  <StaticResource x:Key="ComboBoxItemForeground" ResourceKey="LuxText" />
+  <StaticResource x:Key="ComboBoxItemForegroundPointerOver" ResourceKey="LuxText" />
+  <StaticResource x:Key="ComboBoxItemForegroundPressed" ResourceKey="LuxText" />
+  <StaticResource x:Key="ComboBoxItemForegroundSelected" ResourceKey="LuxText" />
+  <StaticResource x:Key="ComboBoxItemForegroundSelectedPointerOver" ResourceKey="LuxText" />
+  <StaticResource x:Key="ComboBoxItemForegroundSelectedPressed" ResourceKey="LuxText" />
+  <StaticResource x:Key="ComboBoxItemBackgroundPointerOver" ResourceKey="LuxGround" />
+  <StaticResource x:Key="ComboBoxItemBackgroundPressed" ResourceKey="LuxLineDark" />
+  <StaticResource x:Key="ComboBoxItemBackgroundSelected" ResourceKey="LuxSelection" />
+  <StaticResource x:Key="ComboBoxItemBackgroundSelectedPointerOver" ResourceKey="LuxSelection" />
+  <StaticResource x:Key="ComboBoxItemBackgroundSelectedPressed" ResourceKey="LuxSelection" />
+  <x:Double x:Key="ComboBoxMinHeight">44</x:Double>
+  <Thickness x:Key="ComboBoxPadding">10,0,8,0</Thickness>
+  <Thickness x:Key="ComboBoxItemThemePadding">12,12,12,12</Thickness>
+
+  <!-- Slider -->
+  <StaticResource x:Key="SliderTrackFill" ResourceKey="LuxLineMid" />
+  <StaticResource x:Key="SliderTrackFillPointerOver" ResourceKey="LuxLineLight" />
+  <StaticResource x:Key="SliderTrackFillPressed" ResourceKey="LuxLineLight" />
+  <StaticResource x:Key="SliderTrackFillDisabled" ResourceKey="LuxLineMid" />
+  <StaticResource x:Key="SliderTrackValueFill" ResourceKey="LuxAccent" />
+  <StaticResource x:Key="SliderTrackValueFillPointerOver" ResourceKey="LuxAccentHover" />
+  <StaticResource x:Key="SliderTrackValueFillPressed" ResourceKey="LuxAccentHover" />
+  <StaticResource x:Key="SliderTrackValueFillDisabled" ResourceKey="LuxLineLight" />
+  <StaticResource x:Key="SliderThumbBackground" ResourceKey="LuxAccent" />
+  <StaticResource x:Key="SliderThumbBackgroundPointerOver" ResourceKey="LuxAccentHover" />
+  <StaticResource x:Key="SliderThumbBackgroundPressed" ResourceKey="LuxAccentHover" />
+  <StaticResource x:Key="SliderThumbBackgroundDisabled" ResourceKey="LuxLineLight" />
+  <SolidColorBrush x:Key="SliderContainerBackground" Color="Transparent" />
+  <SolidColorBrush x:Key="SliderContainerBackgroundPointerOver" Color="Transparent" />
+  <SolidColorBrush x:Key="SliderContainerBackgroundPressed" Color="Transparent" />
+
+  <!-- Scroll bar -->
+  <Color x:Key="ScrollBarThumbBackgroundColor">#8a8a8a</Color>
+  <Color x:Key="ScrollBarPanningThumbBackgroundColor">#8a8a8a</Color>
+  <StaticResource x:Key="ScrollBarThumbFillPointerOver" ResourceKey="LuxTextSecondary" />
+  <StaticResource x:Key="ScrollBarThumbFillPressed" ResourceKey="LuxText" />
+  <StaticResource x:Key="ScrollBarTrackFill" ResourceKey="LuxBar" />
+  <StaticResource x:Key="ScrollBarTrackFillPointerOver" ResourceKey="LuxBar" />
+  <StaticResource x:Key="ScrollBarButtonArrowForeground" ResourceKey="LuxTextSecondary" />
+  <StaticResource x:Key="ScrollBarButtonArrowForegroundPointerOver" ResourceKey="LuxText" />
+
+  <!-- Menus -->
+  <StaticResource x:Key="MenuFlyoutPresenterBackground" ResourceKey="LuxBar" />
+  <StaticResource x:Key="MenuFlyoutPresenterBorderBrush" ResourceKey="LuxLineLight" />
+  <StaticResource x:Key="MenuFlyoutItemForeground" ResourceKey="LuxText" />
+  <StaticResource x:Key="MenuFlyoutItemForegroundPointerOver" ResourceKey="LuxText" />
+  <StaticResource x:Key="MenuFlyoutItemForegroundPressed" ResourceKey="LuxText" />
+  <StaticResource x:Key="MenuFlyoutItemForegroundDisabled" ResourceKey="LuxTextDisabled" />
+  <StaticResource x:Key="MenuFlyoutItemBackgroundPointerOver" ResourceKey="LuxGround" />
+  <StaticResource x:Key="MenuFlyoutItemBackgroundPressed" ResourceKey="LuxLineDark" />
+  <StaticResource x:Key="MenuFlyoutItemKeyboardAcceleratorTextForeground" ResourceKey="LuxTextSecondary" />
+  <StaticResource x:Key="MenuFlyoutItemKeyboardAcceleratorTextForegroundPointerOver" ResourceKey="LuxTextSecondary" />
+  <Thickness x:Key="MenuFlyoutItemThemePadding">12,10,12,10</Thickness>
+  <Thickness x:Key="MenuFlyoutItemThemePaddingNarrow">12,10,12,10</Thickness>
+
+  <!-- Tooltip -->
+  <StaticResource x:Key="ToolTipBackground" ResourceKey="LuxLineDark" />
+  <StaticResource x:Key="ToolTipForeground" ResourceKey="LuxText" />
+  <StaticResource x:Key="ToolTipBorderBrush" ResourceKey="LuxLineLight" />
+  <x:Double x:Key="ToolTipContentThemeFontSize">12</x:Double>
+</ResourceDictionary>

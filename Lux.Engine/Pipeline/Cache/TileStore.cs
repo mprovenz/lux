@@ -24,4 +24,28 @@ public sealed class TileStore<TKey, TValue> where TKey : notnull
     }
 
     public int Count => _entries.Count;
+
+    /// <summary>Drop completed entries matching <paramref name="match"/> (an entry still being made is left alone). A dropped tile is
+    /// made again, identically, by the next request for it. Returns how many were dropped.</summary>
+    public int RemoveWhere(Func<TKey, bool> match)
+    {
+        int n = 0;
+        foreach (var kv in _entries)
+            if (kv.Value.IsValueCreated && match(kv.Key) && _entries.TryRemove(kv)) n++;
+        return n;
+    }
+
+    /// <summary>The keys of the completed entries.</summary>
+    public IEnumerable<TKey> CompletedKeys() { foreach (var kv in _entries) if (kv.Value.IsValueCreated) yield return kv.Key; }
+
+    /// <summary>Drop every entry that is not completed — still being made, or failed (a factory exception stays with its entry). A caller that
+    /// already waits on such an entry still gets its result; the next request makes the tile again. Used when an input of the factory changed
+    /// while tiles were being made (the depth-edit snapshot swap of the depth-effect cache). Returns how many were dropped.</summary>
+    public int RemovePending()
+    {
+        int n = 0;
+        foreach (var kv in _entries)
+            if (!kv.Value.IsValueCreated && _entries.TryRemove(kv)) n++;
+        return n;
+    }
 }

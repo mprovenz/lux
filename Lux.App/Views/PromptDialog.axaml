@@ -1,0 +1,28 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             x:Class="Lux.App.Views.PromptDialog"
+             x:DataType="vm:PromptViewModel">
+  <Border Classes="dialog" Width="440">
+    <StackPanel>
+      <Border Padding="20,16" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,0,0,1">
+        <TextBlock Classes="dialogtitle" Text="{Binding Title}" />
+      </Border>
+      <StackPanel Margin="20,16" Spacing="8">
+        <TextBlock Text="{Binding Label}" />
+        <TextBox x:Name="Field" Classes="tall" Text="{Binding Value}" AutomationProperties.Name="{Binding Label}">
+          <TextBox.KeyBindings>
+            <KeyBinding Gesture="Enter" Command="{Binding OkCommand}" />
+          </TextBox.KeyBindings>
+        </TextBox>
+        <TextBlock Classes="warning wrap" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      </StackPanel>
+      <Border Padding="20,12" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,1,0,0">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+          <Button Content="Cancel" Padding="16,0" Command="{Binding CancelCommand}" />
+          <Button Classes="primary" Content="{Binding OkLabel}" Command="{Binding OkCommand}" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </Border>
+</UserControl>

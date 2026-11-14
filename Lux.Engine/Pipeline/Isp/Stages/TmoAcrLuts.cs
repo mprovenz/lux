@@ -1,12 +1,12 @@
 namespace Lux.Engine.Pipeline.Isp.Stages;
 
 
-/// <summary>The four `TMO_ACR` tone LUTs, verbatim from `cp.dll` `.rdata` (pointer table `0x1806cab20`, indexed by
+/// <summary>The four `TMO_ACR` tone LUTs, verbatim from Lumen (indexed by
 /// `mode = tone_mapping.type enum − 3`): 1025 f32 each, no header, `LUT[0] = 0`, `LUT[1024] = 1`, monotone. They are the
-/// same tables the DNG `ProfileToneCurve` carries. Spec `a-display-isp.md` §10b.8.</summary>
+/// same tables the DNG `ProfileToneCurve` carries.</summary>
 public static class TmoAcrLuts
 {
-    /// <summary>mode 0 — `tone_mapping.type = "acr"`, LUT VA 0x1806c6a30.</summary>
+    /// <summary>mode 0 — `tone_mapping.type = "acr"`.</summary>
     public static readonly float[] Acr =
     {
         0.0f,0.0007800000021234155f,0.0015999999595806003f,0.002420000033453107f,0.0031399999279528856f,0.0038499999791383743f,0.004600000102072954f,0.0053900000639259815f,
@@ -140,7 +140,7 @@ public static class TmoAcrLuts
         1.0f,
     };
 
-    /// <summary>mode 1 — `tone_mapping.type = "light_v1"`, LUT VA 0x1806c7a34.</summary>
+    /// <summary>mode 1 — `tone_mapping.type = "light_v1"`.</summary>
     public static readonly float[] LightV1 =
     {
         0.0f,0.0007900000200606883f,0.0016400000313296914f,0.0025599999353289604f,0.0034099998883903027f,0.004269999917596579f,0.005119999870657921f,0.005979999899864197f,
@@ -274,7 +274,7 @@ public static class TmoAcrLuts
         1.0f,
     };
 
-    /// <summary>mode 2 — `tone_mapping.type = "light_v1_lowlight"`, LUT VA 0x1806c8a38.</summary>
+    /// <summary>mode 2 — `tone_mapping.type = "light_v1_lowlight"`.</summary>
     public static readonly float[] LightV1Lowlight =
     {
         0.0f,0.0029269999358803034f,0.005853999871760607f,0.007807000074535608f,0.009819000028073788f,0.01371499989181757f,0.0176170002669096f,0.019579999148845673f,
@@ -408,7 +408,7 @@ public static class TmoAcrLuts
         1.0f,
     };
 
-    /// <summary>mode 3 — `tone_mapping.type = "light_v2"`, LUT VA 0x1806c9a3c.</summary>
+    /// <summary>mode 3 — `tone_mapping.type = "light_v2"`.</summary>
     public static readonly float[] LightV2 =
     {
         0.0f,0.0007929999846965075f,0.0013340000296011567f,0.0019499999471008778f,0.0026130001060664654f,0.003309000050649047f,0.004029999952763319f,0.004769999999552965f,
@@ -542,7 +542,7 @@ public static class TmoAcrLuts
         1.0f,
     };
 
-    /// <summary>`TMO_ACR::TMO_ACR(int mode)` `18038ab40`: `lut = ((const float**)0x1806cab20)[mode]`,
+    /// <summary>`TMO_ACR::TMO_ACR(int mode)`: `lut = table[mode]`,
     /// `"Unknown tone-curve selected!"` for mode ≥ 4.</summary>
     public static float[] ForMode(int mode) => mode switch
     {

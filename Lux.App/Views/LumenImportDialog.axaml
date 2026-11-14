@@ -1,0 +1,81 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             x:Class="Lux.App.Views.LumenImportDialog"
+             x:DataType="vm:LumenImportViewModel">
+  <!-- Import edits from Lumen (S-Import). -->
+  <Border Classes="dialog" Width="760" MaxWidth="760" AutomationProperties.Name="Import edits from Lumen">
+    <DockPanel>
+      <Border DockPanel.Dock="Top" Padding="20,16" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,0,0,1">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="dialogtitle" Text="Import edits from Lumen" />
+          <TextBlock Classes="mono secondary" Text="{Binding Subtitle}" />
+        </StackPanel>
+      </Border>
+      <Border DockPanel.Dock="Bottom" Padding="20,12" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,1,0,0">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+          <Button Classes="link" Content="{Binding ShowLabel}" Command="{Binding ShowCapturesCommand}" IsEnabled="{Binding CanImport}" IsVisible="{Binding ShowShowLink}" />
+          <Button Grid.Column="2" Content="Cancel" Padding="16,0" Command="{Binding CancelCommand}" Margin="0,0,8,0" />
+          <Button Grid.Column="3" Classes="primary" Content="{Binding ImportLabel}" Command="{Binding ImportCommand}" IsEnabled="{Binding CanImport}" />
+        </Grid>
+      </Border>
+      <Panel>
+        <StackPanel IsVisible="{Binding IsScanning}" Margin="20,32" Spacing="12">
+          <TextBlock Classes="secondary" Text="{Binding ScanText}" />
+          <ProgressBar IsIndeterminate="True" />
+        </StackPanel>
+        <TextBlock IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Classes="warning wrap" Text="{Binding Error}" Margin="20,32" />
+        <StackPanel IsVisible="{Binding IsReady}" Margin="20,16" Spacing="14">
+          <ItemsControl ItemsSource="{Binding Groups}" AutomationProperties.Name="Sessions found">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:LumenGroupViewModel">
+                <CheckBox Classes="optionrow" IsChecked="{Binding IsOn}" IsEnabled="{Binding IsAvailable}" MinHeight="48" Margin="0,0,0,2"
+                          IsVisible="{Binding IsShown}"
+                          AutomationProperties.Name="{Binding Name}">
+                  <Grid ColumnDefinitions="56,*">
+                    <TextBlock Classes="mono" FontSize="16" Text="{Binding CountText}" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                      <TextBlock Classes="medium" Text="{Binding Name}" />
+                      <TextBlock Classes="secondary small" Text="{Binding Note}" />
+                    </StackPanel>
+                  </Grid>
+                </CheckBox>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Border Classes="warningbox">
+            <StackPanel Spacing="6">
+              <TextBlock Classes="strong wrap" Text="{x:Static vm:LumenImportViewModel.WarningTitle}" />
+              <TextBlock Classes="wrap" Text="{x:Static vm:LumenImportViewModel.WarningText1}" />
+              <TextBlock Classes="wrap" Text="{x:Static vm:LumenImportViewModel.WarningText2}" />
+            </StackPanel>
+          </Border>
+          <CheckBox IsChecked="{Binding NewerToneStyle}" VerticalContentAlignment="Top" AutomationProperties.Name="{x:Static vm:LumenImportViewModel.ToneTitle}">
+            <StackPanel Margin="0,1,0,0">
+              <TextBlock Text="{Binding ToneLabel}" />
+              <TextBlock Classes="secondary small wrap" Text="{x:Static vm:LumenImportViewModel.ToneNote}" LineHeight="17" />
+            </StackPanel>
+          </CheckBox>
+          <Border Background="{DynamicResource LuxBar}" Padding="10">
+            <!-- one line height and top alignment for every cell, so each label sits on its value's first line (without it,
+                 the wrapping "What comes across" value has a taller line than its label, and the numbers' face another) -->
+            <Grid x:Name="FactsGrid" ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="4">
+              <Grid.Styles>
+                <Style Selector="TextBlock">
+                  <Setter Property="LineHeight" Value="20" />
+                  <Setter Property="VerticalAlignment" Value="Top" />
+                </Style>
+              </Grid.Styles>
+              <TextBlock Classes="secondary" Text="What comes across" />
+              <TextBlock Grid.Column="1" Classes="wrap" Text="Depth edits, aperture and focus, tone and colour, crop and rotation, rating" />
+              <TextBlock Grid.Row="1" Classes="secondary" Text="What does not" />
+              <TextBlock Grid.Row="1" Grid.Column="1" Text="Undo history (Lumen does not save it)" />
+              <TextBlock Grid.Row="2" Classes="secondary" Text="Space needed" />
+              <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SpaceText}" />
+            </Grid>
+          </Border>
+        </StackPanel>
+      </Panel>
+    </DockPanel>
+  </Border>
+</UserControl>

@@ -1,19 +1,21 @@
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 using static Lux.Engine.Pipeline.ResAmp.SseOps;
 
 namespace Lux.Engine.Pipeline.ResAmp;
 
-/// <summary>The image kernels called by `ImageResolutionAmp::lambda_0` (spec `a-resamp.md` §3–§6), each ported op-for-op from the
-/// cp.dll disassembly/decompilation. All images are <see cref="ResImage"/> (4 floats/px unless noted); the kernels that clamp against
+/// <summary>The image kernels called by `ImageResolutionAmp::lambda_0`, each with Lumen's exact operation order.
+/// All images are <see cref="ResImage"/> (4 floats/px unless noted); the kernels that clamp against
 /// the source rect read real data outside the cropped view exactly as the originals do.</summary>
 internal static class ResAmpKernels
 {
-    // ---------------------------------------------------------------- §1.5 √-domain converters
-    /// <summary>`FUN_1804e4250`: dst = sqrtps(maxps(src, 0)) per lane (alpha included).</summary>
+    // ---------------------------------------------------------------- √-domain converters
+    /// <summary>Dst = √max(src, 0) per lane (alpha included). MAXPS order: NaN gives 0.</summary>
     public static void SqrtDomain(float[] data)
     {
         for (int i = 0; i < data.Length; i++) data[i] = MathF.Sqrt(Max(data[i], 0f));
     }
-    /// <summary>`FUN_1804e4600`: dst = sqrtps(maxps(mulps(src, (g,g,g,1)), 0)).</summary>
+    /// <summary>Dst = √max(src·(g,g,g,1), 0) per lane. MAXPS order: NaN gives 0.</summary>
     public static void GainSqrtDomain(float[] data, float g)
     {
         for (int i = 0; i < data.Length; i += 4)
@@ -23,8 +25,8 @@ internal static class ResAmpKernels
         }
     }
 
-    // ---------------------------------------------------------------- §3.1 FUN_18044b680 generator render with zero fill
-    /// <summary>`FUN_18044b680(out, gen, rect)`: alloc rect.w×rect.h (rect (0,0,w,h)); the generator renders the part inside
+    // ---------------------------------------------------------------- generator render with zero fill
+    /// <summary>`RenderGen(out, gen, rect)`: alloc rect.w×rect.h (rect (0,0,w,h)); the generator renders the part inside
     /// [0,genW)×[0,genH); everything outside is 0 in all 4 lanes.</summary>
     public static ResImage RenderGen(ImageGenerator gen, int x0, int y0, int x1, int y1)
     {
@@ -37,7 +39,7 @@ internal static class ResAmpKernels
         return img;
     }
 
-    // ---------------------------------------------------------------- §3.2 FUN_18044b380 dominant RGB covariance eigenvector
+    // ---------------------------------------------------------------- dominant RGB covariance eigenvector
     public static void Eigenvector(ResImage img, int step, Span<float> outv)
     {
         float n = 0f, mx = 0f, my = 0f, mz = 0f, mw = 0f, M2x = 0f, M2y = 0f, M2z = 0f, M2w = 0f, Cxy = 0f, Cyz = 0f, Czx = 0f, Cww = 0f;
@@ -47,15 +49,15 @@ internal static class ResAmpKernels
             {
                 int i = img.Idx(x, y);
                 float px = img.Data[i], py = img.Data[i + 1], pz = img.Data[i + 2], pw = img.Data[i + 3];
-                if (!(pw > thr)) continue;                                  // ucomiss: NaN → skip
-                if (!(px < 1f && py < 1f && pz < 1f)) continue;             // cmpltps & 7 == 7
+                if (!(pw > thr)) continue;                                  // a NaN fails the compare → skip
+                if (!(px < 1f && py < 1f && pz < 1f)) continue;             // x, y and z must all be < 1; NaN fails
                 float n1 = n + one; float inv = one / n1;
                 float dx = px - mx, dy = py - my, dz = pz - mz, dw = pw - mw;
                 float sx = inv * dx, sy = inv * dy, sz = inv * dz, sw = inv * dw;   // stp = bcast(inv)·delta
                 float tx = n * sx, ty = n * sy, tz = n * sz, tw = n * sw;           // t = bcast(n)·stp
                 mx += sx; my += sy; mz += sz; mw += sw;
                 M2x += tx * dx; M2y += ty * dy; M2z += tz * dz; M2w += tw * dw;
-                Cxy += dy * tx; Cyz += dz * ty; Czx += dx * tz; Cww += dw * tw;      // shufps(delta,0xC9)·t
+                Cxy += dy * tx; Cyz += dz * ty; Czx += dx * tz; Cww += dw * tw;      // rotated delta (y, z, x, w) · t
                 n = n1;
             }
         if ((int)n < 100) { outv[0] = outv[1] = outv[2] = F(0x3f13cd3a); return; }
@@ -78,21 +80,22 @@ internal static class ResAmpKernels
                 t = k + t;
                 r[l] = t + v[1] * c1[l];
             }
-            float sqx = r[0] * r[0], sqy = r[1] * r[1], sqz = r[2] * r[2];   // lane3 → 0 (blendps 8)
-            // shufpd swap + add: (z+x, w+y, x+z, y+w); shufps 0xb1 + add: lane0 = (w+y) + (z+x)
+            float sqx = r[0] * r[0], sqy = r[1] * r[1], sqz = r[2] * r[2];   // lane 3 → 0
+            // Horizontal sum in Lumen's order. Swap the halves and add: (z+x, w+y, x+z, y+w).
+            // Swap the pairs and add: lane 0 = (w+y) + (z+x). Float results depend on this order.
             float zx = sqz + sqx, wy = 0f + sqy, xz = sqx + sqz, yw = sqy + 0f;
             hs[0] = wy + zx; hs[1] = zx + wy; hs[2] = yw + xz; hs[3] = xz + yw;
             Rsqrtps(hs, rs);
             v[0] = rs[0] * r[0]; v[1] = rs[1] * r[1]; v[2] = rs[2] * r[2]; v[3] = r[3];
         }
-        // sum = lane0 of (shufpd swap + add, shufps 0xb1 + add) over (x,y,z,0): (z+x, 0+y, ...) → (0+y) + (z+x)
+        // sum = the same horizontal sum over (x, y, z, 0): (0+y) + (z+x)
         float zx2 = v[2] + v[0], y2 = 0f + v[1];
         float sum = y2 + zx2;
         if (!(sum >= 0f)) { v[0] = -v[0]; v[1] = -v[1]; v[2] = -v[2]; }
         outv[0] = v[0]; outv[1] = v[1]; outv[2] = v[2];
     }
 
-    // ---------------------------------------------------------------- §3.3 lt::ImageBoxFilter<vec4x32f> / <float>
+    // ---------------------------------------------------------------- lt::ImageBoxFilter<vec4x32f> / <float>
     /// <summary>`ImageBoxFilter&lt;T&gt;(out, src, size)` with the 256-px Tiler tiling reproduced (the running-sum order depends on it).
     /// Output has the source view size, rect (0,0,w,h). E = 4 (vec4, strictly sequential initial sum) or 1 (float, vectorised tree).</summary>
     public static ResImage BoxFilter(ResImage src, int W, int H)
@@ -174,7 +177,7 @@ internal static class ResAmpKernels
                         for (int e = 0; e < E; e++) S[e] = S[e] + B[j * E + e];
                 }
                 else
-                {   // float variant: two 4-lane accumulators (spec §3.3)
+                {   // float variant: two 4-lane accumulators
                     A.Clear(); Bc.Clear();
                     int G = n >> 3; int j = jStart; int g = 0;
                     for (; g + 4 <= G; g += 4, j += 32)
@@ -220,8 +223,8 @@ internal static class ResAmpKernels
         }
     }
 
-    // ---------------------------------------------------------------- §3.4 expression evaluators → uint8
-    /// <summary>`FUN_180445480`: mask = clamp(round_half_away(127·dot(A − B·rcpss(C.w + eps), w) + 127), 0, 255).</summary>
+    // ---------------------------------------------------------------- expression evaluators → uint8
+    /// <summary>Mask = clamp(round_half_away(127·dot(A − B·rcpss(C.w + eps), w) + 127), 0, 255).</summary>
     public static byte[] MaskVec4(ResImage A, ResImage B, ReadOnlySpan<float> w, float eps, float m, float a, out int w_, out int h_)
     {
         int W = A.W, H = A.H; w_ = W; h_ = H; var outp = new byte[W * H];
@@ -241,7 +244,7 @@ internal static class ResAmpKernels
         return outp;
     }
 
-    /// <summary>`FUN_180447280`: v = (A − rcpss(C + eps)·B)·m + a → u8 (float images, A = luma, B = boxLuma, C = boxAlpha).</summary>
+    /// <summary>V = (A − rcpss(C + eps)·B)·m + a → u8 (float images, A = luma, B = boxLuma, C = boxAlpha).</summary>
     public static byte[] FloatToU8(ResImage A, ResImage B, ResImage C, float eps, float m, float a)
     {
         int W = A.W, H = A.H; var outp = new byte[W * H];
@@ -265,7 +268,7 @@ internal static class ResAmpKernels
         return (byte)Cvtt(v2);
     }
 
-    // ---------------------------------------------------------------- §4.4 ImageConvSeparable2D<9,9,vec4x32f,float>
+    // ---------------------------------------------------------------- ImageConvSeparable2D<9,9,vec4x32f,float>
     /// <summary>Separable 9×9 conv: vertical pass first (columns c ∈ [minc,maxc) = [max(rect.x0,−4), min(rect.x1,w+4))) into a tmp row,
     /// then horizontal. Output = src view size, rect (0,0,w,h).</summary>
     public static ResImage Conv9(ResImage src, ReadOnlySpan<float> wV, ReadOnlySpan<float> wH)
@@ -335,7 +338,7 @@ internal static class ResAmpKernels
         return outp;
     }
 
-    // ---------------------------------------------------------------- §4.8 A::BilinearResample<vec4x32f>
+    // ---------------------------------------------------------------- A::BilinearResample<vec4x32f>
     /// <summary>16.16 bilinear: xpos = x·scx + offx; taps clamped to the source rect edges by region; vertical rows clamped.</summary>
     public static void BilinearResample(ResImage dst, ResImage src, double offX, double offY, double scX, double scY)
     {
@@ -383,7 +386,7 @@ internal static class ResAmpKernels
         }
     }
 
-    // ---------------------------------------------------------------- §6.2a ImageResample<4,vec4x32f> (cubic B-spline, 64 phases)
+    // ---------------------------------------------------------------- ImageResample<4,vec4x32f> (cubic B-spline, 64 phases)
     static readonly float[] BSplineTable = BuildBSpline();
     static float[] BuildBSpline()
     {
@@ -429,9 +432,11 @@ internal static class ResAmpKernels
                 int ix = rx >> 16, ph = (rx >> 10) & 63;
                 int i0 = src.Idx(Math.Clamp(ix - 1, src.RX0, src.RX1 - 1), sy), i1 = src.Idx(Math.Clamp(ix, src.RX0, src.RX1 - 1), sy);
                 int i2 = src.Idx(Math.Clamp(ix + 1, src.RX0, src.RX1 - 1), sy), i3 = src.Idx(Math.Clamp(ix + 2, src.RX0, src.RX1 - 1), sy);
-                float W0 = T[ph * 4], W1 = T[ph * 4 + 1], W2 = T[ph * 4 + 2], W3 = T[ph * 4 + 3];
-                for (int e = 0; e < 4; e++)
-                    row[x * 4 + e] = (W1 * src.Data[i1 + e] + W0 * src.Data[i0 + e]) + (W3 * src.Data[i3 + e] + W2 * src.Data[i2 + e]);
+                // the four lanes as one Vector128 (each lane its scalar steps)
+                var S = src.Data;
+                var s0 = Vector128.Create((ReadOnlySpan<float>)S.AsSpan(i0, 4)); var s1 = Vector128.Create((ReadOnlySpan<float>)S.AsSpan(i1, 4));
+                var s2 = Vector128.Create((ReadOnlySpan<float>)S.AsSpan(i2, 4)); var s3 = Vector128.Create((ReadOnlySpan<float>)S.AsSpan(i3, 4));
+                ((Vector128.Create(T[ph * 4 + 1]) * s1 + Vector128.Create(T[ph * 4]) * s0) + (Vector128.Create(T[ph * 4 + 3]) * s3 + Vector128.Create(T[ph * 4 + 2]) * s2)).CopyTo(row.AsSpan(x * 4, 4));
             }
             cache[sy] = row; return row;
         }
@@ -440,13 +445,17 @@ internal static class ResAmpKernels
             int ry = scy * y + offy; int iy = ry >> 16, ph = (ry >> 10) & 63;
             var r0 = Row(iy - 1); var r1 = Row(iy); var r2 = Row(iy + 1); var r3 = Row(iy + 2);
             float W0 = T[ph * 4], W1 = T[ph * 4 + 1], W2 = T[ph * 4 + 2], W3 = T[ph * 4 + 3];
-            int ob = dst.Idx(0, y);
-            for (int i = 0; i < w * 4; i++) dst.Data[ob + i] = (r1[i] * W1 + r0[i] * W0) + (r3[i] * W3 + r2[i] * W2);
+            int ob = dst.Idx(0, y), n = w * 4, i = 0;
+            var V0 = Vector256.Create(W0); var V1 = Vector256.Create(W1); var V2 = Vector256.Create(W2); var V3 = Vector256.Create(W3);
+            for (; i + 8 <= n; i += 8)
+                ((Vector256.Create((ReadOnlySpan<float>)r1.AsSpan(i, 8)) * V1 + Vector256.Create((ReadOnlySpan<float>)r0.AsSpan(i, 8)) * V0)
+                 + (Vector256.Create((ReadOnlySpan<float>)r3.AsSpan(i, 8)) * V3 + Vector256.Create((ReadOnlySpan<float>)r2.AsSpan(i, 8)) * V2)).CopyTo(dst.Data.AsSpan(ob + i, 8));
+            for (; i < n; i++) dst.Data[ob + i] = (r1[i] * W1 + r0[i] * W0) + (r3[i] * W3 + r2[i] * W2);
         }
     }
 
-    // ---------------------------------------------------------------- §6.4a FUN_180449620 N×N 4-tap cubic sample
-    /// <summary>`FUN_180449620(cubic16, dst N×N, src, pos)`: 16-phase Catmull-Rom, +1/32 bias, no clamping (pos in src data-pointer coords).</summary>
+    // ---------------------------------------------------------------- N×N 4-tap cubic sample
+    /// <summary>`SampleNxN(cubic16, dst N×N, src, pos)`: 16-phase Catmull-Rom, +1/32 bias, no clamping (pos in src data-pointer coords).</summary>
     public static void SampleNxN(float[] cubic16, float[] dst, int N, ResImage src, float posX, float posY)
     {
         float bias = F(0x3d000000);
@@ -459,26 +468,27 @@ internal static class ResAmpKernels
         for (int row = 0; row < N; row++)
         {
             int b0 = src.Idx(ix - 1, iy - 1 + row), b1 = b0 + src.Stride * 4, b2 = b1 + src.Stride * 4, b3 = b2 + src.Stride * 4;
+            // per pixel the four lanes as one Vector128 (each lane its scalar steps)
+            var S = src.Data; var Y0 = Vector128.Create(wy0); var Y1 = Vector128.Create(wy1); var Y2 = Vector128.Create(wy2); var Y3 = Vector128.Create(wy3);
             for (int c = 0; c < N + 3; c++)
-                for (int e = 0; e < 4; e++)
-                {
-                    float t = src.Data[b0 + c * 4 + e] * wy0;
-                    t = src.Data[b1 + c * 4 + e] * wy1 + t;
-                    t = src.Data[b2 + c * 4 + e] * wy2 + t;
-                    t = src.Data[b3 + c * 4 + e] * wy3 + t;
-                    tmp[c * 4 + e] = t;
-                }
+            {
+                var t = Vector128.Create((ReadOnlySpan<float>)S.AsSpan(b0 + c * 4, 4)) * Y0;
+                t = Vector128.Create((ReadOnlySpan<float>)S.AsSpan(b1 + c * 4, 4)) * Y1 + t;
+                t = Vector128.Create((ReadOnlySpan<float>)S.AsSpan(b2 + c * 4, 4)) * Y2 + t;
+                t = Vector128.Create((ReadOnlySpan<float>)S.AsSpan(b3 + c * 4, 4)) * Y3 + t;
+                t.CopyTo(tmp.AsSpan(c * 4, 4));
+            }
+            var X0 = Vector128.Create(wx0); var X1 = Vector128.Create(wx1); var X2 = Vector128.Create(wx2); var X3 = Vector128.Create(wx3);
             for (int x = 0; x < N; x++)
-                for (int e = 0; e < 4; e++)
-                {
-                    float a = tmp[(x + 1) * 4 + e] * wx1 + tmp[x * 4 + e] * wx0;
-                    float b = tmp[(x + 3) * 4 + e] * wx3 + tmp[(x + 2) * 4 + e] * wx2;
-                    dst[(row * N + x) * 4 + e] = b + a;
-                }
+            {
+                var a = Vector128.Create((ReadOnlySpan<float>)tmp.AsSpan((x + 1) * 4, 4)) * X1 + Vector128.Create((ReadOnlySpan<float>)tmp.AsSpan(x * 4, 4)) * X0;
+                var b = Vector128.Create((ReadOnlySpan<float>)tmp.AsSpan((x + 3) * 4, 4)) * X3 + Vector128.Create((ReadOnlySpan<float>)tmp.AsSpan((x + 2) * 4, 4)) * X2;
+                (b + a).CopyTo(dst.AsSpan((row * N + x) * 4, 4));
+            }
         }
     }
 
-    // ---------------------------------------------------------------- §6.1 FUN_18044bb30 border mirror
+    // ---------------------------------------------------------------- border mirror
     /// <summary>Mirror n px of the region [x0,x1)×[y0,y1) (data-pointer-relative) outwards into the allocation.</summary>
     public static void Mirror(ResImage img, int x0, int y0, int x1, int y1, int n)
     {
@@ -503,19 +513,19 @@ internal static class ResAmpKernels
 }
 
 /// <summary>An `ImageGenerator&lt;vec4x32f&gt;` (std::function + dims): renders the clamped rect [x0,x1)×[y0,y1) (generator coordinates)
-/// into the given view (whose (0,0) is (x0,y0)). The √-domain conversion (spec §1.5) is part of the generator (lambda_1/2/3).</summary>
+/// into the given view (whose (0,0) is (x0,y0)). The √-domain conversion is part of the generator (lambda_1/2/3).</summary>
 public sealed class ImageGenerator
 {
     public int W, H;
     public Action<ResImage, int, int, int, int> Render;
     public ImageGenerator(int w, int h, Action<ResImage, int, int, int, int> render) { W = w; H = h; Render = render; }
 
-    /// <summary>Wrap a raw float-RGBA source (e.g. the reference/L1 render) with `FUN_1804e4250` (√ of max(·,0)).</summary>
+    /// <summary>Wrap a raw float-RGBA source (e.g. the reference/L1 render) with √ of max(·,0).</summary>
     public static ImageGenerator SqrtOf(int w, int h, Func<RectI, float[]> raw) => new(w, h, (view, x0, y0, x1, y1) =>
     {
         var src = raw(new RectI(x0, y0, x1, y1)); ResAmpKernels.SqrtDomain(src); CopyInto(view, src, x1 - x0, y1 - y0);
     });
-    /// <summary>Wrap a raw tele tile-cache source with gain + √ (`initResAmp::lambda_3` / `FUN_1804e4600`).</summary>
+    /// <summary>Wrap a raw tele tile-cache source with gain + √ (`initResAmp::lambda_3`).</summary>
     public static ImageGenerator GainSqrtOf(int w, int h, float gain, Func<RectI, float[]> raw) => new(w, h, (view, x0, y0, x1, y1) =>
     {
         var src = raw(new RectI(x0, y0, x1, y1)); ResAmpKernels.GainSqrtDomain(src, gain); CopyInto(view, src, x1 - x0, y1 - y0);

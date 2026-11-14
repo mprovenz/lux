@@ -1,0 +1,45 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             xmlns:c="using:Lux.App.Controls"
+             x:Class="Lux.App.Views.AnimationPlayer"
+             x:DataType="vm:AnimationPlayerViewModel">
+  <!-- The animation preview on the page's picture area: frames as they arrive ("Processing image" over the blurred photo until the first),
+       play / pause, step, scrub, loop; clicks pick focus points while the panel asks for one. -->
+  <DockPanel Background="{DynamicResource LuxGround}">
+    <Border DockPanel.Dock="Bottom" Classes="toolbar" Padding="12,6" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,1,0,0">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
+        <Button Classes="small" Content="‹" Command="{Binding StepBackCommand}" ToolTip.Tip="Previous frame (Left)" AutomationProperties.Name="Previous frame" MinWidth="36" />
+        <Button Grid.Column="1" Classes="primary small" Content="{Binding PlayLabel}" Command="{Binding TogglePlayCommand}" MinWidth="72"
+                ToolTip.Tip="Play or pause the preview (Space)" AutomationProperties.Name="Play or pause" />
+        <Button Grid.Column="2" Classes="small" Content="›" Command="{Binding StepForwardCommand}" ToolTip.Tip="Next frame (Right)" AutomationProperties.Name="Next frame" MinWidth="36" />
+        <Panel Grid.Column="3" Margin="8,0" VerticalAlignment="Center">
+          <Slider Minimum="0" Maximum="{Binding MaxPosition}" Value="{Binding Position}" SmallChange="1" LargeChange="4" IsSnapToTickEnabled="True"
+                  TickFrequency="1" VerticalAlignment="Center" AutomationProperties.Name="Frame" />
+          <!-- the ready range: which frames are made (the player never plays over the others) -->
+          <c:FrameReadyStrip x:Name="ReadyStrip" Ready="{Binding ReadyPositions}" Height="3" VerticalAlignment="Bottom" Margin="0,0,0,2" IsHitTestVisible="False"
+                             ToolTip.Tip="Frames ready" />
+        </Panel>
+        <TextBlock Grid.Column="4" Classes="mono small" Text="{Binding Counter}" VerticalAlignment="Center" MinWidth="64" TextAlignment="Right" />
+        <ToggleButton Grid.Column="5" Classes="seg" IsChecked="{Binding Loop}" Content="Loop" MinHeight="32" Padding="10,0"
+                      ToolTip.Tip="Play again from the start" AutomationProperties.Name="Loop" />
+      </Grid>
+    </Border>
+    <Border DockPanel.Dock="Top" Padding="12,6" Background="{DynamicResource LuxBar}">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Classes="small secondary trim" Text="{Binding FrameLabel}" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="1" Classes="small secondary" Text="{Binding Status}" VerticalAlignment="Center" Classes.warning="{Binding HasError}" />
+      </Grid>
+    </Border>
+    <Panel Margin="16">
+      <c:ImageStateView Source="{Binding Placeholder}" Orientation="{Binding PlaceholderRotation}" State="Processing" Label="{Binding WaitingLabel}" Progress="{Binding Progress}"
+                        IsVisible="{Binding IsWaiting}" Placeholder="{DynamicResource LuxPlaceholder}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Width="520" Height="390" />
+      <c:AnimationFrameView x:Name="FrameView" Frame="{Binding Frame}" Markers="{Binding Markers}" IsPicking="{Binding IsPicking}" Rotation="{Binding Rotation}"
+                            Preparing="{Binding PreparingText}" AutomationProperties.Name="Animation preview" Focusable="True" />
+      <Border Classes="note" IsVisible="{Binding IsPicking}" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,8,0,0" Padding="12,6">
+        <TextBlock Text="{Binding PickHint}" />
+      </Border>
+    </Panel>
+  </DockPanel>
+</UserControl>

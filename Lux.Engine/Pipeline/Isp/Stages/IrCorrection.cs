@@ -6,11 +6,10 @@ namespace Lux.Engine.Pipeline.Isp.Stages;
 
 /// <summary>
 /// The IR-correction database and blend estimate that feed `CrossTalkCorrection:ir_correction`
-/// (`FUN_1801386a0` cell prep, `FUN_180133db0` → `FUN_1801318c0` ratio maps, `FUN_180131ad0` masked node
-/// averages, `FUN_180132630` fit; histogram quantile `FUN_180420920`). The database is nine 17×13 vec4 gain maps
-/// baked into cp.dll (.rdata `DAT_18068c680…18069bf20`), three variants (A/B/C) × {AR835/AR1335 per camera group
-/// A/B/C with a "spectral" flag variant, IMX386 single}. Node gain = (p − 1)·0.75 + 1 per site (`_DAT_18068c230`,
-/// `_DAT_180687510`), p = B·(1−blend) + A·blend, or the C map when blend = −1.
+/// (Lumen's cell prep, ratio maps, masked node averages, fit and histogram quantile). The database is nine 17×13 vec4
+/// gain maps baked into Lumen, three variants (A/B/C) × {AR835/AR1335 per camera group
+/// A/B/C with a "spectral" flag variant, IMX386 single}. Node gain = (p − 1)·0.75 + 1 per site,
+/// p = B·(1−blend) + A·blend, or the C map when blend = −1.
 /// </summary>
 public static class IrCorrection
 {
@@ -24,9 +23,9 @@ public static class IrCorrection
     }
     // layout of the resource: [A,flagA,B,flagB,C,flagC] × 3 groups × 221 vec4 (types 1/2), then [A,B,C] × 221 vec4 (type 4)
     const int NodeCount = Cols * Rows, GroupFloats = NodeCount * 4;
-    static readonly int[] GroupOfCamera = { 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2 };   // DAT_18068be60 (FUN_18012a380)
+    static readonly int[] GroupOfCamera = { 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2 };
 
-    /// <summary>Variant 0 = A (`FUN_1801337e0`), 1 = B (`FUN_1801339d0`), 2 = C (`FUN_180133bc0`).</summary>
+    /// <summary>Variant 0 = A, 1 = B, 2 = C.</summary>
     public static ReadOnlySpan<float> Table(int variant, int sensorType, int cameraId, bool flag)
     {
         if (sensorType == 4) return Tables.AsSpan(6 * 3 * GroupFloats + variant * GroupFloats, GroupFloats);
@@ -36,9 +35,9 @@ public static class IrCorrection
         return Tables.AsSpan(((variant * 2 + (flag ? 1 : 0)) * 3 + g) * GroupFloats, GroupFloats);
     }
 
-    /// <summary>`FUN_1801386a0` for a 17×13 model: the per-node vec4 gain map p = (R, G, B, ·) (blend ≥ 0: B·(1−blend) + A·blend,
+    /// <summary>The cell prep for a 17×13 model: the per-node vec4 gain map p = (R, G, B, ·) (blend ≥ 0: B·(1−blend) + A·blend,
     /// else the C map) and the 4×4 diagonal cell matrices diag(f(p_R), f(p_G), f(p_G), f(p_B)) with f(x) = (x + (−1))·0.75 + 1
-    /// (L266–303: lane 1 is stored to both green diagonals, `extractps(…,2)` to the blue one).</summary>
+    /// (lane 1 is stored to both green diagonals, lane 2 to the blue one).</summary>
     public static float[] CellMatrices(float blend, int sensorType, int cameraId, bool flag)
     {
         var p = new float[GroupFloats];
@@ -58,7 +57,7 @@ public static class IrCorrection
         return cv;
     }
 
-    /// <summary>`FUN_1801318c0`: half-resolution R/G and B/G ratio maps of the raw frame (quad greens averaged).</summary>
+    /// <summary>Half-resolution R/G and B/G ratio maps of the raw frame (quad greens averaged).</summary>
     public static (float[] A, float[] B, int W2, int H2) RatioMaps(ushort[] raw, int w, int h, int stride, int redX, int redY)
     {
         int w2 = w / 2, h2 = h / 2;
@@ -78,9 +77,9 @@ public static class IrCorrection
         return (A, B, w2, h2);
     }
 
-    const float GradientLimit = 0.02f;   // DAT_18068c1e4
+    const float GradientLimit = 0.02f;
 
-    /// <summary>`FUN_180131ad0`: gradient masks (√(dx²+dy²) where the summed gradient energy ≤ 0.02, else 0; first
+    /// <summary>Gradient masks (√(dx²+dy²) where the summed gradient energy ≤ 0.02, else 0; first
     /// row/column 0) and per-node averages of the ratio maps over mask &gt; 0 (1.0 when a node has no sample).
     /// Returns cols×rows vec4 (R/G, 0, B/G, 0).</summary>
     public static float[] NodeRatios(float[] A, float[] B, int w2, int h2, int cols, int rows)
@@ -128,9 +127,9 @@ public static class IrCorrection
         return nodes;
     }
 
-    const float Step = 0.052631579f;   // DAT_18068c1ec = 1/19
-    const float InitialBest = 1e9f;    // DAT_18068c1e8
-    const float LightHi = 6504070f, LightLo = 2504070f, CctLo = 3000f, CctHi = 5000f;   // DAT_18068c1f0/1fc/1f4/1f8
+    const float Step = 0.052631579f;   // 1/19
+    const float InitialBest = 1e9f;
+    const float LightHi = 6504070f, LightLo = 2504070f, CctLo = 3000f, CctHi = 5000f;
 
     static float RcpNr(int n)
     {
@@ -170,7 +169,7 @@ public static class IrCorrection
         return v2 * inv + v0 * inv;
     }
 
-    /// <summary>`FUN_180132630`: the blend p ∈ {k/19} minimising the score, or −1 when the C map scores better under
+    /// <summary>The fit: the blend p ∈ {k/19} minimising the score, or −1 when the C map scores better under
     /// 3000 ≤ CCT &lt; 5000 and 2504070 ≤ light &lt; 6504070.</summary>
     public static float FitBlend(float[] nodes, int cols, int rows, int cameraId, float cct, float light, int sensorType, bool flag)
     {
@@ -194,7 +193,7 @@ public static class IrCorrection
         return bestP;
     }
 
-    /// <summary>`FUN_180420920(hist, black, white, density)`: (first bin whose cumulative count ≥ density·total − black)/(white − black).</summary>
+    /// <summary>Histogram quantile (hist, black, white, density): (first bin whose cumulative count ≥ density·total − black)/(white − black).</summary>
     public static float HistogramQuantile(long[] hist, float black, float white, float density)
     {
         ulong total = 0; var cum = new ulong[hist.Length];
@@ -206,7 +205,7 @@ public static class IrCorrection
         return ((float)idx - black) / (white - black);
     }
 
-    /// <summary>`FUN_180410ac0` L200–213: light = quantile(hist site, 0.5)·analog gain·(float)exposure_ns.</summary>
+    /// <summary>The light level of the ISP stats: quantile(hist site, 0.5)·analog gain·(float)exposure_ns.</summary>
     public static float LightLevel(long[] hist, float black, float white, float analogGain, ulong exposureNs)
         => HistogramQuantile(hist, black, white, 0.5f) * analogGain * (float)exposureNs;
 }

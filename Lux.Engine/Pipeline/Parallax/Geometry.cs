@@ -4,9 +4,7 @@ using Lux.Engine.Pipeline.Registration;
 
 namespace Lux.Engine.Pipeline.Parallax;
 
-/// <summary>The geometry a depth-image-based render needs, all of it derived from the capture rather than assumed.
-/// Spec `a-parallax-experiments.md` §2 for how <see cref="FocalPx"/> was derived and then measured against the real
-/// modules (joint gain 0.9920 / 0.9885 / 1.0072 over three captures).</summary>
+/// <summary>The geometry a depth-image-based render needs, all of it derived from the capture rather than assumed.</summary>
 public sealed class ParallaxGeometry
 {
     /// <summary>Focal length in pixels **of the export image actually produced**, i.e. of
@@ -34,9 +32,7 @@ public sealed class ParallaxGeometry
       + $"(export/canvas = {1.0 / ExportToCanvas:F6})";
 
     /// <summary>Baseline of module <paramref name="name"/> relative to the reference module, in millimetres, in the
-    /// image's own axes. The extrinsics' Y already runs with the image rows — established by measurement (fitting the
-    /// x and y parallax gains apart gives gy = +0.84/+0.88 with this convention and −0.87/−0.83 with the other, spec
-    /// `a-parallax-experiments.md` §2.2), so no sign is applied.</summary>
+    /// image's own axes. The extrinsics' Y already runs with the image rows, so no sign is applied.</summary>
     public (double X, double Y) BaselineOf(string name, string refName)
     {
         var a = Centres[name]; var b = Centres[refName];

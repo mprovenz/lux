@@ -1,0 +1,110 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             x:Class="Lux.App.Views.ExportPanel"
+             x:DataType="vm:ExportPanelViewModel">
+  <!-- The export options as a side panel on the page the export starts from (S-Export, left half). -->
+  <Border Classes="sidepanel" Width="{DynamicResource LuxSidePanelWidth}">
+    <DockPanel>
+      <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,1,0,0" Padding="16,12">
+        <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto">
+          <TextBlock Grid.ColumnSpan="3" Classes="secondary wrap" Text="{Binding Estimate}" Margin="0,0,0,10" />
+          <TextBlock Grid.Row="1" Classes="warning wrap" Text="{Binding Error}" VerticalAlignment="Center"
+                     IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <Button Grid.Row="1" Grid.Column="1" Content="Cancel" Command="{Binding CancelCommand}" Margin="8,0,8,0" />
+          <Button Grid.Row="1" Grid.Column="2" Classes="primary" Content="{Binding AddLabel}" Command="{Binding AddToQueueCommand}" IsEnabled="{Binding CanAdd}" />
+        </Grid>
+      </Border>
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="16" Margin="16">
+          <StackPanel Spacing="4">
+            <TextBlock Classes="heading" Text="{Binding Title}" />
+            <TextBlock Classes="secondary" Text="{Binding NamesLine}" />
+          </StackPanel>
+          <StackPanel Spacing="6">
+            <TextBlock Classes="strong" Text="Formats" />
+            <ItemsControl ItemsSource="{Binding Formats}" AutomationProperties.Name="Formats">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:FormatOption">
+                  <CheckBox Classes="optionrow" IsChecked="{Binding IsOn}" IsEnabled="{Binding IsAvailable}" AutomationProperties.Name="{Binding Name}">
+                    <Grid ColumnDefinitions="110,*">
+                      <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="1" Classes="secondary small" Text="{Binding Note}" VerticalAlignment="Center" />
+                    </Grid>
+                  </CheckBox>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+          <StackPanel Spacing="10">
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12">
+              <TextBlock Text="Size" VerticalAlignment="Center" />
+              <ComboBox Grid.Column="1" ItemsSource="{Binding Sizes}" SelectedItem="{Binding Size}" AutomationProperties.Name="Size" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*,Auto" ColumnSpacing="12" IsVisible="{Binding IsCustomSize}">
+              <TextBlock Text="Long edge" VerticalAlignment="Center" />
+              <TextBox Grid.Column="1" Classes="mono" Text="{Binding CustomEdge}" AutomationProperties.Name="Long edge, pixels" />
+              <TextBlock Grid.Column="2" Classes="secondary small" Text="px, the photo's proportions" VerticalAlignment="Center" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12">
+              <TextBlock Text="Edits" VerticalAlignment="Center" />
+              <ComboBox Grid.Column="1" ItemsSource="{Binding EditChoices}" SelectedItem="{Binding Edits}" AutomationProperties.Name="Edits" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12">
+              <TextBlock Text="Depth effect" VerticalAlignment="Center" />
+              <ComboBox Grid.Column="1" ItemsSource="{Binding DepthChoices}" SelectedItem="{Binding DepthEffect}" AutomationProperties.Name="Depth effect" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*,Auto" ColumnSpacing="12" IsVisible="{Binding IsSetAperture}">
+              <TextBlock Text="Aperture" VerticalAlignment="Center" />
+              <Slider Grid.Column="1" Minimum="1.4" Maximum="16" SmallChange="0.1" LargeChange="1" Value="{Binding FNumber}" AutomationProperties.Name="Aperture" />
+              <TextBlock Grid.Column="2" Classes="mono" Text="{Binding FNumberText}" VerticalAlignment="Center" MinWidth="44" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12" RowDefinitions="Auto,Auto" RowSpacing="4">
+              <TextBlock Text="Orientation" VerticalAlignment="Center" />
+              <ComboBox Grid.Column="1" x:Name="OrientationChoice" ItemsSource="{Binding OrientationChoices}" SelectedItem="{Binding Orientation}" AutomationProperties.Name="Orientation"
+                        ToolTip.Tip="For photos shown the way the camera was held: turn the file the same way, or write it as the camera recorded it" />
+              <TextBlock Grid.Row="1" Grid.Column="1" Classes="small secondary wrap" Text="{Binding OrientationHint}" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12" IsVisible="{Binding JpgChosen}">
+              <TextBlock Text="Colour profile" VerticalAlignment="Center" />
+              <CheckBox Grid.Column="1" x:Name="EmbedProfileBox" IsChecked="{Binding EmbedColorProfile}" Content="Embed the sRGB profile in JPG files"
+                        AutomationProperties.Name="Embed the sRGB profile in JPG files"
+                        ToolTip.Tip="Off: JPG files as Lumen writes them (no profile; apps assume sRGB). On: the sRGB profile is added, for apps that need it." />
+            </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12">
+              <TextBlock Text="Tone style" VerticalAlignment="Center" />
+              <ComboBox Grid.Column="1" ItemsSource="{Binding ToneChoices}" SelectedItem="{Binding ToneStyle}" AutomationProperties.Name="Tone style"
+                        ToolTip.Tip="Lumen's newer tone style is kept with photos whose Lumen edits were imported with it" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*,Auto" ColumnSpacing="12">
+              <TextBlock Text="Folder" VerticalAlignment="Center" />
+              <TextBox Grid.Column="1" Classes="tall mono" Text="{Binding Folder}" AutomationProperties.Name="Export folder" />
+              <Button Grid.Column="2" Content="Choose…" Command="{Binding ChooseFolderCommand}" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12" RowDefinitions="Auto,Auto" RowSpacing="4">
+              <TextBlock Text="File names" VerticalAlignment="Center" />
+              <TextBox Grid.Column="1" Classes="mono" Text="{Binding FileName}" AutomationProperties.Name="File names"
+                       ToolTip.Tip="{}{name} = the photo's file name, {date} = the capture date, {time} = the capture time" />
+              <StackPanel Grid.Row="1" Grid.Column="1" Spacing="2">
+                <TextBlock Classes="small mono secondary trim" Text="{Binding FileNamePreview}" />
+                <TextBlock Classes="small secondary wrap" Text="{Binding CollisionNote}" />
+              </StackPanel>
+            </Grid>
+          </StackPanel>
+          <Border Classes="card" IsVisible="{Binding CanAnimate}">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel Spacing="2" VerticalAlignment="Center">
+                <TextBlock Classes="medium" Text="Animated effects" />
+                <TextBlock Classes="small secondary wrap" Text="Rack focus, aperture sweep, wigglegram, parallax and a lens tour have their own panel with a live preview." />
+              </StackPanel>
+              <Button Grid.Column="1" Content="Animate…" Command="{Binding AnimateCommand}" VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+          <Border Classes="note">
+            <TextBlock Classes="wrap" Text="{x:Static vm:ExportPanelViewModel.Note}" />
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </DockPanel>
+  </Border>
+</UserControl>

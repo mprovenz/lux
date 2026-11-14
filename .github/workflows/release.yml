@@ -1,4 +1,10 @@
-# Manual release builder for lux-light.
+# Manual release builder for Lux: the desktop app and lux-light.
+#
+# Per platform (Linux x64, Windows x64) it publishes, through packaging/pack.sh:
+#   lux-<version>-<rid>         plain archive with the app and lux-light (no installer, no self-update)
+#   lux-light-<version>-<rid>   the command line tool alone
+#   the installed build         Lux-win-Setup.exe / Lux.AppImage, which update themselves from this repository's releases
+#                               (the *.nupkg and releases.<channel>.json files attached to the release are their update feed)
 
 name: Release
 
@@ -17,7 +23,6 @@ on:
           - all
           - linux
           - windows
-          - macos
       draft:
         description: "Create the release as a draft"
         type: boolean
@@ -65,11 +70,8 @@ jobs:
           PLATFORMS: ${{ inputs.platforms }}
         run: |
           all='[
-            {"family": "linux",   "os": "ubuntu-latest",  "rid": "linux-x64",   "native": true},
-            {"family": "linux",   "os": "ubuntu-latest",  "rid": "linux-arm64", "native": false},
-            {"family": "windows", "os": "windows-latest", "rid": "win-x64",     "native": true},
-            {"family": "macos",   "os": "macos-latest",   "rid": "osx-arm64",   "native": true},
-            {"family": "macos",   "os": "macos-latest",   "rid": "osx-x64",     "native": false}
+            {"family": "linux",   "os": "ubuntu-latest",  "rid": "linux-x64"},
+            {"family": "windows", "os": "windows-latest", "rid": "win-x64"}
           ]'
           if [ "$PLATFORMS" = all ]; then
             sel=$(jq -c '{include: .}' <<< "$all")
@@ -93,50 +95,26 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Publish
+      - name: Package
         shell: bash
         env:
           RID: ${{ matrix.rid }}
           MSBUILD_VERSION: ${{ needs.plan.outputs.msbuild_version }}
-        run: |
-          dotnet publish Lux.Cli/Lux.Cli.csproj -c Release -r "$RID" --self-contained true \
-            -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none \
-            -p:Version="$MSBUILD_VERSION" -o "publish/$RID"
-          cp LICENSE README.md "publish/$RID/"
-          ls -la "publish/$RID"
+        run: packaging/pack.sh "$MSBUILD_VERSION" "$RID" dist
 
       - name: Smoke test
-        if: matrix.native
         shell: bash
         env:
           RID: ${{ matrix.rid }}
         run: |
-          exe="publish/$RID/lux-light"
+          exe="artifacts/pack/$RID/cli/lux-light"
           [ -f "$exe.exe" ] && exe="$exe.exe"
           "$exe" --help | head -3
-
-      - name: Package (tar.gz)
-        if: runner.os != 'Windows'
-        env:
-          RID: ${{ matrix.rid }}
-          VERSION: ${{ needs.plan.outputs.version }}
-        run: |
-          mkdir -p dist
-          tar -C "publish/$RID" -czf "dist/lux-light-$VERSION-$RID.tar.gz" .
-
-      - name: Package (zip)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          RID: ${{ matrix.rid }}
-          VERSION: ${{ needs.plan.outputs.version }}
-        run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path "publish/$env:RID/*" -DestinationPath "dist/lux-light-$env:VERSION-$env:RID.zip"
+          "$exe" version || true
 
       - uses: actions/upload-artifact@v7
         with:
-          name: lux-light-${{ matrix.rid }}
+          name: lux-${{ matrix.rid }}
           path: dist/*
           if-no-files-found: error
 
@@ -163,7 +141,7 @@ jobs:
           DRAFT: ${{ inputs.draft }}
           PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          args=(--repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "lux-light $VERSION" --generate-notes)
+          args=(--repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Lux $VERSION" --generate-notes)
           if [ "$DRAFT" = true ]; then args+=(--draft); fi
           if [ "$PRERELEASE" = true ]; then args+=(--prerelease); fi
           gh release create "$VERSION" dist/* "${args[@]}"

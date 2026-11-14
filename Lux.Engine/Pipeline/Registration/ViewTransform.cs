@@ -21,12 +21,12 @@ public sealed class CalibDataFull
     public CalibData Basic() => new() { K = (float[])K.Clone(), T = (float[])T.Clone(), R = (float[])R.Clone() };
 }
 
-/// <summary>The 0x88-byte view-transform `Pose` consumed by `FUN_1802e1580`.</summary>
+/// <summary>The view-transform `Pose` that `ViewTransform.Apply` consumes.</summary>
 public sealed class ViewPose
 {
     public float[] P = new float[9], U = new float[3], Q = new float[9];
     public (float X, float Y) Scale1 = (1, 1), Shift1, Scale2 = (1, 1), Shift2, Shift3, Scale3 = (1, 1);
-    /// <summary>`FUN_1802e4290`: P = I, U = 0, unit scales, zero shifts, Q = I.</summary>
+    /// <summary>P = I, U = 0, unit scales, zero shifts, Q = I.</summary>
     public static ViewPose Identity() => new() { P = new float[] { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, Q = new float[] { 1, 0, 0, 0, 1, 0, 0, 0, 1 } };
     public static ViewPose FromBytes(byte[] b)
     {
@@ -41,7 +41,7 @@ public sealed class ViewPose
     }
 }
 
-/// <summary>`FUN_1802e1580` (view transform), `FUN_1803086a0` (shift), `FUN_1803081a0` (scale), op-exact per the decompilation.</summary>
+/// <summary>View transform, shift and scale, with Lumen's exact operation order.</summary>
 public static class ViewTransform
 {
     public static CalibDataFull Shift(CalibDataFull c, float dx, float dy)
@@ -81,8 +81,8 @@ public static class ViewTransform
     }
 }
 
-/// <summary>4×4 double helpers of the flow/projection matrices: `FUN_1800c2ea0` (scalar adjugate inverse, exact op list),
-/// `FUN_1803014c0` (`((k3+k2)+(k1+k0))` product), `FUN_1803010a0` (`M = (K_B·E_B)·(K_A·E_A)⁻¹` rounded to float, column-major).</summary>
+/// <summary>4×4 double helpers of the flow/projection matrices: scalar adjugate inverse (exact op list),
+/// `((k3+k2)+(k1+k0))` product, `M = (K_B·E_B)·(K_A·E_A)⁻¹` rounded to float, column-major.</summary>
 public static class Mat4D
 {
     public static double[] Mul(double[] a, double[] b)
@@ -122,7 +122,7 @@ public static class Mat4D
     static double[] Kd(CalibData c) { var k = new double[16]; for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) k[4 * i + j] = c.K[3 * i + j]; k[15] = 1.0; return k; }
     static double[] Ed(CalibData c) { var e = new double[16]; for (int i = 0; i < 3; i++) { for (int j = 0; j < 3; j++) e[4 * i + j] = c.R[3 * i + j]; e[4 * i + 3] = c.T[i]; } e[15] = 1.0; return e; }
 
-    /// <summary>`FUN_1803010a0`: column-major float `M = (K_B·E_B)·(K_A·E_A)⁻¹` (A → B projective map).</summary>
+    /// <summary>Column-major float `M = (K_B·E_B)·(K_A·E_A)⁻¹` (A → B projective map).</summary>
     public static float[] FlowMatrix(CalibData a, CalibData b)
     {
         var P1 = Mul(Kd(b), Ed(b)); var P2 = Mul(Kd(a), Ed(a));

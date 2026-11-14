@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Lux
+GenericName=Light L16 photo developer
+Comment=Develop, edit and export photos from the Light L16 camera
+Exec=lux-app %F
+Icon=lux
+Terminal=false
+Categories=Graphics;Photography;
+StartupWMClass=lux-app

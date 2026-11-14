@@ -7,10 +7,10 @@ using System.Runtime.Intrinsics.X86;
 namespace Lux.Engine.Pipeline.ResAmp;
 
 /// <summary>
-/// Lumen 2.3 cp.dll super-resolution merge of one module 16×16 vec4 patch into the tile workspace:
-/// <c>FUN_180442d60(ws, blk) → float</c> (disasm 1135519–1136777), plus its two leaf helpers
-/// <c>FUN_180448020</c> (gain normalise) and <c>FUN_180448250</c> (8×8 LL SSIM).
-/// Transcribed 1:1 from the disassembly: every lane op is one IEEE-single op in the machine's association order,
+/// Lumen 2.3 super-resolution merge of one module 16×16 vec4 patch into the tile workspace:
+/// <c>Run(ws, blk) → float</c>, plus its two leaf helpers
+/// <c>GainNormalise</c> (gain normalise) and <c>Ssim8x8</c> (8×8 LL SSIM).
+/// Every lane op is one IEEE-single op in Lumen's association order,
 /// rcpps/rcpss/rsqrtss are the raw host approximations (no Newton step unless the code does one),
 /// max/min follow Intel semantics (second operand returned when either is NaN).
 /// <para>
@@ -24,45 +24,45 @@ namespace Lux.Engine.Pipeline.ResAmp;
 /// </summary>
 internal static class ModuleMerge
 {
-    // ---------------------------------------------------------------- constants (bit patterns read from the DLL)
-    static readonly float A   = BitConverter.Int32BitsToSingle(0x3fcb0673);                 // 1806aebc0  a   =  1.5861343
-    static readonly float A2  = BitConverter.Int32BitsToSingle(0x404b0673);                 // 1806aebd0  2a  =  3.1722686
-    static readonly float NA2 = BitConverter.Int32BitsToSingle(unchecked((int)0xc04b0673)); // 1806dead0  -2a = -3.1722686
-    static readonly float B   = BitConverter.Int32BitsToSingle(unchecked((int)0xbd5901ae)); // 1806aebe0  b   = -0.05298012
-    static readonly float B2  = BitConverter.Int32BitsToSingle(unchecked((int)0xbdd901ae)); // 1806aebf0  2b  = -0.10596023
-    static readonly float K   = BitConverter.Int32BitsToSingle(0x3f93263d);                 // 1806aec20  K   =  1.1496044
-    static readonly float IK  = BitConverter.Int32BitsToSingle(0x3f5eaf6f);                 // 1806aec30  iK  =  0.8698644
-    static readonly float D   = BitConverter.Int32BitsToSingle(unchecked((int)0xbfc49c7f)); // 1806dea80  d   = -1.5360259
-    static readonly float D2  = BitConverter.Int32BitsToSingle(unchecked((int)0xbf449c7f)); // 1806dea90  d2  = -0.7680129
-    static readonly float E   = BitConverter.Int32BitsToSingle(0x3f160ce8);                 // 1806deaa0  e   =  0.5861344
-    static readonly float E2  = BitConverter.Int32BitsToSingle(0x3f960ce8);                 // 1806deab0  2e  =  1.1722689
+    // ---------------------------------------------------------------- constants (the exact bit patterns that Lumen uses)
+    static readonly float A   = BitConverter.Int32BitsToSingle(0x3fcb0673);                 // a   =  1.5861343
+    static readonly float A2  = BitConverter.Int32BitsToSingle(0x404b0673);                 // 2a  =  3.1722686
+    static readonly float NA2 = BitConverter.Int32BitsToSingle(unchecked((int)0xc04b0673)); // -2a = -3.1722686
+    static readonly float B   = BitConverter.Int32BitsToSingle(unchecked((int)0xbd5901ae)); // b   = -0.05298012
+    static readonly float B2  = BitConverter.Int32BitsToSingle(unchecked((int)0xbdd901ae)); // 2b  = -0.10596023
+    static readonly float K   = BitConverter.Int32BitsToSingle(0x3f93263d);                 // K   =  1.1496044
+    static readonly float IK  = BitConverter.Int32BitsToSingle(0x3f5eaf6f);                 // iK  =  0.8698644
+    static readonly float D   = BitConverter.Int32BitsToSingle(unchecked((int)0xbfc49c7f)); // d   = -1.5360259
+    static readonly float D2  = BitConverter.Int32BitsToSingle(unchecked((int)0xbf449c7f)); // d2  = -0.7680129
+    static readonly float E   = BitConverter.Int32BitsToSingle(0x3f160ce8);                 // e   =  0.5861344
+    static readonly float E2  = BitConverter.Int32BitsToSingle(0x3f960ce8);                 // 2e  =  1.1722689
 
-    static readonly float Inv256 = BitConverter.Int32BitsToSingle(0x3b800000); // 1806aebb0  1/256 ×4
-    static readonly float Inv192 = BitConverter.Int32BitsToSingle(0x3baaaaab); // 1806bbad0  1/192 (scalar)
-    static readonly float Inv96  = BitConverter.Int32BitsToSingle(0x3c2aaaab); // 1806deb30  1/96  (lane 0 of (1/96,1/48,1/24,0))
-    static readonly float Inv48  = BitConverter.Int32BitsToSingle(0x3caaaaab); // 1806deb34  1/48
-    static readonly float Inv24  = BitConverter.Int32BitsToSingle(0x3d2aaaab); // 1806deb38  1/24
-    static readonly float Inv64  = BitConverter.Int32BitsToSingle(0x3c800000); // 1806deb60  1/64 ×4
-    static readonly float Inv16  = BitConverter.Int32BitsToSingle(0x3d800000); // 180682450  1/16 ×4
-    static readonly float Quarter = BitConverter.Int32BitsToSingle(0x3e800000); // 180681eb0 (×4) / 180681ed0 (scalar) 0.25
-    static readonly float Half   = BitConverter.Int32BitsToSingle(0x3f000000); // 180682404  0.5
-    static readonly float Eighth = BitConverter.Int32BitsToSingle(0x3e000000); // 180685d40  0.125
-    static readonly float Eight  = BitConverter.Int32BitsToSingle(0x41000000); // 180685d4c  8.0
-    static readonly float P05    = BitConverter.Int32BitsToSingle(0x3d4ccccd); // 180681ed4  0.05
-    static readonly float One    = BitConverter.Int32BitsToSingle(0x3f800000); // 180681c78  1.0
-    static readonly float NegHalf = BitConverter.Int32BitsToSingle(unchecked((int)0xbf000000)); // 180681c7c -0.5
-    static readonly float NegThree = BitConverter.Int32BitsToSingle(unchecked((int)0xc0400000)); // 180681c80 -3.0
-    static readonly float Eps    = BitConverter.Int32BitsToSingle(0x3727c5ac); // 18068b2e0  1e-5 ×4
+    static readonly float Inv256 = BitConverter.Int32BitsToSingle(0x3b800000); // 1/256 ×4
+    static readonly float Inv192 = BitConverter.Int32BitsToSingle(0x3baaaaab); // 1/192 (scalar)
+    static readonly float Inv96  = BitConverter.Int32BitsToSingle(0x3c2aaaab); // 1/96  (lane 0 of (1/96,1/48,1/24,0))
+    static readonly float Inv48  = BitConverter.Int32BitsToSingle(0x3caaaaab); // 1/48
+    static readonly float Inv24  = BitConverter.Int32BitsToSingle(0x3d2aaaab); // 1/24
+    static readonly float Inv64  = BitConverter.Int32BitsToSingle(0x3c800000); // 1/64 ×4
+    static readonly float Inv16  = BitConverter.Int32BitsToSingle(0x3d800000); // 1/16 ×4
+    static readonly float Quarter = BitConverter.Int32BitsToSingle(0x3e800000); // 0.25 (×4 and scalar)
+    static readonly float Half   = BitConverter.Int32BitsToSingle(0x3f000000); // 0.5
+    static readonly float Eighth = BitConverter.Int32BitsToSingle(0x3e000000); // 0.125
+    static readonly float Eight  = BitConverter.Int32BitsToSingle(0x41000000); // 8.0
+    static readonly float P05    = BitConverter.Int32BitsToSingle(0x3d4ccccd); // 0.05
+    static readonly float One    = BitConverter.Int32BitsToSingle(0x3f800000); // 1.0
+    static readonly float NegHalf = BitConverter.Int32BitsToSingle(unchecked((int)0xbf000000)); // -0.5
+    static readonly float NegThree = BitConverter.Int32BitsToSingle(unchecked((int)0xc0400000)); // -3.0
+    static readonly float Eps    = BitConverter.Int32BitsToSingle(0x3727c5ac); // 1e-5 ×4
 
     static readonly V4 C1   = new(BitConverter.Int32BitsToSingle(0x3c23d70a), BitConverter.Int32BitsToSingle(0x3cf5c28f),
-                                  BitConverter.Int32BitsToSingle(0x3cf5c28f), BitConverter.Int32BitsToSingle(0x3f800000)); // 1806deb00 (0.01, 0.03, 0.03, 1)
+                                  BitConverter.Int32BitsToSingle(0x3cf5c28f), BitConverter.Int32BitsToSingle(0x3f800000)); // (0.01, 0.03, 0.03, 1)
     static readonly V4 C2   = new(BitConverter.Int32BitsToSingle(unchecked((int)0xbf4ccccd)), BitConverter.Int32BitsToSingle(unchecked((int)0xbf4ccccd)),
-                                  BitConverter.Int32BitsToSingle(unchecked((int)0xbf4ccccd)), BitConverter.Int32BitsToSingle(unchecked((int)0x80000000))); // 1806deb10 (-0.8, -0.8, -0.8, -0.0)
+                                  BitConverter.Int32BitsToSingle(unchecked((int)0xbf4ccccd)), BitConverter.Int32BitsToSingle(unchecked((int)0x80000000))); // (-0.8, -0.8, -0.8, -0.0)
     static readonly V4 C3   = new(BitConverter.Int32BitsToSingle(0x40a86bca), BitConverter.Int32BitsToSingle(0x40a86bca),
-                                  BitConverter.Int32BitsToSingle(0x40a86bca), BitConverter.Int32BitsToSingle(0x3f800000)); // 1806deb20 (5.2631578 ×3, 1)
-    static readonly V4 ONE  = new(1f, 1f, 1f, 1f);                                                                      // 1806824a0
-    static readonly V4 ZERO = new(0f, 0f, 0f, 0f);                                                                      // 18068c1d0 / xorps
-    static readonly V4 BL   = new(0f, 1f, 1f, 1f);                                                                      // 18069fdb0
+                                  BitConverter.Int32BitsToSingle(0x40a86bca), BitConverter.Int32BitsToSingle(0x3f800000)); // (5.2631578 ×3, 1)
+    static readonly V4 ONE  = new(1f, 1f, 1f, 1f);
+    static readonly V4 ZERO = new(0f, 0f, 0f, 0f);
+    static readonly V4 BL   = new(0f, 1f, 1f, 1f);
 
     // ---------------------------------------------------------------- ws float indices
     const int RefL1  = 0x1000 >> 2; // ref level-1 LL 8×8, stride 0x80 B = 32 floats
@@ -77,7 +77,7 @@ internal static class ModuleMerge
     const int SlotB  = 0x25d0;      // byte offset of the 256-entry slot table
     const int SumAbs = 0x26d0 >> 2; // vec4 Σ|ref|
 
-    // ================================================================ FUN_180442d60(ws, blk) → float
+    // ================================================================ Run(ws, blk) → float
     /// <summary>Diagnostics sink for the per-level statistics and weights of the patch being merged.
     /// <c>ImageResolutionAmp</c> points it at the console for the grid points listed in its <c>DebugPoints</c> set and
     /// leaves it null otherwise.</summary>
@@ -87,11 +87,11 @@ internal static class ModuleMerge
     /// Merge one module patch: gain-normalise <paramref name="blk"/> against the reference, forward-wavelet it
     /// (levels 1–4, in place), compute the per-level SSIM/detail-energy weights w1..w4 against the reference pyramid,
     /// accumulate <c>ws[0x2580 + (k−1)·16] += W_k</c> and <c>ws[0x1580 + pos] += W_k(slot(pos))·blk[pos]</c>, and return
-    /// the module confidence <c>≈ sqrt(W1·W2)</c> (xmm0 lane 0).
+    /// the module confidence <c>≈ sqrt(W1·W2)</c> (lane 0 of the result).
     /// </summary>
     public static float Run(float[] ws, float[] blk)
     {
-        // ---- A. gain normalise (FUN_180448020)
+        // ---- A. gain normalise (GainNormalise)
         GainNormalise(ws, blk);
 
         // ---- B. 16×16 SSIM vs the reference patch (ws+0), sequential row-major accumulation, 2 vec4 per iteration
@@ -134,22 +134,22 @@ internal static class ModuleMerge
             V4 vb = sbb - sb * sb;  vb = SseMax(vb, ZERO);
             V4 vr = srr - sr * sr;  vr = SseMax(vr, ZERO);
             V4 cov = sbr - sr * sb; cov = SseMax(cov, ZERO);
-            V4 fac = V4.Splat(sb.W);                         // shufps 0xff
+            V4 fac = V4.Splat(sb.W);
             V4 num = (cov + cov) + C1;
             num = num * fac;
             V4 den = (vb + C1) + vr;
-            V4 q = Rcp(den) * num;                            // rcpps RAW
+            V4 q = Rcp(den) * num;                            // RCPPS estimate, no Newton step
             q = (q + C2) * C3;
             Dbg?.Invoke($"L1 stats: sb ({sb.X:R},{sb.Y:R},{sb.Z:R},{sb.W:R}) sr ({sr.X:R},{sr.Y:R},{sr.Z:R},{sr.W:R}) vb ({vb.X:R},{vb.Y:R},{vb.Z:R},{vb.W:R}) vr ({vr.X:R},{vr.Y:R},{vr.Z:R},{vr.W:R}) cov ({cov.X:R},{cov.Y:R},{cov.Z:R},{cov.W:R}) rawq ({q.X:R},{q.Y:R},{q.Z:R},{q.W:R})");
-            q1 = SseMin(SseMax(q, ZERO), ONE);                // [rsp+0x90]
+            q1 = SseMin(SseMax(q, ZERO), ONE);
         }
 
-        // ---- C. level-1 forward 9/7 of blk (FUN_180447730 rows, FUN_180447b70 columns), then e1x and w1
+        // ---- C. level-1 forward 9/7 of blk (rows, then columns), then e1x and w1
         Cdf97Kernels.Forward16Rows(blk, 0);
         Cdf97Kernels.Forward16Cols(blk, 0);
         V4 w1;
         {
-            V4 acc = ZERO;                                    // xmm7 (zeroed at 180442e8a)
+            V4 acc = ZERO;
             for (int i = 0; i < 8; i++)
             {
                 int a = i * 128;      // even row 2i
@@ -187,24 +187,24 @@ internal static class ModuleMerge
                 acc = acc + t2;
             }
             float e1ref = ws[E1Ref];
-            float e1x = acc.X * Inv192;                       // mulss lane 0
+            float e1x = acc.X * Inv192;
             float d1 = e1x - e1ref;
             d1 = d1 * Eight;
-            float s1 = RcpS(e1ref + P05);                     // rcpss RAW
+            float s1 = RcpS(e1ref + P05);                     // RCPSS estimate, no Newton step
             s1 = s1 * d1;
             s1 = s1 + One;
-            V4 sv = SseMax(ZERO, V4.Splat(s1));               // maxps xmm1(0), xmm0(s1)
+            V4 sv = SseMax(ZERO, V4.Splat(s1));               // MAXPS order: a NaN s1 passes through
             sv = SseMin(sv, ONE);
             sv = Blend0xE(sv, BL);                            // (s1c, 1, 1, 1)
-            w1 = sv * q1;                                     // [rsp+0x90]
+            w1 = sv * q1;
             Dbg?.Invoke($"L1: q1 ({q1.X:R},{q1.Y:R},{q1.Z:R},{q1.W:R}) e1x {e1x:R} e1ref {e1ref:R} sv.x {sv.X:R} w1 ({w1.X:R},{w1.Y:R},{w1.Z:R})");
         }
 
-        // ---- D. 8×8 LL SSIM (FUN_180448250): b = blk (even,even), r = ws+0x1000
+        // ---- D. 8×8 LL SSIM (Ssim8x8): b = blk (even,even), r = ws+0x1000
         V4 q2;
-        Ssim8x8Core(blk, ws, RefL1, out q2);                  // [rsp+0x20] / [rsp+0xa0]
+        Ssim8x8Core(blk, ws, RefL1, out q2);
 
-        // ---- E. level-2 forward of the 8×8 LL in place (rows 180443130, cols 1804432c0 then 1804433d0)
+        // ---- E. level-2 forward of the 8×8 LL in place (rows, then columns in two steps)
         for (int i = 0; i < 8; i++)
         {
             int p = i * 128;                                  // row 2i; z_j at column 2j = +8j floats
@@ -235,7 +235,7 @@ internal static class ModuleMerge
             V4 e0pp = o0pp * E2 + e0p * K;
             e0pp.Store(blk, p);
         }
-        for (int j = 0; j < 8; j++)                           // columns, step A (1804432c0)
+        for (int j = 0; j < 8; j++)                           // columns, step A
         {
             int p = j * 8;                                    // column 2j; z_k at row 2k = +128k floats
             V4 z0 = V4.Load(blk, p), z1 = V4.Load(blk, p + 128), z2 = V4.Load(blk, p + 256), z3 = V4.Load(blk, p + 384);
@@ -249,7 +249,7 @@ internal static class ModuleMerge
             V4 e3p = (o2p + o3p) * B + z6;         e3p.Store(blk, p + 768);
             V4 e0p = o0p * B2 + z0;                e0p.Store(blk, p);
         }
-        for (int j = 0; j < 8; j++)                           // columns, step B (1804433d0)
+        for (int j = 0; j < 8; j++)                           // columns, step B
         {
             int p = j * 8;
             V4 e0p = V4.Load(blk, p), o0p = V4.Load(blk, p + 128), e1p = V4.Load(blk, p + 256), o1p = V4.Load(blk, p + 384);
@@ -266,25 +266,25 @@ internal static class ModuleMerge
         V4 w2;
         {
             V4 acc = ZERO;
-            for (int k = 0; k < 4; k++)                       // 4-row groups: A = row 4k, C = row 4k+2; column c (0..15) = +4c floats (disasm 1804434c3: rax = blk+0x2e0, byte offsets)
+            for (int k = 0; k < 4; k++)                       // 4-row groups: A = row 4k, C = row 4k+2; column c (0..15) = +4c floats
             {
                 int a = k * 256, c = a + 128;
                 V4 t0, t1, t2;
-                t1 = Abs(V4.Load(blk, a + 8)) + acc;                          // |A2| + acc          ([rax-0x2c0])
-                t0 = Abs(V4.Load(blk, c + 8));                                // |C2|                ([rax-0xc0])
-                t2 = Abs(V4.Load(blk, c + 0)) + t0;                           // |C0| + |C2|         ([rax-0xe0])
+                t1 = Abs(V4.Load(blk, a + 8)) + acc;                          // |A2| + acc
+                t0 = Abs(V4.Load(blk, c + 8));                                // |C2|
+                t2 = Abs(V4.Load(blk, c + 0)) + t0;                           // |C0| + |C2|
                 t2 = t2 + t1;
-                t0 = Abs(V4.Load(blk, a + 24));                               // |A6|                ([rax-0x280])
-                t1 = Abs(V4.Load(blk, c + 24)) + t0;                          // |C6| + |A6|         ([rax-0x80])
-                t0 = Abs(V4.Load(blk, c + 16)) + t1;                          // |C4| + …            ([rax-0xa0])
+                t0 = Abs(V4.Load(blk, a + 24));                               // |A6|
+                t1 = Abs(V4.Load(blk, c + 24)) + t0;                          // |C6| + |A6|
+                t0 = Abs(V4.Load(blk, c + 16)) + t1;                          // |C4| + …
                 t0 = t0 + t2;
-                t1 = Abs(V4.Load(blk, a + 40));                               // |A10|               ([rax-0x240])
-                t2 = Abs(V4.Load(blk, c + 40)) + t1;                          // |C10| + |A10|       ([rax-0x40])
-                t1 = Abs(V4.Load(blk, c + 32)) + t2;                          // |C8| + …            ([rax-0x60])
-                t2 = Abs(V4.Load(blk, a + 56)) + t1;                          // |A14| + …           ([rax-0x200])
+                t1 = Abs(V4.Load(blk, a + 40));                               // |A10|
+                t2 = Abs(V4.Load(blk, c + 40)) + t1;                          // |C10| + |A10|
+                t1 = Abs(V4.Load(blk, c + 32)) + t2;                          // |C8| + …
+                t2 = Abs(V4.Load(blk, a + 56)) + t1;                          // |A14| + …
                 t2 = t2 + t0;
-                t1 = Abs(V4.Load(blk, c + 56));                               // |C14|               ([rax])
-                t0 = Abs(V4.Load(blk, c + 48)) + t1;                          // |C12| + |C14|       ([rax-0x20])
+                t1 = Abs(V4.Load(blk, c + 56));                               // |C14|
+                t0 = Abs(V4.Load(blk, c + 48)) + t1;                          // |C12| + |C14|
                 acc = t0 + t2;
             }
             float e2ref = ws[E2Ref];
@@ -294,10 +294,10 @@ internal static class ModuleMerge
             float s2 = RcpS(e2ref + P05);
             s2 = s2 * d2;
             s2 = s2 + One;
-            V4 sv = SseMax(V4.Splat(s2), ZERO);               // maxps xmm2(s2), xmm1(0)
+            V4 sv = SseMax(V4.Splat(s2), ZERO);               // MAXPS order: a NaN s2 gives 0
             sv = SseMin(sv, ONE);
             sv = Blend0xE(sv, BL);
-            w2 = sv * q2;                                     // [rsp+0xa0]
+            w2 = sv * q2;
             Dbg?.Invoke($"L2: q2 ({q2.X:R},{q2.Y:R},{q2.Z:R},{q2.W:R}) e2x {e2x:R} e2ref {e2ref:R} sv.x {sv.X:R} w2 ({w2.X:R},{w2.Y:R},{w2.Z:R})");
         }
 
@@ -338,7 +338,7 @@ internal static class ModuleMerge
             V4 vr = srr - sr * sr;
             V4 cov = sbr - sr * sb;
             cov = SseMax(cov, ZERO);
-            V4 fac = V4.Splat(sb.W * Quarter);                // shufps 0xe7; mulss 0.25; shufps 0
+            V4 fac = V4.Splat(sb.W * Quarter);
             V4 num = (cov + cov) + C1;
             num = num * fac;
             vb = SseMax(vb, ZERO);
@@ -346,10 +346,10 @@ internal static class ModuleMerge
             V4 den = (vb + C1) + vr;
             V4 q = Rcp(den) * num;
             q = (q + C2) * C3;
-            q3 = SseMin(SseMax(q, ZERO), ONE);                // [rsp+0x80] / [rsp+0xb0]
+            q3 = SseMin(SseMax(q, ZERO), ONE);
         }
 
-        // ---- G. level-3 forward of the 4×4 LL (180443781–180443e3d), compiler-fused rows 0/4/8/12 then columns.
+        // ---- G. level-3 forward of the 4×4 LL, compiler-fused rows 0/4/8/12 then columns.
         //      w[r][c] = blk[256r + 16c]. Row-stage intermediate stores are dead (all 16 positions are rewritten by the
         //      column stage) and are omitted.
         V4 c0e0, c0o0, c0e1, c0o1, c1e0, c1o0, c1e1, c1o1, c2e0, c2o0, c2e1, c2o1, c3e0, c3o0, c3e1, c3o1;
@@ -400,7 +400,7 @@ internal static class ModuleMerge
             V4 r3e1 = (r3o0 + r3o1) * E + r3e1p * K;
             V4 r3e0 = r3o0 * E2 + r3e0p * K;
             // column 0 (e0'' values), stage A
-            V4 c0o1p = r2e0 * NA2 + r3e0;                      // mulps by −2a, then addps
+            V4 c0o1p = r2e0 * NA2 + r3e0;
             V4 c0o0p = r1e0 - (r2e0 + r0e0) * A;
             V4 c0e1p = (c0o1p + c0o0p) * B + r2e0;
             V4 c0e0p = c0o0p * B2 + r0e0;
@@ -463,15 +463,15 @@ internal static class ModuleMerge
             s3 = s3 * Eight;
             s3 = s3 * d3;
             s3 = s3 + One;
-            V4 sv = SseMax(V4.Splat(s3), ZERO);               // maxps xmm1(s3), [18068c1d0]
+            V4 sv = SseMax(V4.Splat(s3), ZERO);               // MAXPS order: a NaN s3 gives 0
             sv = SseMin(sv, ONE);
             sv = Blend0xE(sv, BL);
-            w3 = sv * q3;                                     // [rsp+0xb0]
+            w3 = sv * q3;
             Dbg?.Invoke($"L3: q3 ({q3.X:R},{q3.Y:R},{q3.Z:R},{q3.W:R}) e3x {e3x:R} e3ref {e3ref:R} sv.x {sv.X:R} w3 ({w3.X:R},{w3.Y:R},{w3.Z:R})");
         }
 
         // ---- H. 2×2 LL SSIM (b00 = blk[0], b01 = blk[0x80], b10 = blk[0x800], b11 = blk[0x880]; r = ws+0x1500..0x1530),
-        //      fused with I. level-4 forward (180443f0e–180444162)
+        //      fused with I. level-4 forward
         V4 q4;
         V4 l0op, l1op, l0ep, l1ep;
         {
@@ -484,7 +484,7 @@ internal static class ModuleMerge
             V4 p01 = r01 * b01;   sbrA = p01 + sbrA;             // r01·b01 + r00·b00
             V4 sbA = b10 + b00;   sbA = sbA + b01;               // (b10 + b00) + b01
             V4 t = b00 * A2;
-            l0op = b01 - t;                                      // level-4 row 0: o' = b01 − b00·2a   [rsp+0x80]
+            l0op = b01 - t;                                      // level-4 row 0: o' = b01 − b00·2a
             V4 sb4 = sbA + b11;
             V4 srB = r10 + r11;
             V4 p11 = r11 * b11;
@@ -516,7 +516,7 @@ internal static class ModuleMerge
             vb = SseMax(vb, ZERO);
             den = den + vb;                                      // (vr + C1) + vb
             q4 = Rcp(den) * num;
-            q4 = (q4 + C2) * C3;                                 // unclamped here; clamped at 1804441aa
+            q4 = (q4 + C2) * C3;                                 // unclamped here; clamped later
         }
         V4 w4, q4c;
         {
@@ -555,7 +555,7 @@ internal static class ModuleMerge
             Dbg?.Invoke($"L4: q4 ({q4.X:R},{q4.Y:R},{q4.Z:R},{q4.W:R}) e4x {e4x:R} e4ref {e4ref:R} s4 {s4:R} w4 ({w4.X:R},{w4.Y:R},{w4.Z:R})");
         }
 
-        // ---- J. W_k = min(w_k.x, w_k.y, w_k.z) (shufps 0x4a / minps / movshdup / minss), W_5 (DC) = 0; ws[0x2580 + (k−1)·16] += W_k
+        // ---- J. W_k = min(w_k.x, w_k.y, w_k.z) in the order of MinXYZ, W_5 (DC) = 0; ws[0x2580 + (k−1)·16] += W_k
         float W4 = MinXYZ(w4);
         float W3 = MinXYZ(w3);
         float W2 = MinXYZ(w2);
@@ -570,7 +570,7 @@ internal static class ModuleMerge
 
         // ---- K. ws[0x1580 + pos] += W_slot(r,c) · blk[pos], slot read from the u8 table at ws+0x25d0 + r·16 + c
         {
-            Span<float> wtab = stackalloc float[5] { W1, W2, W3, W4, 0f };   // [rsp+0x90..0xd0], splat vectors
+            Span<float> wtab = stackalloc float[5] { W1, W2, W3, W4, 0f };   // splat vectors
             ReadOnlySpan<byte> slots = MemoryMarshal.AsBytes(ws.AsSpan(SlotB >> 2, 64));
             for (int r = 0; r < 16; r++)
             {
@@ -587,29 +587,29 @@ internal static class ModuleMerge
             }
         }
 
-        // ---- L. return ≈ sqrt(W2·W1): x = W2·W1 (xmm1 = W2 min result, xmm0 = W1 min result — NOT q4c·w4);
+        // ---- L. return ≈ sqrt(W2·W1): x = W2·W1 (the W2 and W1 min results — NOT q4c·w4);
         //      r = rsqrtss(x); y = x·r; res = (y·r + (−3)) · ((−0.5)·y); if (x == 0) res = 0
         {
             float x = W2 * W1;
-            float rs = RsqrtS(x);                                // rsqrtss RAW
+            float rs = RsqrtS(x);                                // RSQRTSS estimate
             float y = x * rs;
             float h = NegHalf * y;
             float t = y * rs;
             t = t + NegThree;
             t = t * h;
-            return x == 0f ? 0f : t;                             // cmpeqss / andnps
+            return x == 0f ? 0f : t;
         }
     }
 
-    // ================================================================ FUN_180448020(ws, blk): gain normalise
+    // ================================================================ GainNormalise(ws, blk): gain normalise
     /// <summary>
-    /// <c>s = Σ|blk|</c> per lane (accumulator initialised to 1e-5, per-row tree as in §5.3.3);
+    /// <c>s = Σ|blk|</c> per lane (accumulator initialised to 1e-5, per-row tree);
     /// <c>f = rcpss(s.x) · ws[0x26d0].x</c> (raw rcpss); <c>blk ·= (f, f, f, 1.0)</c> for all 256 vec4.
-    /// rcx = ws (only ws[0x26d0] is read), rdx = blk (modified in place).
+    /// Only ws[0x26d0] is read; blk is modified in place.
     /// </summary>
     public static void GainNormalise(float[] ws, float[] blk)
     {
-        V4 acc = V4.Splat(Eps);                                  // xmm0 = 1e-5 ×4
+        V4 acc = V4.Splat(Eps);                                  // 1e-5 ×4
         for (int r = 0; r < 16; r++)
         {
             int p = r * 64;
@@ -634,9 +634,9 @@ internal static class ModuleMerge
             x4 = x4 + x3;
             acc = Abs(V4.Load(blk, p + 60)) + x4;                             // |b15| + …
         }
-        float f = RcpS(acc.X);                                   // rcpss RAW
+        float f = RcpS(acc.X);                                   // RCPSS estimate, no Newton step
         f = f * ws[SumAbs];
-        V4 g = new(f, f, f, One);                                // shufps 0xc0; insertps lane 3 = 1.0
+        V4 g = new(f, f, f, One);
         for (int i = 0; i < 1024; i += 4)
         {
             V4 v = V4.Load(blk, i) * g;
@@ -644,11 +644,11 @@ internal static class ModuleMerge
         }
     }
 
-    // ================================================================ FUN_180448250(out, blk, ref8): 8×8 LL SSIM
+    // ================================================================ Ssim8x8(out, blk, ref8): 8×8 LL SSIM
     /// <summary>
     /// SSIM-style quality vec4 between the level-1 LL of <paramref name="blk"/> (the (even,even) positions of the 16×16
     /// interleaved layout) and the 8×8 reference LL at <paramref name="ref8"/>[<paramref name="refOff"/>..] (row stride 32 floats).
-    /// rcx = destination vec4 pointer (written, also returned in rax), rdx = blk, r8 = ref LL (ws+0x1000 at the call site).
+    /// The reference LL is at ws+0x1000 at the call site.
     /// Writes the 4 result lanes to <paramref name="dst"/>[<paramref name="dstOff"/>..+3].
     /// </summary>
     public static void Ssim8x8(float[] blk, float[] ref8, int refOff, float[] dst, int dstOff)
@@ -716,11 +716,11 @@ internal static class ModuleMerge
         V4 sbsr = sb * sr;
         V4 vr = srr - sr * sr;  vr = SseMax(vr, ZERO);
         V4 cov = sbr - sbsr;    cov = SseMax(cov, ZERO);
-        V4 fac = V4.Splat(sb.W * Half);                           // shufps 0xe7; mulss 0.5; shufps 0
+        V4 fac = V4.Splat(sb.W * Half);
         V4 num = (cov + cov) + C1;
         num = num * fac;
         V4 den = (vb + C1) + vr;
-        V4 r = Rcp(den) * num;                                    // rcpps RAW
+        V4 r = Rcp(den) * num;                                    // RCPPS estimate, no Newton step
         r = (r + C2) * C3;
         Dbg?.Invoke($"L2 stats: sb ({sb.X:R},{sb.Y:R},{sb.Z:R},{sb.W:R}) vb ({vb.X:R},{vb.Y:R},{vb.Z:R},{vb.W:R}) vr ({vr.X:R},{vr.Y:R},{vr.Z:R},{vr.W:R}) cov ({cov.X:R},{cov.Y:R},{cov.Z:R},{cov.W:R}) rawq ({r.X:R},{r.Y:R},{r.Z:R},{r.W:R})");
         q = SseMin(SseMax(r, ZERO), ONE);
@@ -733,19 +733,18 @@ internal static class ModuleMerge
     /// <summary>Lane-wise Intel <c>minps</c>: <c>dst = (dst &lt; src) ? dst : src</c>.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static float SseMin(float a, float b) => a < b ? a : b;
-    static V4 SseMax(V4 a, V4 b) => new(SseMax(a.X, b.X), SseMax(a.Y, b.Y), SseMax(a.Z, b.Z), SseMax(a.W, b.W));
-    static V4 SseMin(V4 a, V4 b) => new(SseMin(a.X, b.X), SseMin(a.Y, b.Y), SseMin(a.Z, b.Z), SseMin(a.W, b.W));
+    static V4 SseMax(V4 a, V4 b) => new(Vector128.ConditionalSelect(Vector128.GreaterThan(a.V, b.V), a.V, b.V));   // per lane a > b ? a : b
+    static V4 SseMin(V4 a, V4 b) => new(Vector128.ConditionalSelect(Vector128.LessThan(a.V, b.V), a.V, b.V));      // per lane a < b ? a : b
 
-    /// <summary><c>andps</c> with 0x7fffffff (180682600): clear the sign bit.</summary>
+    /// <summary>Clears the sign bit (AND with 0x7fffffff).</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static float AbsBits(float x) => BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(x) & 0x7fffffff);
-    static V4 Abs(V4 v) => new(AbsBits(v.X), AbsBits(v.Y), AbsBits(v.Z), AbsBits(v.W));
+    static V4 Abs(V4 v) => new((v.V.AsInt32() & Vector128.Create(0x7fffffff)).AsSingle());
 
     /// <summary><c>rcpps</c> (4 lanes, raw host approximation).</summary>
     static V4 Rcp(V4 v)
     {
-        Vector128<float> r = IntelApprox.Reciprocal(Vector128.Create(v.X, v.Y, v.Z, v.W));
-        return new(r.GetElement(0), r.GetElement(1), r.GetElement(2), r.GetElement(3));
+        return new(IntelApprox.Reciprocal(v.V));
     }
     /// <summary><c>rcpss</c> (raw host approximation).</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -754,12 +753,12 @@ internal static class ModuleMerge
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static float RsqrtS(float x) => IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar();
 
-    /// <summary><c>blendps dst, src, 0xe</c>: lane 0 from <paramref name="a"/>, lanes 1..3 from <paramref name="b"/>.</summary>
-    static V4 Blend0xE(V4 a, V4 b) => new(a.X, b.Y, b.Z, b.W);
+    /// <summary>Lane 0 from <paramref name="a"/>, lanes 1..3 from <paramref name="b"/>.</summary>
+    static V4 Blend0xE(V4 a, V4 b) => new(b.V.WithElement(0, a.X));
 
     /// <summary>
-    /// <c>shufps t,w,0x4a</c> → (w.z, w.z, w.x, w.y); <c>minps t,w</c>; <c>movshdup u,t</c>; <c>minss t,u</c>: lane 0 =
-    /// <c>SseMin(SseMin(w.z, w.x), SseMin(w.z, w.y))</c>.
+    /// Minimum of the x, y and z lanes in Lumen's order: <c>SseMin(SseMin(w.z, w.x), SseMin(w.z, w.y))</c>.
+    /// The order sets the result when a lane is NaN.
     /// </summary>
     static float MinXYZ(V4 w)
     {
@@ -768,23 +767,29 @@ internal static class ModuleMerge
         return SseMin(l0, l1);
     }
 
-    /// <summary>One XMM register of four IEEE singles; every operator is one lane-wise C# float op (never fused).</summary>
+    /// <summary>Four IEEE singles (one SSE vector); every operator is one lane-wise float op (never fused). Held as a
+    /// <see cref="Vector128{T}"/>, so each operator is one SSE instruction doing exactly the four lane operations.</summary>
     internal readonly struct V4
     {
-        public readonly float X, Y, Z, W;
-        public V4(float x, float y, float z, float w) { X = x; Y = y; Z = z; W = w; }
+        public readonly Vector128<float> V;
+        public V4(Vector128<float> v) { V = v; }
+        public V4(float x, float y, float z, float w) { V = Vector128.Create(x, y, z, w); }
+        public float X => V.GetElement(0);
+        public float Y => V.GetElement(1);
+        public float Z => V.GetElement(2);
+        public float W => V.GetElement(3);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static V4 Load(float[] a, int i) => new(a[i], a[i + 1], a[i + 2], a[i + 3]);
+        public static V4 Load(float[] a, int i) => new(Vector128.Create((ReadOnlySpan<float>)a.AsSpan(i, 4)));
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Store(float[] a, int i) { a[i] = X; a[i + 1] = Y; a[i + 2] = Z; a[i + 3] = W; }
+        public void Store(float[] a, int i) => V.CopyTo(a.AsSpan(i, 4));
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static V4 Splat(float s) => new(s, s, s, s);
+        public static V4 Splat(float s) => new(Vector128.Create(s));
 
-        public static V4 operator +(V4 a, V4 b) => new(a.X + b.X, a.Y + b.Y, a.Z + b.Z, a.W + b.W);
-        public static V4 operator -(V4 a, V4 b) => new(a.X - b.X, a.Y - b.Y, a.Z - b.Z, a.W - b.W);
-        public static V4 operator *(V4 a, V4 b) => new(a.X * b.X, a.Y * b.Y, a.Z * b.Z, a.W * b.W);
-        /// <summary>Multiply by a splat constant (mulps with a ×4 constant).</summary>
-        public static V4 operator *(V4 a, float s) => new(a.X * s, a.Y * s, a.Z * s, a.W * s);
+        public static V4 operator +(V4 a, V4 b) => new(a.V + b.V);
+        public static V4 operator -(V4 a, V4 b) => new(a.V - b.V);
+        public static V4 operator *(V4 a, V4 b) => new(a.V * b.V);
+        /// <summary>Multiply by a splat constant.</summary>
+        public static V4 operator *(V4 a, float s) => new(a.V * s);
     }
 }

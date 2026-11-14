@@ -6,8 +6,7 @@ namespace Lux.Engine.Pipeline.Export;
 
 /// <summary>
 /// `lt::Image&lt;float&gt;` as the depth path uses it — a dense `W×H` grid with a stride, a data offset and the
-/// **valid rectangle** in grid coordinates (`lt::Image`'s rect member at +0x00; the dims are at +0x10, the data
-/// pointer at +0x20 and always addresses grid pixel (0,0) of this view's own frame).
+/// **valid rectangle** in grid coordinates (the data always starts at grid pixel (0,0) of this view's own frame).
 /// </summary>
 public sealed class DepthImage
 {
@@ -26,15 +25,14 @@ public sealed class DepthImage
 }
 
 /// <summary>
-/// `lt::ImageResample&lt;0, float&gt;` — `FUN_180462f80` (the 3-argument `(dst, src, size)` overload) and the tile
-/// functor `FUN_1804632e0` (`lambda_1` of vtable `0x1806dfbc8`, thunk `0x1804632a0`).
+/// `lt::ImageResample&lt;0, float&gt;` — the 3-argument `(dst, src, size)` overload and its tile functor.
 ///
 /// Mode 0 is **nearest neighbour in 16.16 fixed point**: `offset` and `scale` are `Vec2&lt;double&gt;`, each multiplied
-/// by 65536.0 and truncated (`cvttsd2si`, `0x180688bb0` = 65536.0), then per destination pixel
+/// by 65536.0 and truncated (`cvttsd2si`), then per destination pixel
 /// <c>src[clamp((sy16·y + oy16) &gt;&gt; 16, rect.y0, rect.y1−1)][clamp((sx16·x + ox16) &gt;&gt; 16, rect.x0, rect.x1−1)]</c>
-/// with `x`/`y` the **absolute** destination coordinates and the clamps against the *source view's* rect
-/// (`0x180463475`/`0x18046349e`). The real code splits the x loop into clamped-left / unclamped / clamped-right
-/// halves and caches the resampled row (`FUN_1804636f0` sets the block height to **1**, `0x18046371d`), which is
+/// with `x`/`y` the **absolute** destination coordinates and the clamps against the *source view's* rect.
+/// Lumen splits the x loop into clamped-left / unclamped / clamped-right
+/// halves and caches the resampled row (block height **1**), which is
 /// value-neutral. The destination is freshly allocated at `size` with rect `(0,0,size)`.
 /// </summary>
 public static class ImageResample0
@@ -57,8 +55,8 @@ public static class ImageResample0
         return dst;
     }
 
-    /// <summary>`FUN_180462f80`: `offset = (0,0)`, `scale = (src.W / size.W, src.H / size.H)` in **double**
-    /// (`0x180463013`–`0x18046302d`); throws `"empty image!"` (`0x1806b8e6d`) when the size is degenerate.</summary>
+    /// <summary>The 3-argument overload: `offset = (0,0)`, `scale = (src.W / size.W, src.H / size.H)` in **double**;
+    /// throws `"empty image!"` when the size is degenerate.</summary>
     public static DepthImage Run(DepthImage src, int dw, int dh)
     {
         if (dw <= 0 || dh <= 0) throw new InvalidOperationException("empty image!");
@@ -67,22 +65,20 @@ public static class ImageResample0
 }
 
 /// <summary>
-/// The renderer's depth `ImageCache` at **`renderer+0x480`** — the object `RendererPrivate::setInputDataStream`
-/// allocates at `0x180492046` (`operator new(0x248)`, payload at `+0x10`, ctor `FUN_1804c9f30`) and the
-/// `exportImage` lambda `0x180526ec0` reads through `FUN_1804cd2d0`.
+/// The renderer's depth `ImageCache` — the object that `RendererPrivate::setInputDataStream`
+/// allocates and that the `exportImage` lambda reads through <see cref="Fetch(DepthImage, RectI, ValueTuple{int, int})"/>.
 ///
-/// It is double buffered: the published image lives at `this+0x18` and the pending one at `this+0x48`, with the
-/// "pending valid" flag at `this+0x78`; `FUN_1804cacf0` swaps the two 48-byte `lt::Image&lt;float&gt;` headers and
-/// clears the flag. The constructor allocates the published image **zero-filled at the pipeline-level dims**
-/// `levels[min(1 − FUN_18050c640(profile), n−1)]` (`0x1804ca0f1`–`0x1804ca12d`) — level **1** on the L16, where
-/// `FUN_18050c640` is 0, i.e. 5216×3912 for a 10432×7824 canvas. That image's `(w,h)` is then reused as the
+/// It is double buffered: a published image and a pending one, with a "pending valid" flag; the publish step swaps the
+/// two `lt::Image&lt;float&gt;` headers and clears the flag. The constructor allocates the published image
+/// **zero-filled at the pipeline-level dims** `levels[min(1 − profileOffset, n−1)]` — level **1** on the L16, where
+/// the profile offset is 0, i.e. 5216×3912 for a 10432×7824 canvas. That image's `(w,h)` is then reused as the
 /// resample target size for every fill.
 ///
-/// The fill `FUN_1804cad60(this, src)` is
+/// The fill is
 /// <code>
-///   inv   = lt::InverseDepth(src)                             18030ac60  — rcpps, no Newton step
-///   inv'  = ImageResample&lt;0,float&gt;(inv, this-&gt;image.dims)     180462f80  — nearest, offset 0
-///   this-&gt;pending = lt::InverseDepthClip(inv', 100000.0f)      18030adb0  — min(rcpps(x), 1e5)
+///   inv   = lt::InverseDepth(src)                             — rcpps, no Newton step
+///   inv'  = ImageResample&lt;0,float&gt;(inv, this-&gt;image.dims)     — nearest, offset 0
+///   this-&gt;pending = lt::InverseDepthClip(inv', 100000.0f)      — min(rcpps(x), 1e5)
 /// </code>
 /// so the cache holds **metric depth in millimetres, clipped to 100 000 mm**, on the canvas grid at half canvas
 /// resolution. `GDepth:Far="100000.0"` in every fmt-4 artefact is that clip, not a scene value; `GDepth:Near` is
@@ -90,21 +86,21 @@ public static class ImageResample0
 /// </summary>
 public sealed class DepthImageCache
 {
-    /// <summary>`min(rcpps(x), clip)` broadcast — `_DAT_1806bbab0` = 100000.0f.</summary>
+    /// <summary>`min(rcpps(x), clip)` broadcast — the clip is 100000.0f.</summary>
     public const float Clip = 100000.0f;
 
-    /// <summary>The published image (`this+0x18`).</summary>
+    /// <summary>The published image.</summary>
     public DepthImage Current { get; private set; }
 
-    /// <summary>`FUN_1804c9f30` L~0x1804ca0f1: a zero image at `pipelineDims[min(1 − baseLevel, n−1)]`.</summary>
+    /// <summary>The constructor: a zero image at `pipelineDims[min(1 − baseLevel, n−1)]`.</summary>
     public DepthImageCache((int W, int H) dims) { Current = new DepthImage(dims.W, dims.H); }
 
-    /// <summary>The dims the constructor picks out of the pipeline-level list (`renderer+0x288`) — index
-    /// `min(1 − FUN_18050c640(renderer+0x90), n−1)`, i.e. `min(1 − BaseLevel, n−1)`.</summary>
+    /// <summary>The dims the constructor picks out of the pipeline-level list — index
+    /// `min(1 − BaseLevel, n−1)` (BaseLevel = the renderer-profile level offset).</summary>
     public static (int W, int H) CacheDims(ExportLevels lv)
         => lv.PipelineDims[Math.Min(1 - lv.BaseLevel, lv.PipelineDims.Length - 1)];
 
-    /// <summary>`lt::InverseDepth` `0x18030ac60` (lambda `0x18030b0b0`): `rcpps` per lane, `rcpss` for the row tail —
+    /// <summary>`lt::InverseDepth`: `rcpps` per lane, `rcpss` for the row tail —
     /// the raw 12-bit hardware approximation, no Newton step.</summary>
     public static float[] InverseDepth(float[] src, int w, int h, int stride)
     {
@@ -119,7 +115,7 @@ public sealed class DepthImageCache
         return dst;
     }
 
-    /// <summary>`lt::InverseDepthClip(src, clip)` `0x18030adb0` (lambda `0x18030b2d0`): `minps(rcpps(x), clip)` per
+    /// <summary>`lt::InverseDepthClip(src, clip)`: `minps(rcpps(x), clip)` per
     /// 4 lanes, `minss(rcpss(x), clip)` for the row tail. The clip is broadcast into all four lanes.</summary>
     public static float[] InverseDepthClip(float[] src, int w, int h, int stride, float clip)
     {
@@ -135,7 +131,7 @@ public sealed class DepthImageCache
         return dst;
     }
 
-    /// <summary>`FUN_1804cad60` + the publish swap `FUN_1804cacf0`: inverse-depth, nearest-resample to the cache
+    /// <summary>The fill + the publish swap: inverse-depth, nearest-resample to the cache
     /// dims, back through `InverseDepthClip(1e5)`, then make it the current image.</summary>
     public void Set(DepthImage src)
     {
@@ -146,44 +142,92 @@ public sealed class DepthImageCache
         Current = new DepthImage(d, r.W, r.H, r.W, new RectI(0, 0, r.W, r.H));
     }
 
+    /// <summary>The depth-cache getter on the published image — see <see cref="Fetch(DepthImage, RectI, ValueTuple{int, int})"/>.</summary>
+    public DepthImage Fetch(RectI rect, (int W, int H) dims) => Fetch(Current, rect, dims);
+
     /// <summary>
-    /// `FUN_1804cd2d0(this, out, rect, dims)` — the getter the `exportImage` lambda `0x180526ec0` calls after adding
-    /// `renderer+0x2d0[level]` to the rect and passing `&amp;renderer+0x288[level]`.
+    /// The depth-cache getter (cache, out, rect, dims) of the `exportImage` lambda (GDepth, the `depth` map),
+    /// of the DOFCache tile lambda and of the display overlays (debug view).
     ///
-    /// `scale = (image.W / dims.W, image.H / dims.H)`. When both are exactly 1.0 (`DAT_18067ec50`) the result is a
-    /// plain **view** of `rect ∩ image.rect`. Otherwise the source window is
-    /// `[max(⌊x0·sx⌋,0), min(⌈x1·sx⌉, image.W)) × …` (`roundsd` modes 9/10), the offset is
-    /// `((float)x0 + 0.5f)·sx − srcX0` (`DAT_180682404` = 0.5f) computed **before** the window is clamped to the
-    /// image's valid rect, and `ImageResample&lt;0,float&gt;` fills a fresh `rect.W × rect.H` destination.
+    /// `scale = (image.W / dims.W, image.H / dims.H)` (double). When both are exactly 1.0, the result is a plain **view** of
+    /// `rect ∩ image.rect`. Otherwise the source window is `[max(⌊x0·sx⌋,0), min(⌈x1·sx⌉, image.W)) × …` (floor and ceiling in double precision), the offset
+    /// `((float)x0 + 0.5f)·sx − srcX0` (computed before the window is clamped to the image's valid rect), and the
+    /// resample runs in **inverse depth**: a reciprocal pass over the window with scale 1.0 (per row the first `(w/32)·32` pixels by
+    /// `rcpps` + one Newton step `(1 − x·r)·r + r`, times 1.0; the rest `divss`), `ImageResample&lt;0,float&gt;` into a fresh
+    /// `rect.W × rect.H` image, then the same reciprocal pass on the output in place — source and destination alias, so every pixel
+    /// takes the `divss` path. The round trip is not the identity in the last bit. On the L16 the cache is at pipeline level 1, so
+    /// the scale is 1 only for level-1 requests. Lumen uses this one function for the DOF tiles too.
     /// </summary>
-    public DepthImage Fetch(RectI rect, (int W, int H) dims)
+    public static DepthImage Fetch(DepthImage img, RectI rect, (int W, int H) dims)
     {
         int x0 = rect.X0, y0 = rect.Y0, x1 = rect.X1, y1 = rect.Y1, rw = x1 - x0, rh = y1 - y0;
         if (rw == 0 || x1 < x0 || rh == 0 || y1 < y0 || (y0 | x0) < 0 || x1 > dims.W || y1 > dims.H)
             throw new InvalidOperationException("invalid ROI requested!");
-        var img = Current;
         double sx = (double)img.W / dims.W, sy = (double)img.H / dims.H;
         if (sx == 1.0 && sy == 1.0)
         {
-            int ix0 = Math.Max(x0, img.Rect.X0), iy0 = Math.Max(y0, img.Rect.Y0);
-            int ix1 = Math.Min(x1, img.Rect.X1), iy1 = Math.Min(y1, img.Rect.Y1);
+            int ix0 = Math.Max(x0, img.Rect.X0), iy0 = Math.Max(y0, img.Rect.Y0), ix1 = Math.Min(x1, img.Rect.X1), iy1 = Math.Min(y1, img.Rect.Y1);
             if (ix1 <= ix0 || iy1 <= iy0) return new DepthImage(Array.Empty<float>(), 0, 0, 0, default);
             return new DepthImage(img.Data, ix1 - ix0, iy1 - iy0, img.Stride,
-                                  new RectI(img.Rect.X0 - ix0, img.Rect.Y0 - iy0, img.Rect.X1 - ix0, img.Rect.Y1 - iy0),
-                                  img.Offset + (ix0 - 0) + img.Stride * (iy0 - 0));
+                                  new RectI(img.Rect.X0 - ix0, img.Rect.Y0 - iy0, img.Rect.X1 - ix0, img.Rect.Y1 - iy0), img.Offset + ix0 + img.Stride * iy0);
         }
         int sx0 = Math.Max((int)Math.Floor(x0 * sx), 0), sy0 = Math.Max((int)Math.Floor(y0 * sy), 0);
-        int sx1 = Math.Min((int)Math.Ceiling((rw + (double)x0) * sx), img.W);
-        int sy1 = Math.Min((int)Math.Ceiling((rh + (double)y0) * sy), img.H);
+        int sx1 = Math.Min((int)Math.Ceiling((rw + (double)x0) * sx), img.W), sy1 = Math.Min((int)Math.Ceiling((rh + (double)y0) * sy), img.H);
         double offX = ((float)x0 + 0.5f) * sx - sx0, offY = ((float)y0 + 0.5f) * sy - sy0;
-        int vx0 = Math.Max(sx0, img.Rect.X0), vy0 = Math.Max(sy0, img.Rect.Y0);
-        int vx1 = Math.Min(sx1, img.Rect.X1), vy1 = Math.Min(sy1, img.Rect.Y1);
-        DepthImage view = vx1 <= vx0 || vy1 <= vy0
-            ? new DepthImage(Array.Empty<float>(), 0, 0, 0, default)
-            : new DepthImage(img.Data, vx1 - vx0, vy1 - vy0, img.Stride,
-                             new RectI(img.Rect.X0 - vx0, img.Rect.Y0 - vy0, img.Rect.X1 - vx0, img.Rect.Y1 - vy0),
-                             img.Offset + vx0 + img.Stride * vy0);
-        return ImageResample0.Run(view, rw, rh, offX, offY, sx, sy);
+        int vx0 = Math.Max(sx0, img.Rect.X0), vy0 = Math.Max(sy0, img.Rect.Y0), vx1 = Math.Min(sx1, img.Rect.X1), vy1 = Math.Min(sy1, img.Rect.Y1);
+        int vw = vx1 <= vx0 || vy1 <= vy0 ? 0 : vx1 - vx0, vh = vw == 0 ? 0 : vy1 - vy0;
+        if (vw > 0 && (long)rw * rh * 2 < (long)vw * vh) return FetchSampled(img, vx0, vy0, vw, vh, rw, rh, offX, offY, sx, sy);
+        return FetchFull(img, vx0, vy0, vw, vh, rw, rh, offX, offY, sx, sy);
+    }
+
+    /// <summary>The steps as Lumen runs them: the reciprocal of the whole source window, the nearest resample, the reciprocal back.</summary>
+    public static DepthImage FetchFull(DepthImage img, int vx0, int vy0, int vw, int vh, int rw, int rh, double offX, double offY, double sx, double sy)
+    {
+        // reciprocal pass (window, 1.0f): rcpps + Newton in blocks of 32 (8 × 4 lanes), divss for the row tail
+        var inv = new float[vw * vh]; int vec = (vw / 32) * 32; var one = Vector128.Create(1.0f);
+        for (int y = 0; y < vh; y++)
+        {
+            int so = img.Offset + (vy0 + y) * img.Stride + vx0, d = y * vw, x = 0;
+            for (; x < vec; x += 4)
+            {
+                var v = Vector128.Create(img.Data[so + x], img.Data[so + x + 1], img.Data[so + x + 2], img.Data[so + x + 3]);
+                var r = IntelApprox.Reciprocal(v);
+                (((one - v * r) * r + r) * one).CopyTo(inv, d + x);
+            }
+            for (; x < vw; x++) inv[d + x] = 1.0f / img.Data[so + x];
+        }
+        var res = ImageResample0.Run(new DepthImage(inv, vw, vh, vw, new RectI(0, 0, vw, vh)), rw, rh, offX, offY, sx, sy);
+        // reciprocal pass (out, 1.0f) in place: aliasing source and destination → divss on every pixel
+        for (int i = 0; i < res.Data.Length; i++) res.Data[i] = 1.0f / res.Data[i];
+        return res;
+    }
+
+    /// <summary>
+    /// The same pixels as <see cref="FetchFull"/> when the result is much smaller than the source window (a coarse level reading the whole depth
+    /// cache): the nearest resample reads one source pixel per output pixel, so only those pixels' reciprocals are made — each exactly as the
+    /// full pass makes it (columns below <c>(vw / 32)·32</c>: the four-lane <c>rcpps</c> model + one Newton step, lane by lane; the rest: true
+    /// division) — then the reciprocal back (bit for bit equal to <see cref="FetchFull"/>).
+    /// </summary>
+    public static DepthImage FetchSampled(DepthImage img, int vx0, int vy0, int vw, int vh, int rw, int rh, double offX, double offY, double sx, double sy)
+    {
+        int ox16 = (int)(offX * 65536.0), oy16 = (int)(offY * 65536.0), sx16 = (int)(sx * 65536.0), sy16 = (int)(sy * 65536.0);
+        int vec = (vw / 32) * 32;
+        var xs = new int[rw];
+        for (int x = 0; x < rw; x++) { int v = unchecked(sx16 * x + ox16) >> 16; xs[x] = v < 0 ? 0 : v > vw - 1 ? vw - 1 : v; }
+        var dst = new DepthImage(rw, rh);
+        for (int y = 0; y < rh; y++)
+        {
+            int syi = unchecked(sy16 * y + oy16) >> 16; syi = syi < 0 ? 0 : syi > vh - 1 ? vh - 1 : syi;
+            long so = img.Offset + (long)(vy0 + syi) * img.Stride + vx0, wo = (long)y * rw;
+            for (int x = 0; x < rw; x++)
+            {
+                int px = xs[x]; float v = img.Data[so + px], inv;
+                if (px < vec) { float r = Lux.Engine.Imaging.IntelApprox.Rcp(v); inv = ((1.0f - v * r) * r + r) * 1.0f; }
+                else inv = 1.0f / v;
+                dst.Data[wo + x] = 1.0f / inv;
+            }
+        }
+        return dst;
     }
 
     /// <summary>
@@ -199,8 +243,8 @@ public sealed class DepthImageCache
         return c;
     }
 
-    /// <summary>The rect `0x180526ec0` builds: the export-level source rect shifted by the level origin
-    /// `renderer+0x2d0[level]`, fetched against the pipeline-level dims `renderer+0x288[level]`.</summary>
+    /// <summary>The rect the `exportImage` lambda builds: the export-level source rect shifted by the level origin,
+    /// fetched against the pipeline-level dims.</summary>
     public DepthImage FetchForExport(ExportLevels lv, int level, RectI sourceRect)
     {
         var o = lv.Origins[level];

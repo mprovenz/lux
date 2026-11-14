@@ -12,54 +12,54 @@ namespace Lux.Engine.Pipeline.BayerFusion;
 
 /// <summary>
 /// `lt::StackFusion(Image&lt;float&gt;&amp; out, Image&lt;float&gt;&amp; gainOut, vector&lt;shared_ptr&lt;CapturedImage&gt;&gt; const&amp; frames, int refIndex, float k, Vec3&lt;float&gt; const&amp; neutral)`
-/// (`180203c90`) and its driver `FUN_18020b0b0` — the <b>stacked-capture</b> fusion: one module, N frames, merged into a single
-/// float Bayer frame plus a uint8 "gain map" that the module ISP then consumes as its STD plane. Spec `a-stack-fusion.md`.
+/// and its driver — the <b>stacked-capture</b> fusion: one module, N frames, merged into a single
+/// float Bayer frame plus a uint8 "gain map" that the module ISP then consumes as its STD plane.
 ///
-/// It is the same wavelet block merge as <see cref="PackedBayerFusion"/> (`FUN_1801e6a20`, <see cref="BayerWavelet"/> /
+/// It is the same wavelet block merge as <see cref="PackedBayerFusion"/> (<see cref="BayerWavelet"/> /
 /// <see cref="BayerMerge"/>) with the stack's other frames in place of the other modules, and it differs in exactly these ways:
 /// <list type="bullet">
-/// <item>frame preparation is `FUN_1802067f0` = hot-pixel patch + `RestoreHighlightsBayer` and <b>nothing else</b> — no black
+/// <item>frame preparation is hot-pixel patch + `RestoreHighlightsBayer` and <b>nothing else</b> — no black
 /// subtraction, no exposure gain, no vignetting (all frames share the module's optics, so there is nothing to equalise);</item>
-/// <item>the flow's collapsed images do <b>not</b> get the sqrt LUT (`FUN_1801d6c80` is called only from
-/// `ColorFusionBayer::initialize`), and the flow runs with an empty validity functor;</item>
+/// <item>the flow's collapsed images do <b>not</b> get the sqrt LUT (only `ColorFusionBayer::initialize` applies it), and the
+/// flow runs with an empty validity functor;</item>
 /// <item>the packed images are `PackBayerImageProtoType&lt;vec4x16ui, unsigned short&gt;` of the raw frame, normalised to
-/// `(v − black_i)/(white_i − black_i)` halves by `FUN_180206960` — per frame with that frame's own black/white;</item>
-/// <item>the noise functor (`180207880`) is <see cref="PackedBayerFusion.NoiseFn"/> without the vignetting-map factor, over a
-/// block-mean-reciprocal image computed on the packed <b>raw</b> quads (`FUN_1801d6e30`);</item>
-/// <item>`cN` is 1.0 (not `gain/NStack`), and the result gets the reference black added back (`FUN_180207930`) with no
+/// `(v − black_i)/(white_i − black_i)` halves — per frame with that frame's own black/white;</item>
+/// <item>the noise functor is <see cref="PackedBayerFusion.NoiseFn"/> without the vignetting-map factor, over a
+/// block-mean-reciprocal image computed on the packed <b>raw</b> quads;</item>
+/// <item>`cN` is 1.0 (not `gain/NStack`), and the result gets the reference black added back with no
 /// vignetting re-applied.</item>
 /// </list>
 /// The mono branch (`(redx|redy) &lt; 0`, reached by the mono module of the reference group on every level-0/1 render of a stacked capture) is
 /// <see cref="InitializeMono"/>: full-resolution ushort frames, a 5-level flow, the panchromatic noise lane and the ushort mono merge kernel
-/// `FUN_1801ef920` in 16×16 tiles (`StackFusion::lambda_1`), with `StackFusion::lambda_0` as the weight function.
+/// in 16×16 tiles (`StackFusion::lambda_1`), with `StackFusion::lambda_0` as the weight function.
 /// </summary>
 public sealed class StackFusion
 {
-    static readonly float One = BitConverter.Int32BitsToSingle(0x3f800000);     // DAT_180681c78
-    static readonly float NoiseMul = BitConverter.Int32BitsToSingle(0x41000000);// DAT_180685d4c = 8.0 (inside FUN_1801e6a20)
-    static readonly float Eps = BitConverter.Int32BitsToSingle(0x3727c5ac);     // DAT_18068b2e0 = 1e-5
-    static readonly float Tenth = BitConverter.Int32BitsToSingle(0x3dcccccd);   // DAT_1806aeb30 = 0.1
+    static readonly float One = BitConverter.Int32BitsToSingle(0x3f800000);
+    static readonly float NoiseMul = BitConverter.Int32BitsToSingle(0x41000000);// 8.0 (inside the merge kernel)
+    static readonly float Eps = BitConverter.Int32BitsToSingle(0x3727c5ac);     // 1e-5
+    static readonly float Tenth = BitConverter.Int32BitsToSingle(0x3dcccccd);   // 0.1
 
-    /// <summary>`DAT_1806b5518 = {0.25f, 1.0f}`, indexed `stream+0x14 == 0 ? 1 : 0` (`18020b34c–18020b35a`): the noise-model
-    /// scale `param_5`, 1.0 for a full-scale surface and 0.25 for a half-scale one — the same `k` the `ColorFusionBayer`
+    /// <summary>`{0.25f, 1.0f}`, indexed `halfScale ? 0 : 1`: the noise-model
+    /// scale, 1.0 for a full-scale surface and 0.25 for a half-scale one — the same `k` the `ColorFusionBayer`
     /// constructor applies.</summary>
     public static float NoiseScaleK(bool halfScale) => halfScale ? BitConverter.Int32BitsToSingle(0x3e800000) : One;
 
     readonly LriFile _lri;
     public string Module { get; }
     public int NStack { get; }
-    /// <summary>`stream+0x10`, the stack's reference frame index. `FUN_1804b2fa0` builds the stream with `r8d = 0`, so it is
-    /// always 0 in a render; `FUN_18020b0b0` passes it to `lt::StackFusion` as `ref_index` ("Incorrect ref_index!").</summary>
+    /// <summary>The stack's reference frame index. Lumen builds the stream with index 0, so it is
+    /// always 0 in a render; the driver passes it to `lt::StackFusion` as `ref_index` ("Incorrect ref_index!").</summary>
     public int RefIndex { get; }
     public int Width { get; }
     public int Height { get; }
-    public float Black { get; }        // the reference frame's CapturedImage+0xb4
-    public float White { get; }        // CapturedImage+0xb8
+    public float Black { get; }        // the reference frame's per-frame black
+    public float White { get; }        // the reference frame's white
     public float[] A { get; } = new float[4];
     public float[] B { get; } = new float[4];
     public Action<string>? Log { get; }
 
-    /// <summary>The reference frame as the module ISP sees it (`FUN_180110190(hdr, 0, camId)`): its raw ushort buffer feeds the
+    /// <summary>The reference frame as the module ISP sees it (frame 0): its raw ushort buffer feeds the
     /// Stats (AWB / IR blend) exactly as in a single-frame render, and its `FrameBlack` is <see cref="Black"/>.</summary>
     public CapturedFrame RefFrame { get; }
 
@@ -72,15 +72,15 @@ public sealed class StackFusion
     int _wp, _hp, _brW, _brH;
 
     /// <summary>The fused full-resolution float Bayer frame (`StackFusion` out, black added back) — what
-    /// `FUN_18020a6d0` hands the module ISP as its BayerFloat source.</summary>
+    /// Lumen hands the module ISP as its BayerFloat source.</summary>
     public float[] Fused { get; private set; } = null!;
-    /// <summary>The uint8 gain map (`FUN_1802092b0(weight)`) `FUN_18020b870` returns; `FUN_180209010` turns it into the STD
-    /// plane with `k = 1.0` (`1804d8c50`: `movss xmm2, [0x180681c78]`).</summary>
+    /// <summary>The uint8 gain map of the weight image; the module ISP turns it into the STD
+    /// plane with `k = 1.0`.</summary>
     public byte[] Gain8 { get; private set; } = null!;
 
     /// <summary>`true`: the reference frame is a colour module (the wavelet path); `false`: the mono path.</summary>
     public bool IsColour { get; }
-    /// <summary>Whether frame 0 carries its per-frame black estimate (`CapturedImage+0xb4`) or the sensor DB black — see <see cref="StackProvider"/>.</summary>
+    /// <summary>Whether frame 0 carries its per-frame black estimate or the sensor DB black — see <see cref="StackProvider"/>.</summary>
     public bool RefFrameBlackEstimate { get; }
 
     public StackFusion(LriFile lri, string moduleName, float cct, float tint, Action<string>? log = null, int refIndex = 0, bool refFrameBlackEstimate = true)
@@ -91,14 +91,14 @@ public sealed class StackFusion
         if (NStack < 2) throw new InvalidOperationException("Stack must have at least two images!");
         if (refIndex < 0 || refIndex >= NStack) throw new ArgumentOutOfRangeException(nameof(refIndex), "Incorrect ref_index!");
 
-        // FUN_18020b0b0: the neutral comes from a per-frame SoftISP on FRAME 0 (`FUN_18020aad0`: highlight_restore none,
+        // The neutral comes from a per-frame SoftISP on FRAME 0 (highlight_restore none,
         // manual_temp at the capture (CCT, tint) through the camera's own colour profile → Stats neutral) and is then used
-        // both for the per-frame black estimate `FUN_180125d10(frame, neutral, 42.0, 1.2, 40)` and for RestoreHighlightsBayer.
+        // both for the per-frame black estimate (neutral, 42.0, 1.2, 40) and for RestoreHighlightsBayer.
         var profile = PackedBayerFusion.CameraProfile(lri, frames[0].Module.Id);
         var neutral = WhiteBalance.NeutralFromTempTint(cct, tint, profile);
 
         RefFrame = CapturedFrame.Load(lri, frames[refIndex]);
-        // frame 0's CapturedImage+0xb4: the estimate when FUN_18020b0b0 decoded the frame itself, the sensor DB black when an earlier path
+        // frame 0's black: the estimate when the stack driver decoded the frame itself, the sensor DB black when an earlier path
         // (the registration / tele decoder of the level-0 flow) had already decoded it — StackProvider decides per module
         if (!refFrameBlackEstimate)
             RefFrame = new CapturedFrame { Raw = RefFrame.Raw, Width = RefFrame.Width, Height = RefFrame.Height, Info = RefFrame.Info with { FrameBlack = float.NaN }, Module = RefFrame.Module, Header = RefFrame.Header };
@@ -111,8 +111,7 @@ public sealed class StackFusion
         White = noise.White;
         Black = float.IsNaN(info.FrameBlack) ? noise.Black : info.FrameBlack;
 
-        // 180203c90 L~355: A = (aR, aG, aB, aG)·k, B = (bR, bG, bB, bG)·k of the REFERENCE frame's model
-        // (`FUN_180120cb0(cap+0xb0, cap+0x40)`, entries 0x38/0x70/0xa8 and 0x3c/0x74/0xac).
+        // A = (aR, aG, aB, aG)·k, B = (bR, bG, bB, bG)·k of the REFERENCE frame's noise model
         float k = NoiseScaleK(info.IsHalfScale);
         var m = noise.ModelForGain(info.AnalogGain);
         A[0] = m.R.A * k; A[1] = m.G.A * k; A[2] = m.Bl.A * k; A[3] = m.G.A * k;
@@ -122,7 +121,7 @@ public sealed class StackFusion
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // FUN_1802067f0 — the per-frame preparation: hot-pixel patch, then (colour only) highlight restore. No black, no gain.
+    // The per-frame preparation: hot-pixel patch, then (colour only) highlight restore. No black, no gain.
     // ---------------------------------------------------------------------------------------------------------------------------------
     (ushort[] Prep, float Black, float White) PrepareFrame(LriFile.ModuleRef mref, float[] neutral, bool estimateBlack = true)
     {
@@ -130,13 +129,13 @@ public sealed class StackFusion
         int w = f.Width, h = f.Height;
         if (w != Width || h != Height) throw new InvalidOperationException("stack frames must all have the module's frame size");
         var noise = f.Info.Noise ?? throw new InvalidOperationException("stack frame has no sensor noise model");
-        float black = (!estimateBlack || float.IsNaN(f.Info.FrameBlack)) ? noise.Black : f.Info.FrameBlack;   // CapturedImage+0xb4 (FUN_180125d10)
+        float black = (!estimateBlack || float.IsNaN(f.Info.FrameBlack)) ? noise.Black : f.Info.FrameBlack;   // per-frame black estimate
         var red = f.Module.SensorBayerRedOverride;
         int rx = red?.X ?? 0, ry = red?.Y ?? 0;
         var full = new RectI(0, 0, w, h);
         var lut = noise.SigmaTables(f.Info.AnalogGain);
         var hp = new ushort[w * h];
-        HotPixelKernel.RunInto(f.Raw, w, h, full, rx, ry, One, lut[0], lut.Length > 1 ? lut[1] : lut[0], lut.Length > 2 ? lut[2] : lut[0], hp, w, 0);   // FUN_18039f640 (a mono sensor has one sigma table)
+        HotPixelKernel.RunInto(f.Raw, w, h, full, rx, ry, One, lut[0], lut.Length > 1 ? lut[1] : lut[0], lut.Length > 2 ? lut[2] : lut[0], hp, w, 0);   // a mono sensor has one sigma table
         if (!f.Info.IsColour) return (hp, black, noise.White);
         var hr = new ushort[w * h];
         HighlightRestoreKernel.Run(hp, w, 0, full, hr, w, 0, full, rx, ry, neutral, black, noise.White);
@@ -144,11 +143,11 @@ public sealed class StackFusion
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // PackBayerImageProtoType<vec4x16ui, unsigned short> (1801e6470, lambda_2 1801e9be0) + FUN_180206960 (normalise to halves)
+    // PackBayerImageProtoType<vec4x16ui, unsigned short> + normalise to halves
     // ---------------------------------------------------------------------------------------------------------------------------------
-    /// <summary>`PackBayerImageProtoType&lt;vec4x16ui, unsigned short&gt;` immediately followed by `FUN_180206960`
-    /// (`out = ((float)v − black)·inv`, stored through the `FUN_18001f080(0xf, 0x10)` converter, which tail-calls the software
-    /// RTZ float→half `FUN_1800e8150`): output `(W/2, H/2)` of four halves per pixel in quad order
+    /// <summary>`PackBayerImageProtoType&lt;vec4x16ui, unsigned short&gt;` immediately followed by the normalisation
+    /// (`out = ((float)v − black)·inv`, stored through the software
+    /// RTZ float→half of <c>Half16</c>): output `(W/2, H/2)` of four halves per pixel in quad order
     /// `(p[2y][2x+1], p[2y][2x], p[2y+1][2x], p[2y+1][2x+1])`.</summary>
     static ushort[] PackNormalized(ushort[] src, int W, int H, float black, float inv, out int wp, out int hp)
     {
@@ -170,7 +169,7 @@ public sealed class StackFusion
         return o;
     }
 
-    /// <summary>`FUN_1801d6e30`: the packed-quad twin of `FUN_1801d7140` (<see cref="PackedBayerFusion.BlockMeanRcp"/>) —
+    /// <summary>The packed-quad twin of <see cref="PackedBayerFusion.BlockMeanRcp"/> —
     /// `(ceil(Wp/8), ceil(Hp/8))` vec4 image, per 8×8 packed block `inv = 1/(validRows·validCols)` times the sum of
     /// `rcpps(maxps((float)quad, 0.1))` over the valid quads. The quads are the RAW packed uint16 values, so this block mean is in
     /// DN including the black level — which is why the noise functor adds `black` to the reciprocal.</summary>
@@ -205,7 +204,7 @@ public sealed class StackFusion
         return o;
     }
 
-    /// <summary>`StackFusion::lambda_3` (`180207880`, disasm 1802078a0–1802078f1): `v = Mean2x2Vec(blockRcp, pos)` (`1801d76c0`);
+    /// <summary>`StackFusion::lambda_3`: `v = Mean2x2Vec(blockRcp, pos)`;
     /// `r = rcpps(v); d = (1 − v·r)·r; s = ((black + r) + d)·A; s = (1/white)·s; s = s + B; s = maxps(s, 1e-5); return white²·s`.
     /// Identical to `ColorFusionBayer`'s `initialize::lambda_1` except for the missing `f²` vignetting-map factor.</summary>
     public Vec4F NoiseFn(int bx, int by)
@@ -224,7 +223,7 @@ public sealed class StackFusion
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // 180203c90 body
+    // StackFusion body
     // ---------------------------------------------------------------------------------------------------------------------------------
     void Initialize(IReadOnlyList<LriFile.ModuleRef> frames, float[] neutral)
     {
@@ -232,7 +231,7 @@ public sealed class StackFusion
         var (refPrep, refBlack, refWhite) = PrepareFrame(frames[RefIndex], neutral, RefFrameBlackEstimate);
         if (refBlack != Black || refWhite != White) throw new InvalidOperationException("reference frame black/white mismatch");
 
-        // FastCollapse of the prepared ushort frame — with NO sqrt LUT (1801d6c80 is called only from ColorFusionBayer::initialize)
+        // FastCollapse of the prepared ushort frame — with NO sqrt LUT (only ColorFusionBayer::initialize applies it)
         var refCollapsed = BlockFlow.FastCollapse(refPrep, Width, Height, out int wc, out int hc);
         const int levels = 4;   // (redx|redy) >> 31 | 4 — 4 for a colour module, 5 for a mono one
         var refPyr = BlockFlow.Pyramid(refCollapsed, wc, hc, levels, out var pdims);
@@ -247,7 +246,7 @@ public sealed class StackFusion
         for (int i = 0; i < frames.Count; i++)
         {
             if (i == RefIndex) continue;
-            var (prep, black, white) = PrepareFrame(frames[i], neutral);   // black/white per frame: FUN_180125630(frames[i]) +4/+8
+            var (prep, black, white) = PrepareFrame(frames[i], neutral);   // black/white per frame
             var col = BlockFlow.FastCollapse(prep, Width, Height, out int sw2, out int sh2);
             var flow = BlockFlow.ComputeFlow(refPyr, pdims, col, sw2, sh2, levels, null, out int fw, out int fh);
             _flows.Add(flow); _flowDims.Add((fw, fh));
@@ -256,8 +255,8 @@ public sealed class StackFusion
         }
         Log?.Invoke($"stack fusion {Module}: {NStack} frames, ref {RefIndex}, black {Black:R} white {White:R}, prep+flow {sw.Elapsed.TotalSeconds:F1}s");
 
-        // Tiler::Run over 256×256 tiles of the packed output (local_1d0 = 0x10000000100), each tile an independent
-        // FUN_1801e6a20 on views of the two output images — so the tiles can run in any order.
+        // Tiler::Run over 256×256 tiles of the packed output, each tile an independent
+        // merge kernel on views of the two output images — so the tiles can run in any order.
         var fused = new Vec4F[_wp * _hp];
         var weight = new Vec4F[_wp * _hp];
         var tiles = new List<RectI>();
@@ -275,7 +274,7 @@ public sealed class StackFusion
         });
         Log?.Invoke($"stack fusion {Module}: merged {_wp}x{_hp} packed in {tiles.Count} tiles ({sw.Elapsed.TotalSeconds:F1}s)");
 
-        // FUN_180207930: + black on all four lanes; FUN_1801e67b0 / FUN_1801e6900 unpack to full resolution
+        // + black on all four lanes; then unpack to full resolution
         var blackV = Vector128.Create(Black);
         for (int i = 0; i < fused.Length; i++)
         {
@@ -283,24 +282,24 @@ public sealed class StackFusion
             fused[i] = new Vec4F(v.GetElement(0), v.GetElement(1), v.GetElement(2), v.GetElement(3));
         }
         Fused = PackedBayerFusion.Unpack(fused, _wp, _hp);
-        Gain8 = PackedBayerFusion.WeightToByte(PackedBayerFusion.UnpackWeight(weight, _wp, _hp));   // FUN_1802092b0 in FUN_18020b0b0
+        Gain8 = PackedBayerFusion.WeightToByte(PackedBayerFusion.UnpackWeight(weight, _wp, _hp));
         _normRef = null!; _normSrc.Clear();
         Log?.Invoke($"stack fusion {Module}: done in {sw.Elapsed.TotalSeconds:F1}s");
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // 180203c90, the mono branch ((redx|redy) < 0): the ushort mono merge kernel FUN_1801ef920 (StackFusion::lambda_1) in 16×16 tiles
+    // StackFusion, the mono branch ((redx|redy) < 0): the ushort mono merge kernel (StackFusion::lambda_1) in 16×16 tiles
     // ---------------------------------------------------------------------------------------------------------------------------------
-    /// <summary>The mono path of `lt::StackFusion`: `prep = FUN_1802067f0` (hot-pixel patch only, no highlight restore), the reference COPIED
-    /// (`FUN_180012530`, elem 2) instead of collapsed, `FUN_1801d9e20(ref, ((redx|redy) &gt;&gt; 31) | 4 = 5)` pyramid levels and
+    /// <summary>The mono path of `lt::StackFusion`: `prep` = hot-pixel patch only (no highlight restore), the reference COPIED
+    /// instead of collapsed, `((redx|redy) &gt;&gt; 31) | 4 = 5` pyramid levels and
     /// `ComputeFlowFieldWithOverlap&lt;ushort,16,2,0&gt;` per frame on the full-resolution prepared ushorts (no sqrt LUT, empty validity); then
-    /// `Tiler::Run(out, (16,16), lambda_1)` where lambda_1 (`1802070d0`) runs `FUN_1801ef920(out, gainOut, ref, empty vign, srcs, flows, tile, prm)` — the
-    /// ushort instantiation of the mono merge kernel `FUN_1801ee0b0` (<see cref="MonoFusion.MergeCore"/>) — with
-    /// `prm = {w0 = 1/n, scale = 8.0, A_pan·k, B_pan·k, black, white, fn = lambda_0 (180207010): (1/n)²·((cnt + 1)² + q2)}`: `n` = frames
-    /// (`fVar24 = 1/((float)nSrc + 1)`, captured at lambda_0+8), the PANCHROMATIC lane of the reference frame's noise model at its analog gain
-    /// (`FUN_180120bf0(model + 0xb0)` +0x30/+0x34, "Panchromatic noise model doesn't exist!"), `k` = the `param_5` noise scale, `black/white` =
-    /// ref+0xb4/+0xb8. The output images are written by the kernel directly: no black is added back (the mono frames are never normalised) and the
-    /// weight image is the gain map as is (`FUN_1802092b0` in the driver).</summary>
+    /// `Tiler::Run(out, (16,16), lambda_1)` where lambda_1 runs the merge kernel `(out, gainOut, ref, empty vign, srcs, flows, tile, prm)` — the
+    /// ushort instantiation of the mono merge kernel (<see cref="MonoFusion.MergeCore"/>) — with
+    /// `prm = {w0 = 1/n, scale = 8.0, A_pan·k, B_pan·k, black, white, fn = lambda_0: (1/n)²·((cnt + 1)² + q2)}`: `n` = frames
+    /// (`1/((float)nSrc + 1)`), the PANCHROMATIC lane of the reference frame's noise model at its analog gain
+    /// ("Panchromatic noise model doesn't exist!"), `k` = the noise scale, `black/white` = the reference frame's black and white.
+    /// The output images are written by the kernel directly: no black is added back (the mono frames are never normalised) and the
+    /// weight image is the gain map as is.</summary>
     void InitializeMono(IReadOnlyList<LriFile.ModuleRef> frames, float[] neutral)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -346,7 +345,7 @@ public sealed class StackFusion
     static float[] ToFloat(ushort[] v) { var o = new float[v.Length]; for (int i = 0; i < o.Length; i++) o[i] = (float)v[i]; return o; }
     static readonly float MonoStackScale = BitConverter.Int32BitsToSingle(0x41000000);   // 8.0: prm[1] (the shrink scale) of the mono stack kernel
 
-    /// <summary>`PackBayerImageProtoType&lt;vec4x16ui, unsigned short&gt;` alone (the input of `FUN_1801d6e30`).</summary>
+    /// <summary>`PackBayerImageProtoType&lt;vec4x16ui, unsigned short&gt;` alone (the input of the packed block mean).</summary>
     static ushort[] PackRaw(ushort[] src, int W, int H)
     {
         int wp = W >> 1, hp = H >> 1;
@@ -368,7 +367,7 @@ public sealed class StackFusion
     [MethodImpl(MethodImplOptions.AggressiveInlining)] static Vector128<float> Load(Vec4F v) => Vector128.Create(v.R, v.G, v.B, v.A);
     [MethodImpl(MethodImplOptions.AggressiveInlining)] static Vec4F Store(Vector128<float> v) => new(v.GetElement(0), v.GetElement(1), v.GetElement(2), v.GetElement(3));
 
-    /// <summary>The merge kernel `FUN_1801e6a20(out, wOut, ref, srcs, flows, noiseFn, roi, cN, range)` — the same body as
+    /// <summary>The merge kernel (out, wOut, ref, srcs, flows, noiseFn, roi, cN, range) — the same body as
     /// <see cref="PackedBayerFusion.Merge"/>, over the stack's frames and with this class's noise functor.</summary>
     public (Vec4F[] Fused, Vec4F[] Weight, int W, int H) Merge(RectI halfRoi, float cN, float range)
     {
@@ -443,12 +442,12 @@ public sealed class StackFusion
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // What ReferenceImageCache::processLevel needs (1804d86e0 L145–430)
+    // What ReferenceImageCache::processLevel needs
     // ---------------------------------------------------------------------------------------------------------------------------------
-    /// <summary>The stacked float Bayer as an image over the whole frame (`FUN_18020a6d0`).</summary>
+    /// <summary>The stacked float Bayer as an image over the whole frame.</summary>
     public Image<float> BayerImage() => new(new RectI(0, 0, Width, Height), Fused, Width, 0);
 
-    /// <summary>`FUN_180209010(out, gainView, k)` with `k = 1.0` (`1804d8c50`): `std = DAT_1806b5110[gain8]·k` over
+    /// <summary>The STD plane with `k = 1.0`: `std = PackedBayerFusion.StdTable[gain8]·k` over
     /// <paramref name="rect"/>.</summary>
     public Image<float> StdImage(RectI rect)
     {

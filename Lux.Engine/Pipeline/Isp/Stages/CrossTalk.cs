@@ -2,8 +2,8 @@ using Lux.Engine.Imaging;
 namespace Lux.Engine.Pipeline.Isp.Stages;
 
 /// <summary>
-/// `lt::A::RemoveCrossTalkGeneric&lt;float,1&gt;` (dispatcher `18012f500`, cell prep `FUN_1801386a0`, tile lambda
-/// `18013b3e0`, per-cell apply `FUN_180137410`) = `CrossTalkCorrection:ir_correction` on the Bayer-float domain.
+/// Lumen's `lt::A::RemoveCrossTalkGeneric&lt;float,1&gt;` (dispatcher, cell prep, tile lambda, per-cell apply)
+/// = `CrossTalkCorrection:ir_correction` on the Bayer-float domain.
 /// This file holds the per-cell apply: for every 2×2 Bayer quad of the cell the four sites (R, G1 = R's row,
 /// G2 = R's column, B) are remixed with the 4×4 node matrices bilinearly interpolated inside the cell:
 /// R' = (ΣG₄)·c_RG·½ + c_RR·R; G1' = ((B_below+B_above)·c_G1B + (R_right+R_left)·c_G1R)·½ + c_G1G1·G1;
@@ -14,9 +14,9 @@ namespace Lux.Engine.Pipeline.Isp.Stages;
 /// </summary>
 public static class CrossTalkKernel
 {
-    public const float Half = 0.5f;   // DAT_180682404
+    public const float Half = 0.5f;
 
-    /// <summary>`FUN_180137410`. <paramref name="src"/>/<paramref name="dst"/> share the coordinate frame of
+    /// <summary>The per-cell apply. <paramref name="src"/>/<paramref name="dst"/> share the coordinate frame of
     /// <paramref name="srcRect"/> (valid source area) and the cell rect; <paramref name="par"/> = (dx,dy) of
     /// R, G1, G2, B in the quad; <paramref name="t"/> = 4×16 node matrices (r,c), (r+1,c), (r,c+1), (r+1,c+1);
     /// <paramref name="guard"/> = the three guard gains.</summary>
@@ -81,7 +81,7 @@ public static class CrossTalkKernel
         }
     }
 
-    /// <summary>The 4×4 crosstalk matrix of a model node (lambda `18013b3e0` L20–60 / L420–440): the compact form
+    /// <summary>The 4×4 crosstalk matrix of a model node (as the tile lambda builds it): the compact form
     /// (entry[14] == 0) spreads the R/B→G terms over both greens, `(M0, M1·½, M1·½, 0), (M4, M5, 0, M6), (M4, 0, M5,
     /// M6), (0, M9·½, M9·½, M10)`; otherwise the entry is the row-major 4×4 itself.</summary>
     public static float[] NodeMatrix(ReadOnlySpan<float> m)
@@ -99,8 +99,8 @@ public static class CrossTalkKernel
     public static float[] NodeTransform(float[] e, float[] d, float[] dinv, float[]? c)
     {
         var t = new float[16];
-        // the lambda's first `Matrix4x4(vector)` (local_138) holds the neutral, the second (local_178) its reciprocals;
-        // the products use local_178 on the left: T(i,j) = (dinv_i · E(i,j)) · d_j  [verified bit-exact vs cp.dll]
+        // the lambda's first `Matrix4x4(vector)` holds the neutral, the second its reciprocals;
+        // the products use the reciprocals on the left: T(i,j) = (dinv_i · E(i,j)) · d_j
         for (int i = 0; i < 4; i++) for (int j = 0; j < 4; j++) t[i * 4 + j] = (dinv[i] * e[i * 4 + j]) * d[j];
         if (c is not null)
         {
@@ -112,7 +112,7 @@ public static class CrossTalkKernel
         return t;
     }
 
-    /// <summary>`(1 − n·r)·r + r` after `rcpps` — the neutral reciprocals (`_DAT_1806824a0` = 1).</summary>
+    /// <summary>`(1 − n·r)·r + r` after `rcpps` — the neutral reciprocals.</summary>
     public static float[] Reciprocals(float[] n)
     {
         var v = System.Runtime.Intrinsics.Vector128.Create(n[0], n[1], n[2], n[3]);
@@ -123,8 +123,8 @@ public static class CrossTalkKernel
     }
 
     /// <summary>The tile lambda for one cell (col, row): node matrices, the even-aligned cell rect, the fractional
-    /// offsets (L977–1049) and the apply. <paramref name="model"/> = cols × rows × 16 floats, <paramref name="cellGains"/>
-    /// = cols × rows × 16 floats (the prepared 4×4 per node, `FUN_1801386a0`) or null (identity).</summary>
+    /// offsets and the apply. <paramref name="model"/> = cols × rows × 16 floats, <paramref name="cellGains"/>
+    /// = cols × rows × 16 floats (the prepared 4×4 per node, from the cell prep) or null (identity).</summary>
     public static void ProcessCell(float[] src, int srcStride, RectI srcRect, int srcOffset, float[] dst, int dstStride, int dstOffset,
         int col, int row, float hspace, float vspace, int modelCols, float[] model, float[]? cellGains, float[] neutral3, RectI cell, RectI intRect, int redX, int redY, float[] guard)
     {
@@ -150,21 +150,21 @@ public static class CrossTalkKernel
     }
 }
 
-/// <summary>Bayer-float stage `CrossTalkCorrection:ir_correction` (`setCrossTalkCorrection` `180401420`, slot pad 3 /
-/// align 2; lambda_12 `180414cf0`: `RemoveCrossTalkGeneric&lt;float,1&gt;(out, view, (int)floatRect, CapturedImage,
-/// Stats neutral, neutral' = min(n)×3 when highlight_restore ≠ none, Stats.IrBlend)`). Dispatcher `18012f500`:
+/// <summary>Bayer-float stage `CrossTalkCorrection:ir_correction` (`setCrossTalkCorrection`, slot pad 3 /
+/// align 2; the stage lambda calls `RemoveCrossTalkGeneric&lt;float,1&gt;(out, view, (int)floatRect, CapturedImage,
+/// Stats neutral, neutral' = min(n)×3 when highlight_restore ≠ none, Stats.IrBlend)`). The dispatcher uses
 /// the module's `VignettingCharacterization.crosstalk` grid (must be 17×13 for the IR database), the vignetting
-/// cell geometry, guard gains 1/(1/n' + (−0.99999)) and the IR cell matrices (`FUN_1801386a0`).</summary>
+/// cell geometry, guard gains 1/(1/n' + (−0.99999)) and the IR cell matrices.</summary>
 public sealed class CrossTalkStage : IStage
 {
     public StageName Stage => StageName.CrossTalkCorrection;
     public string TypeString => "ir_correction";
-    public StageMeta Meta => new(3, 2, 1f);   // setCrossTalkCorrection L156/L300: 0x200000003 = pad 3, align 2 (both types)
-    public const float GuardOffset = -0.9999899864196777f;   // DAT_18068c1c8
+    public StageMeta Meta => new(3, 2, 1f);   // setCrossTalkCorrection: 0x200000003 = pad 3, align 2 (both types)
+    public const float GuardOffset = -0.9999899864196777f;
 
     public sealed record CrosstalkGrid(int Cols, int Rows, float[] Nodes);
 
-    /// <summary>The crosstalk model of the module's calibration (`FUN_180110250`, "crosstalk model not found!").</summary>
+    /// <summary>The crosstalk model of the module's calibration ("crosstalk model not found!").</summary>
     public static CrosstalkGrid Model(Ltpb.LightHeader h, Ltpb.CameraModule m)
     {
         foreach (var cal in Calibration.ForModule(h, m.Id))
@@ -188,7 +188,7 @@ public sealed class CrossTalkStage : IStage
         throw new InvalidOperationException("crosstalk model not found!");
     }
 
-    /// <summary>Owner +0x290 (`FUN_18010df70` L150): set when any ColorCalibration of the module carries
+    /// <summary>Set when any ColorCalibration of the module carries
     /// `spectral_data` (has-bit 2 of the generated class).</summary>
     public static bool SpectralFlag(Ltpb.LightHeader h, Ltpb.CameraModule m)
     {
@@ -211,7 +211,7 @@ public sealed class CrossTalkStage : IStage
         float[] nGuard = n;
         if (p.Context.Tuning.Type("highlight_restore") != "none") { float mn = n[0]; if (n[1] <= mn) mn = n[1]; if (n[2] <= mn) mn = n[2]; nGuard = new[] { mn, mn, mn }; }
         var guard = new[] { 1f / (1f / nGuard[0] + GuardOffset), 1f / (1f / nGuard[1] + GuardOffset), 1f / (1f / nGuard[2] + GuardOffset) };
-        // geometry (dispatcher L30–60): the int rect = (int)floatRect, sx = view.w / rect.w, node spacing over the frame
+        // geometry: the int rect = (int)floatRect, sx = view.w / rect.w, node spacing over the frame
         var fr = p.FloatRect; var ir = new RectI((int)fr.X0, (int)fr.Y0, (int)fr.X1, (int)fr.Y1);
         var abs = p.ToAbsolute(p.IntRect).Intersect(img.Rect);
         int w = abs.Width, h = abs.Height;

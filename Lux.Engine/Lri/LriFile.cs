@@ -9,8 +9,7 @@ namespace Lux.Engine.Lri;
 /// Parses a Light L16 <c>.lri</c> container: a chain of <c>LELR</c> blocks, each 32-byte header
 /// (magic, u64 block-length, u64 msg-offset, u32 msg-len, u8 type) followed by a protobuf message.
 /// Type-0 messages are partial <see cref="LightHeader"/>s that are merged together; per-module raw
-/// frames (RAW_PACKED_10BPP) live at <c>blockBase + surface.DataOffset</c>. Mirrors the verified
-/// Python <c>lri_meta.py</c>.
+/// frames (RAW_PACKED_10BPP) live at <c>blockBase + surface.DataOffset</c>.
 /// </summary>
 public sealed class LriFile
 {
@@ -18,29 +17,28 @@ public sealed class LriFile
     public LightHeader Header { get; }
     /// <summary>Module id (e.g. "A1", "B4") → the module message and the file offset of the block it came from — the
     /// module's <b>frame 0</b>, which is the frame every consumer that wants "the" capture of a module means: the renderer
-    /// builds its stream with frame index 0 (`FUN_1804b2fa0` passes `r8d = 0` to the ctor `1802095e0`, which stores it at
-    /// `stream+0x10`), and `FUN_180110190(hdr, &amp;cap, 0, camId)` is what every single-frame path resolves. For the 391
-    /// single-frame captures every block already has `frame_index == 0`, so this is exactly the previous "last block
-    /// defining a module wins" — the last block of frame 0 still wins, which is what makes a header split across several
+    /// builds its stream with frame index 0, and every single-frame path resolves frame 0. For a
+    /// single-frame capture every block has `frame_index == 0`, so the last block
+    /// defining a module wins — which is what makes a header split across several
     /// partial type-0 blocks merge the same way. <see cref="Frames"/> reaches the other frames of a stack.</summary>
     public IReadOnlyDictionary<string, ModuleRef> Modules { get; }
 
-    /// <summary>Module id → its blocks indexed by <c>frame_index</c> (`FUN_180110190(hdr, out, frameIdx, camId)`), one entry
+    /// <summary>Module id → its blocks indexed by <c>frame_index</c>, one entry
     /// per frame; length 1 for an ordinary capture and <see cref="StackFrames"/> for a stacked one. Later blocks with the
     /// same (id, frame) replace earlier ones, the same last-wins merge <see cref="Modules"/> uses.</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<ModuleRef>> Frames { get; }
     /// <summary>The STANDALONE type-1 <c>ViewPreferences</c> blocks (merged in file order). These — not the header's
     /// <c>view_preferences</c> copy — carry <c>image_gain / image_integration_time_ns / display_*</c>, which Lumen
-    /// uses for BaselineExposure / ev_offset and the Exif exposure (SoT §3.7). Null if the file has none.</summary>
+    /// uses for BaselineExposure / ev_offset and the Exif exposure. Null if the file has none.</summary>
     public ViewPreferences? ViewPreferencesBlock { get; }
     /// <summary>The standalone type-2 <c>GPSData</c> block, if present.</summary>
     public GPSData? GpsBlock { get; }
 
-    /// <summary>`FUN_180112250(cameraList)` = <c>cameraList+0x28</c>, the frames per stack: 1 for an ordinary capture,
+    /// <summary>The frames per stack: 1 for an ordinary capture,
     /// 4 for the stacked ones (the camera writes one module block per frame per module). Lumen keys several decisions on
-    /// it — `lt::StackFusion` runs when it is ≥ 2 (`FUN_18020a6d0`/`FUN_18020b0b0`), the gain map only exists then
+    /// it — `lt::StackFusion` runs when it is ≥ 2, the gain map only exists then
     /// ("Gain map not available in non-stack mode."), and the module ISP drops hot-pixel/highlight-restore
-    /// (`FUN_18050cc30` L597) because the stack fusion already applied them per frame.</summary>
+    /// because the stack fusion already applied them per frame.</summary>
     public int StackFrames { get; }
 
     /// <summary>Every module block in the file, in file order — one per module per frame, so a 4-frame stack appears
@@ -104,17 +102,38 @@ public sealed class LriFile
             var list = new List<ModuleRef>(byFrame.Count);
             foreach (var kv in byFrame) list.Add(kv.Value);          // ordered by frame_index
             frames[id] = list;
-            // `FUN_180110190(hdr, out, 0, camId)` — frame 0; a module without one keeps the last block seen, as before
+            // frame 0; a module without one keeps the last block seen
             mods[id] = byFrame.TryGetValue(0u, out var f0) ? f0 : list[^1];
         }
         return new LriFile(data, header, mods, frames, blocks, vp, gps, Math.Max(frameIndices.Count, 1));
+    }
+
+    /// <summary>
+    /// Reads the <see cref="LightHeader"/> message of the first block only. <paramref name="readAt"/> gives the bytes at an offset. The method
+    /// makes two small reads: the 32-byte block header, then the message at its offset. It does not read the whole file.
+    /// On the L16, this message is at the end of block 0, after the frame of the first module (65–117 MB into the file). It is 1.4–5 KB.
+    /// The L16 writes the accelerometer samples (<c>imu_data</c>) into this message only. Returns null when the file does not start with a
+    /// type-0 block, or when the message cannot be read.
+    /// </summary>
+    public static LightHeader? ReadFirstBlockHeader(Func<long, int, byte[]> readAt, long fileSize = -1)
+    {
+        var h = readAt(0, 32);
+        if (h.Length < 32 || h[0] != (byte)'L' || h[1] != (byte)'E' || h[2] != (byte)'L' || h[3] != (byte)'R' || h[24] != 0) return null;
+        ulong msgOff = BinaryPrimitives.ReadUInt64LittleEndian(h.AsSpan(12));
+        uint msgLen = BinaryPrimitives.ReadUInt32LittleEndian(h.AsSpan(20));
+        if (msgLen == 0 || msgLen > (16u << 20) || msgOff < 32 || msgOff > long.MaxValue / 2) return null;
+        if (fileSize > 0 && (long)msgOff + msgLen > fileSize) return null;
+        var msg = readAt((long)msgOff, (int)msgLen);
+        if (msg.Length != msgLen) return null;
+        try { return LightHeader.Parser.ParseFrom(msg); }
+        catch (Google.Protobuf.InvalidProtocolBufferException) { return null; }
     }
 
     /// <summary>The reference module (`LightHeader.image_reference_camera`), e.g. "A1".</summary>
     public string ReferenceModule => Header.ImageReferenceCamera.ToString();
 
     /// <summary>
-    /// Lumen's exposure ratio (SoT §3.7, `FUN_180126860`): (image_gain · image_integration_time_ns) /
+    /// Lumen's exposure ratio: (image_gain · image_integration_time_ns) /
     /// (reference module sensor_analog_gain · sensor_exposure); 1.0 when the type-1 block lacks the two fields.
     /// <c>log2</c> of it is the DNG BaselineExposure and the `tone_mapping.ev_offset`.
     /// </summary>
@@ -125,14 +144,14 @@ public sealed class LriFile
             var vp = ViewPreferencesBlock;
             if (vp is null || !vp.HasImageGain || !vp.HasImageIntegrationTimeNs) return 1f;
             var refm = Modules[ReferenceModule].Module;
-            float capTime = (float)refm.SensorExposure, capGain = refm.SensorAnalogGain;   // (float)(u64), float — as cp.dll
+            float capTime = (float)refm.SensorExposure, capGain = refm.SensorAnalogGain;   // (float)(u64), float — as Lumen
             return (vp.ImageGain * (float)vp.ImageIntegrationTimeNs) / (capGain * capTime);
         }
     }
 
-    /// <summary>`FUN_180126860(CapturedImage)`: the same ViewPreferences (image_gain·integration_time) over THIS module's own gain·exposure — equals
-    /// <see cref="LumenExposureRatio"/> for the reference module; ≈1.012 for the L16 B-cams at gain 7.25 (verified: the tele level-1 grain rule
-    /// `max(0.5, rsqrt(ratio))` yields 0.994, not 0.703 — cp.dll tele-ISP reference run t0, 2026-08-27).</summary>
+    /// <summary>The same ViewPreferences (image_gain·integration_time) over THIS module's own gain·exposure — equals
+    /// <see cref="LumenExposureRatio"/> for the reference module; ≈1.012 for the L16 B-cams at gain 7.25 (so the tele level-1 grain rule
+    /// `max(0.5, rsqrt(ratio))` yields 0.994, not 0.703).</summary>
     public float ExposureRatioOf(CameraModule m)
     {
         var vp = ViewPreferencesBlock;
@@ -140,11 +159,11 @@ public sealed class LriFile
         return (vp.ImageGain * (float)vp.ImageIntegrationTimeNs) / (m.SensorAnalogGain * (float)m.SensorExposure);
     }
 
-    /// <summary>`tone_mapping.ev_offset` / BaselineExposure = log2f(<see cref="LumenExposureRatio"/>) (SoT §3.7).</summary>
+    /// <summary>`tone_mapping.ev_offset` / BaselineExposure = log2f(<see cref="LumenExposureRatio"/>).</summary>
     public float LumenEvOffset => MathF.Log2(LumenExposureRatio);
 
     /// <summary>
-    /// Lumen's AsShot neutral (SoT §3.4, `1802095e0` L~300–330): n = (1/r, 1/g, 1/b) from the header's awb_gains
+    /// Lumen's AsShot neutral: n = (1/r, 1/g, 1/b) from the header's awb_gains
     /// (Vec3 r, g=g_r, b), divided by max(n) so the largest component is 1.0. (1,1,1) when absent.
     /// </summary>
     private static float RcpNr(float x)
@@ -160,7 +179,7 @@ public sealed class LriFile
         {
             var awb = header.ViewPreferences?.AwbGains ?? vpBlock?.AwbGains;
             if (awb is null || awb.R <= 0f || awb.GR <= 0f || awb.B <= 0f) return new[] { 1f, 1f, 1f };
-            // FUN_1802095e0 L342-357 (asm-exact): (1/r, 1/g) by rcpps + one Newton step, 1/b by divss, divide by the max
+            // (1/r, 1/g) by rcpps + one Newton step, 1/b by divss, divide by the max (Lumen's exact order)
             float nr = RcpNr(awb.R), ng = RcpNr(awb.GR), nb = 1f / awb.B;
             float mx = nr; if (mx <= ng) mx = ng; if (mx <= nb) mx = nb;
             float inv = 1f / mx;
@@ -175,9 +194,9 @@ public sealed class LriFile
             : (42f, 1023f);
 
     /// <summary>
-    /// Unpack a module's raw frame into a row-major ushort[H*W]. Two encodings exist and cp.dll dispatches between them
-    /// in `lt::CaptureStack::CaptureStack::lambda_0` (`FUN_180118bb0`): `RAW_PACKED_10BPP` → `FUN_180127670`, the 4 px
-    /// per 5 bytes unpack below; `RAW_BAYER_JPEG` → `FUN_180128550`, four (or one) baseline JPEG planes plus a
+    /// Unpack a module's raw frame into a row-major ushort[H*W]. Two encodings exist and Lumen dispatches between them
+    /// in `lt::CaptureStack::CaptureStack::lambda_0`: `RAW_PACKED_10BPP` → the 4 px
+    /// per 5 bytes unpack below; `RAW_BAYER_JPEG` → four (or one) baseline JPEG planes plus a
     /// dequantization LUT (<see cref="BayerJpegSurface"/>). Everything else is *"Unsupported sensor data encoding!"*.
     /// </summary>
     public ushort[] Frame(in ModuleRef mref, out int width, out int height)

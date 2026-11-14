@@ -1,0 +1,28 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             x:Class="Lux.App.Views.ChoiceDialog"
+             x:DataType="vm:ChoiceDialogViewModel">
+  <!-- A question with several answers (export: files already exist — keep both / replace / skip). -->
+  <Border Classes="dialog" Width="560">
+    <StackPanel>
+      <Border Padding="20,16" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,0,0,1">
+        <TextBlock Classes="dialogtitle wrap" Text="{Binding Title}" />
+      </Border>
+      <TextBlock Classes="secondary wrap" Margin="20,16" Text="{Binding Text}" />
+      <Border Padding="20,12" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,1,0,0">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+          <Button Content="Cancel" Padding="16,0" Command="{Binding CancelCommand}" />
+          <ItemsControl ItemsSource="{Binding Choices}">
+            <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="8" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:DialogChoice">
+                <Button Classes.primary="{Binding IsDefault}" Content="{Binding Label}" Command="{Binding ChooseCommand}" Padding="16,0" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </Border>
+</UserControl>

@@ -2,12 +2,12 @@ using Ltpb;
 
 namespace Lux.Engine.Pipeline;
 
-/// <summary>The five payload domains of <c>lt::Internal::Pipeline</c> (blocks +0x80, +0x598, +0xab0, +0xfc8, +0x14e0).</summary>
+/// <summary>The five payload domains of <c>lt::Internal::Pipeline</c>.</summary>
 public enum PayloadDomain { BayerFloat, Bayer, BayerToMono, Color, Mono }
 
 /// <summary>
-/// The 16 stage slots of every domain block, listed in Lumen's EXECUTION order (the stage vector built by
-/// <c>FUN_1803fd250</c> L61–77, SoT §4.1) — not the `set*` call order. <c>Placeholder</c> is slot 2 (a no-op lambda).
+/// The 16 stage slots of every domain block, listed in Lumen's EXECUTION order (the order of its stage vector) — not the `set*`
+/// call order. <c>Placeholder</c> is slot 2 (a no-op lambda).
 /// </summary>
 public enum StageName
 {
@@ -18,7 +18,7 @@ public enum StageName
 
 public static class StageNames
 {
-    /// <summary>Tuning section per stage (the key prefix cp.dll reads, e.g. "lens_shading").</summary>
+    /// <summary>Tuning section per stage (the key prefix Lumen reads, e.g. "lens_shading").</summary>
     public static string TuningSection(StageName s) => s switch
     {
         StageName.HotPixelLeakageRemoval => "hot_pixel_leakage_removal",
@@ -41,48 +41,48 @@ public static class StageNames
     public static readonly StageName[] ExecutionOrder = Enum.GetValues<StageName>();
 }
 
-/// <summary>Per-stage slot metadata (cp.dll slot fields +0x40 pad, +0x44 align, +0x48 scale) used by the runner's padding pass.</summary>
+/// <summary>Per-stage slot metadata (pad, align, scale) used by the runner's padding pass.</summary>
 public readonly record struct StageMeta(int Pad = 1, int Align = 1, float Scale = 1f);
 
 public readonly record struct RectF(float X0, float Y0, float X1, float Y1);
 
-/// <summary>Pipeline statistics (`SoftISP::Stats`, 0x1d0 B, computed by `FUN_180410ac0`): the WB neutral at +0
-/// (consumed by crosstalk / demosaic / CNR), temp/tint at +0xc/+0x10, the camera→output matrix (+0x14…, identity when
-/// `output.color_space = none`), and the colour profile object at +0xa8.</summary>
+/// <summary>Pipeline statistics (`SoftISP::Stats`): the WB neutral
+/// (consumed by crosstalk / demosaic / CNR), temp/tint, the camera→output matrix (identity when
+/// `output.color_space = none`), and the colour profile object.</summary>
 public sealed class IspStats
 {
     public float[] Neutral { get; init; } = { 1f, 1f, 1f };
     public float Cct { get; init; }
     public float Tint { get; init; }
-    /// <summary>The WB chromaticity at Stats +0xc/+0x10 (input of `FUN_1800d0ef0` for the IR fit).</summary>
+    /// <summary>The WB chromaticity (input of the xy → CCT conversion for the IR fit).</summary>
     public (float X, float Y) NeutralXy { get; init; }
-    /// <summary>Stats +0x1c8: the IR-correction blend (`FUN_180133db0`), NaN when not computed (crosstalk ≠ ir_correction).</summary>
+    /// <summary>The IR-correction blend, NaN when not computed (crosstalk ≠ ir_correction).</summary>
     public float IrBlend { get; init; } = float.NaN;
-    /// <summary>Stats +0x198 → the `lt::Sensor` of the capture the stats were built from: per-frame black (+0xb4), white (+0xb8) and the noise
-    /// models. The stereo ISP builds its stats ONCE from the reference capture and reuses them for every module (`StereoAsyncAPI::start`,
-    /// `FUN_1803de110`), so non-reference modules are linearized with the REFERENCE frame's black (verified live 2026-08-26: A5 with 42.51).</summary>
+    /// <summary>The `lt::Sensor` of the capture the stats were built from: per-frame black, white and the noise
+    /// models. The stereo ISP builds its stats ONCE from the reference capture and reuses them for every module (`StereoAsyncAPI::start`),
+    /// so non-reference modules are linearized with the REFERENCE frame's black.</summary>
     public float SensorBlack { get; init; } = float.NaN;
     public float SensorWhite { get; init; } = float.NaN;
     public Isp.SensorNoise? Noise { get; init; }
     public float[] CameraToOutput { get; init; } = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
-    /// <summary>Stats +0x14: the `lt::ColorSpace` the ColorCorrection Stats functor installs (`setColorCorrection` lambda_56 default: the profile's
-    /// ForwardMatrix interpolated at the WB CCT, white point D50, space 0; lambda_57 none: identity/space 1; lambda_58 manual: `color_correction.matrix`).</summary>
+    /// <summary>The `lt::ColorSpace` the ColorCorrection Stats functor installs (`setColorCorrection` default: the profile's
+    /// ForwardMatrix interpolated at the WB CCT, white point D50, space 0; none: identity/space 1; manual: `color_correction.matrix`).</summary>
     public Color.ColorSpace CcSpace { get; init; } = Color.ColorSpace.None();
-    /// <summary>Stats +0x48: the output `lt::ColorSpace` (`FUN_180410ac0` L128–199: `output.color_space`/`output.white_point` → `FUN_1800cef80`,
+    /// <summary>The output `lt::ColorSpace` (`output.color_space`/`output.white_point`,
     /// or the CC space / ProPhoto-D50 when one of them is `none`).</summary>
     public Color.ColorSpace OutSpace { get; init; } = Color.ColorSpace.None();
-    /// <summary>Stats +0x80/0x84/0x88 + the cell vector at +0x90/0x98/0xa0: the CCT-interpolated `lt::HSVMap` the
-    /// `color_correction = optimized` Stats functor (lambda_60 `180419ed0` → `FUN_18041eff0`) builds from the profile's two
+    /// <summary>The CCT-interpolated `lt::HSVMap` that the
+    /// `color_correction = optimized` Stats functor builds from the profile's two
     /// HueSatMaps. Null/empty for every other `color_correction` type, in which case `optimized` degenerates to `default`.</summary>
     public Color.HsvMap? HsvMap { get; init; }
     public Color.LumenProfile? Profile { get; init; }
-    /// <summary>Per-channel (R, G, B) noise σ tables indexed by raw DN for the frame's sensor gain (`FUN_180120f50`).</summary>
+    /// <summary>Per-channel (R, G, B) noise σ tables indexed by raw DN for the frame's sensor gain.</summary>
     public float[][]? NoiseSigma { get; init; }
 }
 
 /// <summary>
-/// The runner payload (cp.dll 0x120-byte payload passed to every slot functor): the tile rectangles in the three
-/// forms Lumen keeps (+0x10 float, +0x20 int, +0x30 int × stage scale — all relative to the ROI origin of the
+/// The runner payload (passed to every slot functor): the tile rectangles in the three
+/// forms Lumen keeps (float, int, int × stage scale — all relative to the ROI origin of the
 /// current stage input) and the image handles a domain carries (Bayer ushort/float source, RGB working image,
 /// stack-STD plane), plus the stats and the frame.
 /// </summary>
@@ -104,7 +104,7 @@ public sealed class IspPayload
     public Image<float>? Std;
     /// <summary>RGB working image (vec4x32f) — produced by demosaic, then processed in place.</summary>
     public Image<Vec4F>? Rgb;
-    /// <summary>The previous RGB working image left in the payload (+0xa0) by a stage that swapped in a new one (the hybrid denoiser);
+    /// <summary>The previous RGB working image left in the payload by a stage that swapped in a new one (the hybrid denoiser);
     /// `PostProcessing` reads it as the LDiff companion (grain re-injection). Null when no such stage ran.</summary>
     public Image<Vec4F>? Companion;
     public required IspStats Stats;
@@ -136,7 +136,7 @@ public interface IStage
     /// <summary>The Lumen tuning type string this implementation answers to ("light_v2", "inverse", …) or a new one.</summary>
     string TypeString { get; }
     StageMeta Meta { get; }
-    /// <summary>Process the payload in place (cp.dll stages write back into the working images).</summary>
+    /// <summary>Process the payload in place (Lumen's stages write back into the working images).</summary>
     void Apply(IspPayload payload);
 }
 
@@ -171,9 +171,9 @@ public static class StageRegistry
 }
 
 /// <summary>
-/// Builds the ordered stage list for a domain from the tuning (the factory `FUN_1803d8cf0` + the domain block's
+/// Builds the ordered stage list for a domain from the tuning (the stage factory + the domain block's
 /// stage vector): a stage whose <c>&lt;section&gt;.type</c> is "none" (or unset) is skipped, exactly like an empty
-/// cp.dll slot; a type string with no registered implementation is an error (never a silent fallback).
+/// Lumen slot; a type string with no registered implementation is an error (never a silent fallback).
 /// </summary>
 public static class StageGraph
 {
@@ -192,19 +192,17 @@ public static class StageGraph
         return r;
     }
 
-    // NOTE (2026-08-27): an earlier "BayerFloatAbsent" set (no CrossTalk/LensShading in the BayerFloat block) was read off the pipeline-5 listing of the
-    // MONO configuration, where `1805018e0` L695–761 sets those types to "none" through the tuning; the MonoFusion's own ISP (+0x580 vector, seen
-    // in cp.dll's mono-fusion reference run) runs slot 5 crosstalk (415500) and slot 12 lens shading (4186a0) — the ×2 brightness gap of the fused path (spec a-monofusion §8.8).
-    // The BayerFloat block installs every stage its tuning names, like the other blocks.
+    // The BayerFloat block installs every stage its tuning names, like the other blocks. This includes crosstalk (slot 5) and lens
+    // shading (slot 12): the MonoFusion's own ISP runs both. The MONO configuration sets those types to "none" through its tuning.
 
     public static List<IStage> Build(PayloadDomain domain, Tuning tuning)
     {
         var stages = new List<IStage>();
-        var skip = Environment.GetEnvironmentVariable("LUX_SKIP_STAGE");   // diagnostic only: comma list of stage names to leave out (stage skip-set comparisons against cp.dll)
+        var skip = Environment.GetEnvironmentVariable("LUX_SKIP_STAGE");   // diagnostic only: comma list of stage names to leave out
         foreach (var (s, type) in Required(tuning))
         {
             if (skip is not null && skip.Split(',').Contains(s.ToString()))
-            {   // diagnostic: like cp.dll's stage-skip diagnostic (impl pointer := null) the slot keeps its pad/align/scale for the padding pass but is never run
+            {   // diagnostic: like a Lumen slot with a null impl, the slot keeps its pad/align/scale for the padding pass but is never run
                 Console.Error.WriteLine($"[diagnostic] LUX_SKIP_STAGE: skipping {domain}/{s} — output is NOT Lumen-faithful");
                 if (StageRegistry.TryCreate(domain, s, type, tuning, out var sk)) stages.Add(new SkippedStage(sk!));
                 continue;
@@ -219,7 +217,7 @@ public static class StageGraph
 }
 
 /// <summary>
-/// The stage runner `FUN_180411830` (SoT §4.1), ported from the disassembly:
+/// The stage runner of Lumen's pipeline:
 /// backward pass — <c>need[last] = 0; need[k−1] = c + c % align[k−1]</c> with
 /// <c>c = ceil((pad[k] &gt;&gt; 1) + need[k] · (1 / scale[k−1]))</c> (so need[j] is the margin stage j must produce for the
 /// stages after it); forward pass — for every stage grow the ROI-relative rect by <c>min(need[j], available)</c> on each
@@ -237,7 +235,7 @@ public sealed class EmptySlotStage : IStage
 }
 
 /// <summary>Diagnostic wrapper (LUX_SKIP_STAGE): the slot's meta stays in the padding pass, the runner skips the stage entirely
-/// (Lumen `FUN_180411830` L64: a slot with a null impl is skipped including its grow/shrink bookkeeping).</summary>
+/// (Lumen skips a slot with a null impl, including its grow/shrink bookkeeping).</summary>
 public sealed class SkippedStage : IStage
 {
     public IStage Inner { get; }
@@ -256,7 +254,7 @@ public static class PipelineRunner
         // The backward pass runs over ALL 16 slots of the domain block in execution order (empty slots keep the default
         // meta {1, 1, 1.0}), so a pad introduced after a scaling stage is divided by that scale only when the pass reaches
         // the scaling slot (e.g. stereo pipeline: PostProcessing pad 7 → need 3 through the empty slots 7–10 → 3/0.5 = 6 at
-        // the collapse2 demosaic; verified live 2026-08-26). Installed stages are then read back by slot.
+        // the collapse2 demosaic). Installed stages are then read back by slot.
         var order = StageNames.ExecutionOrder;
         int m = order.Length;
         var meta = new StageMeta[m]; var idx = new int[m];
@@ -284,39 +282,39 @@ public static class PipelineRunner
 
     /// <summary>Run the stages on a payload whose sources cover the frame; <paramref name="roi"/> is the clamped ROI in
     /// frame coordinates, <paramref name="frameW"/>/<paramref name="frameH"/> the source dimensions,
-    /// <paramref name="floatRoi"/> the caller's float rect (Lumen: the ROI itself, `FUN_180411380` L120–124).</summary>
+    /// <paramref name="floatRoi"/> the caller's float rect (Lumen: the ROI itself).</summary>
     public static void Run(IReadOnlyList<IStage> stages, IspPayload p, RectI roi, int frameW, int frameH, RectF floatRoi)
         => Run(stages, p, roi, new RectI(0, 0, frameW, frameH), floatRoi);
 
     /// <summary><paramref name="available"/> = the source image's extents in frame coordinates (the whole frame for a raw capture; the halo'd
-    /// render rect for the BayerFloat path, whose Bayer/STD views carry the halo in their rect fields — spec a4ce3d1abcbdfdc45 §5.2).</summary>
+    /// render rect for the BayerFloat path, whose Bayer/STD views carry the halo in their rect fields).</summary>
     public static void Run(IReadOnlyList<IStage> stages, IspPayload p, RectI roi, RectI available, RectF floatRoi)
     {
         var need = PaddingPass(stages);
         if (Environment.GetEnvironmentVariable("LUX_ISP_DEBUG") == "1" && !_dbgOnce) { _dbgOnce = true; for (int j = 0; j < stages.Count; j++) Console.Error.WriteLine($"[runner] {j}: {stages[j].Stage}/{stages[j].TypeString} meta pad {stages[j].Meta.Pad} align {stages[j].Meta.Align} scale {stages[j].Meta.Scale} need {need[j]}"); }
-        // available region relative to the ROI origin (image view rect, `1803dcd90` L64–69)
+        // available region relative to the ROI origin (image view rect)
         int ax0 = available.X0 - roi.X0, ay0 = available.Y0 - roi.Y0, ax1 = available.X1 - roi.X0, ay1 = available.Y1 - roi.Y0;
         int w = roi.Width, h = roi.Height;
         int ox = roi.X0, oy = roi.Y0;
         float fx0 = floatRoi.X0, fy0 = floatRoi.Y0, fx1 = floatRoi.X1, fy1 = floatRoi.Y1;
         for (int j = 0; j < stages.Count; j++)
         {
-            if (stages[j] is SkippedStage) continue;   // null impl: no grow, no region update (`if (*(entry+0x38) != 0)` wraps the whole body)
+            if (stages[j] is SkippedStage) continue;   // null impl: no grow, no region update (Lumen skips the whole body)
             int n = need[j];
             int gl = Math.Min(n, -ax0), gt = Math.Min(n, -ay0);
             int gr = Math.Min(n, ax1 - w), gb = Math.Min(n, ay1 - h);
             float s = stages[j].Meta.Scale;
             p.IntRect = new RectI(-gl, -gt, w + gr, h + gb);
-            // `+0x30`: the un-grown ROI placed inside the grown output region, in output coordinates: (s·gl, s·gt, s·gl + s·w, s·gt + s·h)
-            // (disassembly: iVar14 = (int)(scale·gl), uVar15 = (int)(scale·w); verified with cp.dll's rect dump of 2026-08-27: demosaic int (0 0 1166 1162) → scaled (0 0 516 514))
+            // The scaled rect: the un-grown ROI placed inside the grown output region, in output coordinates: (s·gl, s·gt, s·gl + s·w, s·gt + s·h),
+            // with (int)(s·gl) and (int)(s·w) truncated separately.
             p.ScaledRect = new RectI((int)(s * gl), (int)(s * gt), (int)(s * gl) + (int)(s * w), (int)(s * gt) + (int)(s * h));
             float px = (fx1 - fx0) / w, py = (fy1 - fy0) / h;
             p.FloatRect = new RectF(fx0 - px * gl, fy0 - py * gt, fx1 + px * gr, fy1 + py * gb);
             p.OriginX = ox; p.OriginY = oy;
             if (Environment.GetEnvironmentVariable("LUX_ISP_DEBUG") == "1") Console.Error.WriteLine($"[runner rect] {j} {stages[j].Stage} need {n} int ({p.IntRect.X0} {p.IntRect.Y0} {p.IntRect.X1} {p.IntRect.Y1}) scaled ({p.ScaledRect.X0} {p.ScaledRect.Y0} {p.ScaledRect.X1} {p.ScaledRect.Y1}) float ({p.FloatRect.X0} {p.FloatRect.Y0} {p.FloatRect.X1} {p.FloatRect.Y1}) origin ({ox} {oy})");
-            stages[j].Apply(p);
+            using (Diagnostics.PhaseLog.On ? Diagnostics.PhaseLog.Time("isp." + stages[j].Stage + ":" + stages[j].TypeString) : default) stages[j].Apply(p);
             // Diagnostic: `LUX_STAGE_DUMP=<prefix>` writes the RGB working image after every stage as raw RGBA float rows,
-            // `{prefix}_st_er<exposureRatio>_o<x>_<y>_<j>_<stage>_<w>x<h>.f32` (the twin of cp.dll's per-stage payload dumps).
+            // `{prefix}_st_er<exposureRatio>_o<x>_<y>_<j>_<stage>_<w>x<h>.f32`.
             if (Environment.GetEnvironmentVariable("LUX_STAGE_DUMP") is string sdp && p.Rgb is { } rimg)
             {
                 var bytes = new byte[rimg.Width * rimg.Height * 16];

@@ -1,0 +1,139 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             xmlns:v="using:Lux.App.Views"
+             x:Class="Lux.App.Views.LibraryView"
+             x:DataType="vm:LibraryViewModel">
+  <Grid ColumnDefinitions="Auto,*,Auto">
+    <!-- ================================================================ folder tree, albums, smart filters -->
+    <Border Classes="tree" Width="{DynamicResource LuxTreeWidth}">
+      <DockPanel>
+        <Border DockPanel.Dock="Top" Padding="8,8,8,4">
+          <Button x:Name="AddFolderButton" Classes="accent" HorizontalAlignment="Stretch" Command="{Binding AddFolderCommand}"
+                  ToolTip.Tip="Add a folder of captures (or drop one on the window). Subfolders are included.">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBlock Text="+" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,-2,0,0" />
+              <TextBlock Text="Add folder…" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+        </Border>
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <ItemsControl x:Name="TreeItems" ItemsSource="{Binding Tree}" Margin="0,0,0,8" AutomationProperties.Name="Folders, albums and smart filters">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:TreeNodeViewModel">
+                <Panel IsVisible="{Binding IsShown}">
+                  <Button Classes="tree" Classes.selected="{Binding IsSelected}" Classes.droptarget="{Binding IsDropTarget}"
+                          Classes.group="{Binding IsGroup}" Padding="{Binding Padding}" ToolTip.Tip="{Binding ToolTipText}"
+                          Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).SelectNodeCommand}"
+                          CommandParameter="{Binding}" DragDrop.AllowDrop="{Binding IsAlbum}"
+                          AutomationProperties.Name="{Binding AccessibleName}">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock Classes="treelabel" Classes.root="{Binding IsRoot}" Classes.folder="{Binding IsFolder}" Classes.group="{Binding IsGroup}"
+                                 Classes.newalbum="{Binding IsNewAlbum}" Text="{Binding Label}" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="1" Classes="mono small secondary" Text="{Binding CountText}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                    </Grid>
+                  </Button>
+                  <Button Classes="chevron" IsVisible="{Binding HasChildren}" Margin="{Binding ChevronMargin}" HorizontalAlignment="Left" VerticalAlignment="Center"
+                          Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).ToggleNodeCommand}" CommandParameter="{Binding}"
+                          Focusable="False" ToolTip.Tip="Expand or collapse (← →)">
+                    <Path Classes="chevron" Classes.expanded="{Binding IsExpanded}" Data="M 0,0 L 4,4 L 0,8" />
+                  </Button>
+                </Panel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </DockPanel>
+    </Border>
+
+    <!-- ================================================================ toolbar, chips, selection bar, browse view -->
+    <DockPanel Grid.Column="1">
+      <Border Classes="toolbar" DockPanel.Dock="Top">
+        <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto">
+          <TextBlock Classes="strong" Text="{Binding ScopeTitle}" VerticalAlignment="Center" MaxWidth="320" />
+          <TextBlock Grid.Column="1" Classes="secondary" Text="{Binding CountsText}" VerticalAlignment="Center" Margin="12,0,0,0" />
+          <Button Grid.Column="3" x:Name="SortButton" Classes="ghost" Content="{Binding SortLabel}" ToolTip.Tip="Change the order">
+            <Button.Flyout>
+              <MenuFlyout ItemsSource="{Binding SortChoices}" Placement="BottomEdgeAlignedRight">
+                <MenuFlyout.ItemContainerTheme>
+                  <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:SortChoice">
+                    <Setter Property="Header" Value="{Binding Label}" />
+                    <Setter Property="Command" Value="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).ApplySortCommand}" />
+                    <Setter Property="CommandParameter" Value="{Binding}" />
+                  </ControlTheme>
+                </MenuFlyout.ItemContainerTheme>
+              </MenuFlyout>
+            </Button.Flyout>
+          </Button>
+          <TextBlock Grid.Column="4" Classes="secondary" Text="Size" VerticalAlignment="Center" Margin="12,0,8,0" IsVisible="{Binding ShowSizeSlider}" />
+          <Slider Grid.Column="5" Width="130" Minimum="{Binding MinThumbSize}" Maximum="{Binding MaxThumbSize}" Value="{Binding ThumbSize}"
+                  IsVisible="{Binding ShowSizeSlider}" SmallChange="10" LargeChange="40" AutomationProperties.Name="Thumbnail size" />
+        </Grid>
+      </Border>
+      <Border Classes="chipbar" DockPanel.Dock="Top">
+        <ItemsControl ItemsSource="{Binding Chips}" AutomationProperties.Name="Quick filters">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ChipViewModel">
+              <Button Classes="chip" Classes.on="{Binding IsOn}" Content="{Binding Label}" Margin="0,0,8,0"
+                      Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).SelectChipCommand}" CommandParameter="{Binding}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </Border>
+      <Border Classes="selectionbar" DockPanel.Dock="Top" IsVisible="{Binding HasSelection}">
+        <Grid ColumnDefinitions="Auto,*,Auto">
+          <TextBlock Classes="strong" Text="{Binding SelectionTitle}" VerticalAlignment="Center" />
+          <WrapPanel Grid.Column="2" Orientation="Horizontal">
+            <WrapPanel.Styles>
+              <Style Selector="Button"><Setter Property="Margin" Value="8,0,0,0" /></Style>
+            </WrapPanel.Styles>
+            <Button Classes="accent" Content="Upgrade to full detail" Command="{Binding UpgradeSelectedCommand}"
+                    ToolTip.Tip="Keep a full-detail render of the selected captures: full-size exports and zoomed views start at once" />
+            <Button Content="Release full detail" Command="{Binding ReleaseSelectedCommand}" ToolTip.Tip="Go back to the 13 MP working copy and free the space" />
+            <Button Content="Copy adjustments" Command="{Binding CopyAdjustmentsCommand}" IsEnabled="{Binding CanCopyAdjustments}"
+                    ToolTip.Tip="Copy the tone, colour, crop or rotation of one photo (choose which)" ToolTip.ShowOnDisabled="True" />
+            <Button Content="{Binding PasteLabel}" Command="{Binding PasteAdjustmentsCommand}" IsEnabled="{Binding CanPasteAdjustments}"
+                    ToolTip.Tip="Paste the copied adjustments to the selected photos (undo from the notice)" ToolTip.ShowOnDisabled="True" />
+            <Button Content="Apply preset" IsEnabled="{Binding HasPresets}" ToolTip.Tip="Apply a saved preset to the selected photos (undo from the notice)"
+                    ToolTip.ShowOnDisabled="True">
+              <Button.Flyout>
+                <MenuFlyout ItemsSource="{Binding Presets}" Placement="BottomEdgeAlignedRight">
+                  <MenuFlyout.ItemContainerTheme>
+                    <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:PresetViewModel">
+                      <Setter Property="Header" Value="{Binding Name}" />
+                      <Setter Property="Command" Value="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).ApplyPresetToSelectionCommand}" />
+                      <Setter Property="CommandParameter" Value="{Binding}" />
+                    </ControlTheme>
+                  </MenuFlyout.ItemContainerTheme>
+                </MenuFlyout>
+              </Button.Flyout>
+            </Button>
+            <Button Classes="primary" Content="{Binding ExportLabel}" Command="{Binding OpenExportCommand}" />
+            <Button Classes="link" Content="Clear" Command="{Binding ClearSelectionCommand}" ToolTip.Tip="Clear the selection (Esc)" />
+          </WrapPanel>
+        </Grid>
+      </Border>
+      <Panel>
+        <v:BrowseView x:Name="Browse" />
+        <!-- the animation preview over the browse area while the Animate panel is open -->
+        <v:AnimationPlayer DataContext="{Binding AnimatePanel.Player, FallbackValue={x:Null}}" IsVisible="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).IsAnimateOpen}" />
+      </Panel>
+    </DockPanel>
+
+    <!-- ================================================================ details panel or export side panel -->
+    <Panel Grid.Column="2">
+      <Panel IsVisible="{Binding !IsSidePanelOpen}">
+        <v:DetailsPanel />
+      </Panel>
+      <Panel IsVisible="{Binding IsExportOpen}">
+        <v:ExportPanel DataContext="{Binding ExportPanel}" />
+      </Panel>
+      <Panel IsVisible="{Binding IsAnimateOpen}">
+        <v:AnimatePanel DataContext="{Binding AnimatePanel}" />
+      </Panel>
+    </Panel>
+  </Grid>
+</UserControl>

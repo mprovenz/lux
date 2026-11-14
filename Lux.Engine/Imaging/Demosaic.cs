@@ -1,7 +1,7 @@
 namespace Lux.Engine.Imaging;
 
 /// <summary>
-/// Gradient-inverse edge-directed demosaic — the algorithm family of Light's DemosaickLightV2 (§3):
+/// Gradient-inverse edge-directed demosaic — the algorithm family of Light's DemosaickLightV2:
 /// interpolate green with inverse-gradient direction weights, then R/B via colour-difference (channel−G).
 /// Input is a normalized Bayer plane with the red pixel at (rx, ry); output is interleaved RGB (H·W·3).
 /// </summary>

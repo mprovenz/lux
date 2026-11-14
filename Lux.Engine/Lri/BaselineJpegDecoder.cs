@@ -1,28 +1,26 @@
 namespace Lux.Engine.Lri;
 
 /// <summary>
-/// The JPEG **decoder** cp.dll links statically — the same **libjpeg-turbo** build as the encoder port
-/// (<see cref="Pipeline.Export.JpegEncoder"/>; the copyright banner at file offset 0x7325a0 of `cp.dll` reads
+/// The JPEG **decoder** that Lumen links statically — the same **libjpeg-turbo** build as the encoder port
+/// (<see cref="Pipeline.Export.JpegEncoder"/>; its copyright banner reads
 /// `Copyright (C) 1991-2015 The libjpeg-turbo Project and many others` / API `6b`), reached through the
-/// **TurboJPEG** wrapper: the `.jpg` entry of the image-codec registry `FUN_18001c410` (extension `".jpg"`
-/// `DAT_180682a25`, vtable `0x180682d38`) has load slot `FUN_1800b7190`, which is
-/// <c>tjInitDecompress</c> (`0x180578030`) → <c>tjDecompressHeader3</c> (`0x180578160`) →
-/// <c>tjDecompress2</c> (`0x180578470`) → <c>tjDestroy</c> (`0x180577730`).
+/// **TurboJPEG** wrapper: the `.jpg` entry of Lumen's image-codec registry loads through
+/// <c>tjInitDecompress</c> → <c>tjDecompressHeader3</c> → <c>tjDecompress2</c> → <c>tjDestroy</c>.
 ///
 /// <para>The two decode parameters are pinned by that call:</para>
 /// <list type="bullet">
-/// <item><b>flags = 0x1000</b> (`mov DWORD PTR [rsp+0x40],0x1000` at `0x1800b7329`) = <c>TJFLAG_ACCURATEDCT</c>, i.e.
+/// <item><b>flags = 0x1000</b> = <c>TJFLAG_ACCURATEDCT</c>, i.e.
 ///   `dinfo.dct_method = JDCT_ISLOW` — the `jidctint.c` integer IDCT. Both implementations are in this build: the C
-///   `jpeg_idct_islow` at `0x1805b2ca0` (the `imul …,0x3b21` / `…,0x6254` constants 15137 / 25172) and the SSE2 one,
-///   whose `jconst_idct_islow_sse2` table sits at `0x1807109f0` (`{10703,4433} {4433,−10704} {−6436,9633}
-///   {9633,6437} {−4927,−7373} {−7373,4926}`, each `times 4 dw`), so `jsimd_can_idct_islow` succeeds and the SSE2
+///   `jpeg_idct_islow` (constants 15137 / 25172) and the SSE2 one,
+///   whose `jconst_idct_islow_sse2` table is `{10703,4433} {4433,−10704} {−6436,9633}
+///   {9633,6437} {−4927,−7373} {−7373,4926}` (each `times 4 dw`), so `jsimd_can_idct_islow` succeeds and the SSE2
 ///   kernel is what actually runs. libjpeg-turbo's contract is that the two are bit-identical — the port below is the
-///   C one, and it reproduces a libjpeg-turbo-with-SIMD decode sample for sample on 48 real surface planes.</item>
-/// <item><b>pixelFormat = 6</b> = <c>TJPF_GRAY</c> (`mov r13d,0x6` at `0x1800b7289`), taken when the destination
+///   C one, and it gives the same samples as a libjpeg-turbo decode with SIMD.</item>
+/// <item><b>pixelFormat = 6</b> = <c>TJPF_GRAY</c>, taken when the destination
 ///   `lt::Image` has 1 byte per pixel and the stream's subsampling is `TJSAMP_GRAY` — which is what every Bayer-JPEG
 ///   plane is. TurboJPEG then sets `out_color_space = JCS_GRAYSCALE` and decompresses straight into the image rows,
 ///   with no upsampling and no colour conversion. That is the only shape this class implements; anything else in a
-///   `.lri` surface would be a file we have never seen, so it throws rather than guessing.</item>
+///   `.lri` surface is an unknown format, so the decoder throws rather than guessing.</item>
 /// </list>
 ///
 /// <para>Reused from the encoder port: <see cref="Pipeline.Export.JpegEncoder.NaturalOrder"/> (`jpeg_natural_order`)
@@ -167,7 +165,7 @@ public static class BaselineJpegDecoder
     /// <summary>
     /// Decode one **baseline, single-component (grayscale)** JPEG into 8-bit samples, row-major, stride =
     /// <paramref name="width"/>. This is `tjDecompress2(handle, buf, size, dst, w, pitch, h, TJPF_GRAY,
-    /// TJFLAG_ACCURATEDCT)` for the case cp.dll's Bayer-JPEG surface decoder always hits.
+    /// TJFLAG_ACCURATEDCT)` for the case that Lumen's Bayer-JPEG surface decoder always hits.
     /// </summary>
     public static byte[] DecodeGray(ReadOnlySpan<byte> jpeg, out int width, out int height)
     {
@@ -239,7 +237,7 @@ public static class BaselineJpegDecoder
                     w = (d[seg + 3] << 8) | d[seg + 4];
                     nComp = d[seg + 5];
                     if (nComp != 1)
-                        throw new NotSupportedException($"JPEG: {nComp} components — cp.dll's Bayer-JPEG surfaces are always TJSAMP_GRAY");
+                        throw new NotSupportedException($"JPEG: {nComp} components — the camera's Bayer-JPEG surfaces are always single-component");
                     compId = d[seg + 6]; compH = d[seg + 7] >> 4; compV = d[seg + 7] & 15; compQ = d[seg + 8];
                     if (compH != 1 || compV != 1) throw new NotSupportedException("JPEG: subsampled single-component frame");
                     haveSof = true;
@@ -247,7 +245,7 @@ public static class BaselineJpegDecoder
 
                 case 0xC2: case 0xC3: case 0xC5: case 0xC6: case 0xC7:
                 case 0xC9: case 0xCA: case 0xCB: case 0xCD: case 0xCE: case 0xCF:
-                    throw new NotSupportedException($"JPEG: unsupported process (SOF marker 0x{marker:X2}); libjpeg's baseline path is the only one cp.dll's surfaces use");
+                    throw new NotSupportedException($"JPEG: unsupported process (SOF marker 0x{marker:X2}); the camera's surfaces use only the baseline process");
 
                 case 0xDA:                                               // SOS — entropy-coded data follows
                 {

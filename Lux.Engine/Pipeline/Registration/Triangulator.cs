@@ -22,8 +22,8 @@ public sealed class CalibData
 public struct TriPoint { public float U, V, X, Y, Z; }
 
 /// <summary>
-/// `lt::Triangulator` closed-form pass (`FUN_1802877f0` → `FUN_180288440` per camera, `FUN_180302420` two-ray
-/// intersection with the epipolar correction of `FUN_180309de0`), ported op-for-op: for every observing camera in
+/// `lt::Triangulator` closed-form pass (per camera, two-ray intersection with the epipolar correction of
+/// <c>Fundamental</c>), with Lumen's exact operation order: for every observing camera in
 /// ascending id, every point seen (u,v &gt; 0) gets `s` = the law-of-sines multiplier of the reference ray, `Z = s / ray.z`
 /// in the reference frame, world = `inv(R_ref)·(X − t_ref)`; the first positive-depth pair fixes XYZ, all pairs update
 /// the inverse-depth interval; points whose interval is wider than 1e-4 are flagged (−1,−1,−1).
@@ -33,7 +33,7 @@ public static class Triangulator
     static readonly float Eps = BitConverter.Int32BitsToSingle(0x35a00000);
     static readonly float IntervalMax = BitConverter.Int32BitsToSingle(0x38d1b717);   // 1e-4
 
-    /// <summary>`FUN_1800c2a00` (cofactor 3×3 inverse, float, exact op order).</summary>
+    /// <summary>Cofactor 3×3 inverse, float, exact op order.</summary>
     public static float[] Inv3(float[] m)
     {
         float c0 = m[8] * m[4] - m[5] * m[7], c1 = m[3] * m[8] - m[6] * m[5], c2 = m[3] * m[7] - m[6] * m[4];
@@ -41,7 +41,7 @@ public static class Triangulator
         return new[] { c0 * inv, (m[2] * m[7] - m[1] * m[8]) * inv, (m[1] * m[5] - m[2] * m[4]) * inv, -(c1 * inv), (m[8] * m[0] - m[2] * m[6]) * inv, (m[2] * m[3] - m[5] * m[0]) * inv, c2 * inv, (m[6] * m[1] - m[7] * m[0]) * inv, (m[4] * m[0] - m[3] * m[1]) * inv };
     }
 
-    /// <summary>`FUN_180309de0`: fundamental matrix F (row-major) such that `F·(u_ref, v_ref, 1)` is the epipolar line in `other`.</summary>
+    /// <summary>Fundamental matrix F (row-major) such that `F·(u_ref, v_ref, 1)` is the epipolar line in `other`.</summary>
     public static float[] Fundamental(CalibData r, CalibData o)
     {
         float[] Rr = r.R, Ro = o.R, tr = r.T, to = o.T, Kr = r.K;
@@ -70,7 +70,7 @@ public static class Triangulator
         return new[] { l0, l1, l2 };
     }
 
-    /// <summary>`FUN_180302420(ref, other, u, v, uo, vo)`: the multiplier `s` of the reference ray (§3 of the spec).</summary>
+    /// <summary>The multiplier `s` of the reference ray (law of sines).</summary>
     public static float RayScale(CalibData rf, CalibData ot, float u, float v, float uo, float vo)
     {
         var F = Fundamental(rf, ot);

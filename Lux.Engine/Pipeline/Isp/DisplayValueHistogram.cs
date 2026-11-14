@@ -3,10 +3,9 @@ using Lux.Engine.Pipeline.Registration;
 namespace Lux.Engine.Pipeline.Isp;
 
 /// <summary>
-/// `lt::Internal::GetValueHistogram` `180420410` (tile lambda `1804221b0`) and its percentile reader
-/// `FUN_180420cf0` → `FUN_180420920` — the `SoftISP::Stats` value histogram `Pipeline::initialize` `180410ac0`
-/// builds whenever `tone_adjust.type != none`, and the only thing branch B of `FUN_1804af2f0` (§4.2) needs to
-/// produce `lpyr_lower/higher/mid_percentile`. Spec `a-display-isp.md` §4.2/§4.3.
+/// Lumen's `lt::Internal::GetValueHistogram` and its percentile reader — the `SoftISP::Stats` value histogram that
+/// `Pipeline::initialize` builds whenever `tone_adjust.type != none`. Branch B of the display tuning
+/// (<see cref="DisplayIspTuning.BranchBLpyr"/>) needs only this histogram to produce `lpyr_lower/higher/mid_percentile`.
 /// </summary>
 public static class DisplayValueHistogram
 {
@@ -38,7 +37,7 @@ public static class DisplayValueHistogram
                 float a = f0 > f1 ? f0 : f1, b = f2 > f3 ? f2 : f3;
                 float v = a > b ? a : b;
                 float t = wm1 * v;
-                int bin = (int)((double)t + 0.5);          // cvtss2sd, addsd 0.5, cvttsd2si — TRUNCATE
+                int bin = (int)((double)t + 0.5);          // + 0.5 in double precision, then TRUNCATE
                 if (bin < 0) bin = 0;
                 if (bin > Bins - 1) bin = Bins - 1;
                 hist[bin]++;
@@ -46,7 +45,7 @@ public static class DisplayValueHistogram
         return hist;
     }
 
-    /// <summary>`FUN_180420cf0(hist, white, d)` (a thunk that forces `black = 0`) → `FUN_180420920`: a plain forward
+    /// <summary>The percentile reader (it forces `black = 0`): a plain forward
     /// scan of the CDF for the first bin with `cdf ≥ (u64)((float)cdf[n−1]·d)`, returning `i / white`. No interpolation.</summary>
     public static float Percentile(long[] hist, float white, float d)
     {
@@ -61,9 +60,9 @@ public static class DisplayValueHistogram
         return 0.5f;
     }
 
-    /// <summary>`FUN_1804af2f0` L~branch-B (0x1804afe55 / 0x1804aff09 / 0x1804affbd): `k = exp2f(ev)`,
+    /// <summary>Branch B of the display tuning: `k = exp2f(ev)`,
     /// `lower = logf(max(P(0.005)·k, 1e-5))`, `higher = logf(P(1.0)·k)`, `mid = logf(P(0.45)·k)`, all **natural** logs,
-    /// then `lpyr_samples = FUN_180398be0({lower, higher}, 0.5)`.</summary>
+    /// then `lpyr_samples = DisplayIspTuning.BranchBSamples(lower, higher)` (step 0.5).</summary>
     public static DisplayIspTuning.BranchBLpyr BranchB(long[] hist, float white, float evOffset)
     {
         float k = MuslMath.Exp2f(evOffset);

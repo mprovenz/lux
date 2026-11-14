@@ -23,14 +23,54 @@ public sealed class Options
 
     // ---- GRID (convert / depth) -----------------------------------------------------------------------------
     public int Level { get; private set; }                  // export level, 0 = full size
+    /// <summary>`--level` as given: `cache` takes a cache level by name (none, geometry, 13mp, full); `convert` only a number.</summary>
+    public string? LevelText { get; private set; }
+    /// <summary>`--level` was not a number.</summary>
+    public bool LevelIsName { get; private set; }
+    /// <summary>convert: neither read nor write the capture's analysis cache.</summary>
+    public bool NoCache { get; private set; }
+    /// <summary>convert / cache: memory budget for full-size rendering, in GB (null = unbounded, the fastest schedule).</summary>
+    public double? MemoryBudgetGb { get; private set; }
     public (int W, int H)? Size { get; private set; }
     public (int X, int Y)? Origin { get; private set; }
 
     // ---- SHARED ADJUSTMENTS ---------------------------------------------------------------------------------
     public int? Rotate { get; private set; }
+    /// <summary>`--transform m0,…,m8;x0,y0,x1,y1`: a photo transform exactly as Lux / Lumen save it (matrix in Lumen's order, crop corners).</summary>
+    public Lux.Engine.Pipeline.Export.ExportTransform? Transform { get; private set; }
     public float? FNumber { get; private set; }
+    /// <summary>convert: the depth effect's f-number (Lumen's "depth effect" slider).</summary>
+    public float? DepthFNumber { get; private set; }
+    /// <summary>convert: the depth effect's focus distance in millimetres.</summary>
+    public float? FocusDepth { get; private set; }
+    /// <summary>convert: the depth effect's focus point, normalised to the exported image (Lumen's click to focus).</summary>
+    public (float X, float Y)? FocusPoint { get; private set; }
+    /// <summary>convert: ignore the capture's saved depth edits.</summary>
+    public bool NoEdits { get; private set; }
+    /// <summary>`--upright` (convert, animate): a photo held turned whose crop / rotation was never edited is turned upright with Lumen's own
+    /// rotate — as the desktop app exports it by default.</summary>
+    public bool Upright { get; private set; }
+    /// <summary>convert: the variant of the saved depth edits to use (default: the active one).</summary>
+    public string? Edits { get; private set; }
+    /// <summary>edits-info: make this variant the active one ("none" = no variant).</summary>
+    public string? SetActive { get; private set; }
     public int? Iso { get; private set; }
     public int? Focal { get; private set; }
+
+    // ---- TONE & COLOUR (convert: Lumen's editing controls, JPG / jpg+depth only) -----------------------------
+    public float? Exposure { get; private set; }
+    public float? Contrast { get; private set; }
+    public float? Temperature { get; private set; }
+    public float? Tint { get; private set; }
+    public float? Vibrance { get; private set; }
+    public float? Saturation { get; private set; }
+    public float? Sharpening { get; private set; }
+    public float? Shadows { get; private set; }
+    public float? Highlights { get; private set; }
+    public float? Clarity { get; private set; }
+    /// <summary>True when any tone & colour control was given.</summary>
+    public bool HasToneAdjustments => Exposure is not null || Contrast is not null || Temperature is not null || Tint is not null || Vibrance is not null
+                                      || Saturation is not null || Sharpening is not null || Shadows is not null || Highlights is not null || Clarity is not null;
 
     // ---- DNG ------------------------------------------------------------------------------------------------
     public int? DngCs { get; private set; }
@@ -49,8 +89,7 @@ public sealed class Options
 
     // ---- HDR ------------------------------------------------------------------------------------------------
     public int? HdrCs { get; private set; }
-    // (no --ppm-cs: measured inert — cp.dll's own fmt-1 exports at property 1, 3 and 4 are the same 2 433 639
-    //  bytes, md5-identical, because the `(fmt|4)==4` gate means a PPM never reads the output tuning.)
+    // (no --ppm-cs: the property has no effect on fmt 1 — the `(fmt|4)==4` gate means a PPM never reads the output tuning.)
 
     // ---- LENS-FRAMES (convert) ------------------------------------------------------------------------------
     public int LensQuality { get; private set; } = 92;
@@ -86,11 +125,32 @@ public sealed class Options
     public int? ParallaxQuality { get; private set; }
     public int? ParallaxCrf { get; private set; }
     public string? ParallaxOrder { get; private set; }
+    /// <summary>`--parallax-encoder`: lux (default: Lux's own GIF / APNG / WebP writers) or ffmpeg (the earlier recipes; always for avif).</summary>
+    public string? ParallaxEncoder { get; private set; }
+
+    // ---- ANIMATE --------------------------------------------------------------------------------------------
+    public string? AnimEffect { get; private set; }
+    public string? AnimContainer { get; private set; }
+    public int? AnimSize { get; private set; }
+    public int? AnimFrames { get; private set; }
+    public int? AnimMs { get; private set; }
+    public string? AnimLoop { get; private set; }
+    public int? AnimRepeat { get; private set; }
+    public (double M1, double M2)? AnimFocus { get; private set; }
+    public float? AnimFFrom { get; private set; }
+    public string? AnimPath { get; private set; }
+    public double? AnimBaseline { get; private set; }
+    public string? AnimConverge { get; private set; }
+    public bool AnimSingleView { get; private set; }
+    public string? AnimGifDither { get; private set; }
+    public string? AnimGifPalette { get; private set; }
+    public bool AnimNoDiff { get; private set; }
+    public string? AnimKeepFrames { get; private set; }
     public (int X, int Y, int W, int H)? ParallaxPivot { get; private set; }
 
     // ---- ISP ------------------------------------------------------------------------------------------------
     public int IspLevel { get; private set; }
-    public int Profile { get; private set; } = 3;           // isp/isp-run: CIAPI RendererProfile (Lumen.exe passes 3)
+    public int Profile { get; private set; } = 3;           // isp/isp-run: CIAPI RendererProfile (Lumen passes 3)
 
     // ---- PULL -----------------------------------------------------------------------------------------------
     public string[]? Extensions { get; private set; }
@@ -143,7 +203,14 @@ public sealed class Options
                     }
 
                     // ---- grid
-                    case "--level": o.Level = int.Parse(Need("a level"), CultureInfo.InvariantCulture); break;
+                    case "--level":
+                    {
+                        string lv = Need("a level"); o.LevelText = lv;
+                        if (int.TryParse(lv, NumberStyles.Integer, CultureInfo.InvariantCulture, out int n)) o.Level = n; else o.LevelIsName = true;
+                        break;
+                    }
+                    case "--no-cache": o.NoCache = true; break;
+                    case "--memory-budget": o.MemoryBudgetGb = double.Parse(Need("a size in GB"), CultureInfo.InvariantCulture); break;
                     case "--size": { var p = Need("w,h").Split(','); o.Size = (int.Parse(p[0]), int.Parse(p[1])); break; }
                     case "--origin": { var p = Need("x,y").Split(','); o.Origin = (int.Parse(p[0]), int.Parse(p[1])); break; }
 
@@ -154,9 +221,44 @@ public sealed class Options
                         if (r is not ("0" or "90" or "180" or "270")) { o.Errors.Add("--rotate must be 0, 90, 180 or 270"); break; }
                         o.Rotate = int.Parse(r, CultureInfo.InvariantCulture); break;
                     }
+                    case "--transform":
+                    {
+                        // nine matrix values ; four crop corners — decimal (round-trip) or 0x + the 32-bit pattern
+                        var parts = Need("m0,…,m8;x0,y0,x1,y1").Split(';');
+                        static float Fl(string t) { t = t.Trim(); return t.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? BitConverter.UInt32BitsToSingle(Convert.ToUInt32(t[2..], 16)) : float.Parse(t, CultureInfo.InvariantCulture); }
+                        string[] m = parts.Length == 2 ? parts[0].Split(',') : Array.Empty<string>(), c = parts.Length == 2 ? parts[1].Split(',') : Array.Empty<string>();
+                        if (m.Length != 9 || c.Length != 4) { o.Errors.Add("--transform takes nine matrix values, a semicolon, and the four crop corners x0,y0,x1,y1"); break; }
+                        try { o.Transform = new Lux.Engine.Pipeline.Export.ExportTransform { Matrix = m.Select(Fl).ToArray(), CropX0 = Fl(c[0]), CropY0 = Fl(c[1]), CropX1 = Fl(c[2]), CropY1 = Fl(c[3]) }; }
+                        catch (FormatException) { o.Errors.Add("--transform: every value must be a number"); }
+                        break;
+                    }
                     case "--fnum": o.FNumber = float.Parse(Need("an f-number"), CultureInfo.InvariantCulture); break;
+                    case "--f-number": o.DepthFNumber = float.Parse(Need("an f-number"), CultureInfo.InvariantCulture); break;
+                    case "--focus-depth": o.FocusDepth = float.Parse(Need("a distance in millimetres"), CultureInfo.InvariantCulture); break;
+                    case "--focus-point":
+                    {
+                        var q = Need("x,y (0..1)").Split(',');
+                        if (q.Length != 2) { o.Errors.Add("--focus-point takes x,y, each between 0 and 1"); break; }
+                        o.FocusPoint = (float.Parse(q[0], CultureInfo.InvariantCulture), float.Parse(q[1], CultureInfo.InvariantCulture)); break;
+                    }
+                    case "--no-edits": o.NoEdits = true; break;
+                    case "--upright": o.Upright = true; break;
+                    case "--edits": o.Edits = Need("a variant name"); break;
+                    case "--set-active": o.SetActive = Need("a variant name, or none"); break;
                     case "--iso": o.Iso = int.Parse(Need("an ISO"), CultureInfo.InvariantCulture); break;
                     case "--focal": o.Focal = int.Parse(Need("a focal length in mm"), CultureInfo.InvariantCulture); break;
+
+                    // ---- tone & colour
+                    case "--exposure": o.Exposure = float.Parse(Need("stops, -3..3"), CultureInfo.InvariantCulture); break;
+                    case "--contrast": o.Contrast = float.Parse(Need("-100..100"), CultureInfo.InvariantCulture); break;
+                    case "--temperature": o.Temperature = float.Parse(Need("kelvin, 2000..20000"), CultureInfo.InvariantCulture); break;
+                    case "--tint": o.Tint = float.Parse(Need("-150..150"), CultureInfo.InvariantCulture); break;
+                    case "--vibrance": o.Vibrance = float.Parse(Need("-100..100"), CultureInfo.InvariantCulture); break;
+                    case "--saturation": o.Saturation = float.Parse(Need("-100..100"), CultureInfo.InvariantCulture); break;
+                    case "--sharpening": o.Sharpening = float.Parse(Need("-100..100"), CultureInfo.InvariantCulture); break;
+                    case "--shadows": o.Shadows = float.Parse(Need("-100..100"), CultureInfo.InvariantCulture); break;
+                    case "--highlights": o.Highlights = float.Parse(Need("-100..100"), CultureInfo.InvariantCulture); break;
+                    case "--clarity": o.Clarity = float.Parse(Need("-100..100"), CultureInfo.InvariantCulture); break;
 
                     // ---- dng
                     case "--dng-cs": o.DngCs = int.Parse(Need("a colour-space property"), CultureInfo.InvariantCulture); break;
@@ -210,6 +312,26 @@ public sealed class Options
                     case "--parallax-quality": o.ParallaxQuality = int.Parse(Need("0-100"), CultureInfo.InvariantCulture); break;
                     case "--parallax-crf": o.ParallaxCrf = int.Parse(Need("0-63"), CultureInfo.InvariantCulture); break;
                     case "--parallax-order": o.ParallaxOrder = Need("sweep, label or a module list"); break;
+                    case "--parallax-encoder": o.ParallaxEncoder = Need("lux or ffmpeg").ToLowerInvariant(); break;
+
+                    // ---- animate
+                    case "--anim-effect": o.AnimEffect = Need("wigglegram, parallax, rack-focus, aperture-sweep or lens-tour").ToLowerInvariant(); break;
+                    case "--anim-container": o.AnimContainer = Need("gif, apng, webp, mp4 or webm").ToLowerInvariant(); break;
+                    case "--anim-size": o.AnimSize = int.Parse(Need("a long edge in px"), CultureInfo.InvariantCulture); break;
+                    case "--anim-frames": o.AnimFrames = int.Parse(Need("a frame count"), CultureInfo.InvariantCulture); break;
+                    case "--anim-ms": o.AnimMs = int.Parse(Need("milliseconds"), CultureInfo.InvariantCulture); break;
+                    case "--anim-loop": o.AnimLoop = Need("pingpong or forward").ToLowerInvariant(); break;
+                    case "--anim-repeat": o.AnimRepeat = int.Parse(Need("a play count (0 = forever)"), CultureInfo.InvariantCulture); break;
+                    case "--anim-focus": { var p = Need("near,far in metres").Split(','); o.AnimFocus = (double.Parse(p[0], CultureInfo.InvariantCulture), double.Parse(p[1], CultureInfo.InvariantCulture)); break; }
+                    case "--anim-f-from": o.AnimFFrom = float.Parse(Need("an f-number"), CultureInfo.InvariantCulture); break;
+                    case "--anim-path": o.AnimPath = Need("sweep, arc, line or orbit").ToLowerInvariant(); break;
+                    case "--anim-baseline": o.AnimBaseline = double.Parse(Need("millimetres"), CultureInfo.InvariantCulture); break;
+                    case "--anim-converge": o.AnimConverge = Need("auto or metres").ToLowerInvariant(); break;
+                    case "--anim-single-view": o.AnimSingleView = true; break;
+                    case "--anim-gif-dither": o.AnimGifDither = Need("ordered, diffusion or none").ToLowerInvariant(); break;
+                    case "--anim-gif-palette": o.AnimGifPalette = Need("global or frame").ToLowerInvariant(); break;
+                    case "--anim-no-diff": o.AnimNoDiff = true; break;
+                    case "--anim-keep-frames": o.AnimKeepFrames = Need("a directory"); break;
                     case "--parallax-pivot": { var p = Need("x,y,w,h").Split(',').Select(v => int.Parse(v, CultureInfo.InvariantCulture)).ToArray(); if (p.Length != 4) throw new FormatException("--parallax-pivot needs x,y,w,h"); o.ParallaxPivot = (p[0], p[1], p[2], p[3]); break; }
 
                     // ---- isp / isp-run

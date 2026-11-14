@@ -8,18 +8,18 @@ using Lux.Engine.Pipeline.Isp;
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// `lt::StereoISP::GetReferenceImage(img, raw, calib(img), view, neutral)` (`180324ef0`, spec `a-reference-guide.md`): the
-/// reference capture through a fresh display SoftISP (defaults + the ten setters of §2), Stats on the whole frame, 256×256 tiles of the level-0
-/// Bayer runner (`FUN_1803d88e0`) × 255 → `cvtps2dq` (RNE) → `packssdw/packuswb` into a vec4x8ui image of the capture size, then the 8-bit
-/// `ImageWarp&lt;5,1,vec4x8ui,LensUndistortCRA&gt;` (`FUN_180326240` → `180329b90`) through the (view, module) aligned calibration (`FUN_180185030`,
-/// M = I, crop (1,1), offset 0). Result = `StereoAsyncAPI+0x1f8`, the guide of the dense-depth `UpsampleLayer`.
+/// `lt::StereoISP::GetReferenceImage(img, raw, calib(img), view, neutral)`: the reference capture through a fresh display SoftISP
+/// (defaults + the ten setters of <c>BuildTuning</c>), Stats on the whole frame, 256×256 tiles of the level-0 Bayer runner × 255
+/// → `cvtps2dq` (RNE) → `packssdw/packuswb` into a vec4x8ui image of the capture size, then the 8-bit
+/// `ImageWarp&lt;5,1,vec4x8ui,LensUndistortCRA&gt;` (<c>Rgba8Warp</c>) through the (view, module) aligned calibration
+/// (M = I, crop (1,1), offset 0). The result is the guide of the dense-depth `UpsampleLayer`.
 /// </summary>
 public static class ReferenceGuide
 {
-    /// <summary>The display tuning (`180324ef0` L20–140, in call order): `FUN_1803d8360` defaults then demosaicking default, hot_pixel_removal default,
+    /// <summary>The display tuning (in call order): defaults then demosaicking default, hot_pixel_removal default,
     /// hot_pixel_leakage_removal none, auto_white_balance manual_color + neutral_color, tone_mapping default, color_correction default,
     /// cross_talk_correction ir_correction, lens_shading default, output.color_space srgb; after the Stats, hot_pixel_leakage_removal default
-    /// when the capture flag `FUN_180125930(img)+0x98` is set (`FUN_180126100(img)` = the lazy decode).</summary>
+    /// when the capture flag <paramref name="hotPixelLeakage"/> is set.</summary>
     public static Tuning BuildTuning(float[] neutral, bool hotPixelLeakage)
     {
         var t = Tuning.LumenDefaults();
@@ -40,7 +40,7 @@ public static class ReferenceGuide
 
     public sealed class Result
     {
-        public Rgba8Image Guide;          // the warped RGBA8 image (api+0x1f8)
+        public Rgba8Image Guide;          // the warped RGBA8 image
         public byte[] PreWarp = null!;    // the ISP'd RGBA8 image before the warp (Tiler output)
         public float[]? Float;            // LUX_GUIDE_DUMP: the float ISP output (w×h×4) before ×255
         public int W, H;
@@ -49,14 +49,14 @@ public static class ReferenceGuide
         public Result(Rgba8Image g) { Guide = g; }
     }
 
-    /// <summary>Build the guide. <paramref name="view"/> = `FUN_1802e1580(pose[ref], calib(img))`, <paramref name="module"/> = `FUN_180307b30(img)` (the reference
-    /// module's CURRENT slot); <paramref name="keepFloat"/> keeps the pre-quantisation float image for comparisons.</summary>
+    /// <summary>Build the guide. <paramref name="view"/> = `Apply(pose[ref], calib(img))`, <paramref name="module"/> = the reference
+    /// module's CURRENT slot; <paramref name="keepFloat"/> keeps the pre-quantisation float image for comparisons.</summary>
     public static Result Build(CapturedFrame frame, LumenProfile profile, float[] neutral, CameraCalib view, CameraCalib module, StereoImageBuilder.Distortion dist,
                                Action<string>? log = null, bool keepFloat = false, int maxTiles = int.MaxValue, int threads = 1)
     {
         int W = frame.Width, H = frame.Height;
         var isp = new SoftIsp(BuildTuning(neutral, frame.Info.HasHotPixelLeakageCalibration), profile);
-        var stats = isp.ComputeStats(frame);   // FUN_1803d8700(isp, &stats, img, rect 0 → whole frame) + FUN_1803de110
+        var stats = isp.ComputeStats(frame);   // rect 0 → whole frame
         log?.Invoke($"guide: stats neutral [{string.Join(" ", stats.Neutral.Select(v => v.ToString("R")))}] xy ({stats.NeutralXy.X:R},{stats.NeutralXy.Y:R}) irBlend {stats.IrBlend:R} cc M [{string.Join(" ", stats.CcSpace.M.Select(v => v.ToString("R")))}] out space {stats.OutSpace.Space}");
         var pre = new byte[W * H * 4];
         float[]? flt = keepFloat ? new float[(long)W * H * 4] : null;
@@ -65,10 +65,10 @@ public static class ReferenceGuide
         var sw = System.Diagnostics.Stopwatch.StartNew();
         // the tiles are independent (disjoint output regions; SoftIsp serialises its lazy stage graph internally), so on threads > 1 they run in
         // parallel — the pixels are identical, only the "guide: N tiles" progress lines are dropped
-        var tileList = Tiler.Rects(new RectI(0, 0, W, H), 256, 256).Take(maxTiles).ToList();   // Tiler::Run(size, {256,256}) — lambda 180329610
+        var tileList = Tiler.Rects(new RectI(0, 0, W, H), 256, 256).Take(maxTiles).ToList();   // Tiler::Run(size, {256,256})
         void Tile(RectI tile, bool quiet)
         {
-            var img = isp.ProcessBayer(frame, tile, 0, quiet ? null : log);   // FUN_1803d88e0(isp, dst(tile size), raw ∩ tile, img, tile, empty)
+            var img = isp.ProcessBayer(frame, tile, 0, quiet ? null : log);   // level-0 Bayer runner on raw ∩ tile
             if (img.Width != tile.Width || img.Height != tile.Height) throw new InvalidOperationException("guide tile size");
             for (int y = 0; y < img.Height; y++)
             {
@@ -78,10 +78,10 @@ public static class ReferenceGuide
                     var v = row[x];
                     long o = ((long)(tile.Y0 + y) * W + tile.X0 + x) * 4;
                     if (flt is not null) { flt[o] = v.R; flt[o + 1] = v.G; flt[o + 2] = v.B; flt[o + 3] = v.A; }
-                    var m = Vector128.Create(v.R, v.G, v.B, v.A) * v255;   // mulps (DAT_180682420)
+                    var m = Vector128.Create(v.R, v.G, v.B, v.A) * v255;
                     var q = Sse2.ConvertToVector128Int32(m);              // cvtps2dq (RNE; NaN/overflow → 0x80000000)
-                    var w16 = Sse2.PackSignedSaturate(q, q);              // packssdw
-                    var b8 = Sse2.PackUnsignedSaturate(w16, w16);         // packuswb
+                    var w16 = Sse2.PackSignedSaturate(q, q);
+                    var b8 = Sse2.PackUnsignedSaturate(w16, w16);
                     pre[o] = b8.GetElement(0); pre[o + 1] = b8.GetElement(1); pre[o + 2] = b8.GetElement(2); pre[o + 3] = b8.GetElement(3);
                 }
             }
@@ -89,14 +89,14 @@ public static class ReferenceGuide
         }
         if (threads > 1 && tileList.Count > 1) Parallel.ForEach(tileList, new ParallelOptions { MaxDegreeOfParallelism = threads }, t => Tile(t, true));
         else foreach (var t in tileList) Tile(t, false);
-        var ac = AlignedCalib.Build(view, module, 1f, 1f, 1f, 1f, dist.PpX, dist.PpY, dist.Poly, dist.Pix, dist.Pix, M: new float[] { 1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f });   // FUN_180185030(ac, module, view, M = I₃, img, (1,1), 0)
-        var warped = Rgba8Warp.Warp(pre, W, H, W, H, ac);   // FUN_180326240(out, img8, &img8.size, &ac)
+        var ac = AlignedCalib.Build(view, module, 1f, 1f, 1f, 1f, dist.PpX, dist.PpY, dist.Poly, dist.Pix, dist.Pix, M: new float[] { 1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f });   // M = I₃, crop (1,1), offset 0
+        var warped = Rgba8Warp.Warp(pre, W, H, W, H, ac);
         log?.Invoke($"guide: {W}x{H} in {sw.Elapsed.TotalSeconds:F1}s");
         return new Result(new Rgba8Image(warped, W, H, W)) { PreWarp = pre, Float = flt, W = W, H = H, Stats = stats, Calib = ac };
     }
 }
 
-/// <summary>`ImageWarp&lt;5,1,vec4x8ui,LensUndistortCRA const&amp;,ExprConstScalar&lt;vec4x8ui&gt;&gt;` (`180329b90`, lambda_1 `18032a5e0`, 128×128 tiles):
+/// <summary>`ImageWarp&lt;5,1,vec4x8ui,LensUndistortCRA const&amp;,ExprConstScalar&lt;vec4x8ui&gt;&gt;` (128×128 tiles):
 /// the same 64-phase 6-tap Lanczos-3 table and `LensUndistortCRA` geometry as the float warp (`StereoImage.Warp`), but (a) every tap is fetched with
 /// clamp-to-edge (no fill value is ever written — the template's boundary mode 1), (b) the byte taps are converted to float per row and the six
 /// column sums accumulate row by row `((((P0·ty0 + P1·ty1) + P2·ty2) + P3·ty3) + P4·ty4) + P5·ty5`, (c) the row combination is
@@ -137,7 +137,7 @@ public static class Rgba8Warp
                         gather[rr * 6 + cc] = (uint)(src[o] | (src[o + 1] << 8) | (src[o + 2] << 16) | (src[o + 3] << 24));
                     }
                 }
-                // column sums, row by row (pmovzxbw/pmovzxwd/cvtdq2ps then mulps by the broadcast y-tap, addps)
+                // column sums, row by row: bytes to float, times the broadcast y-tap, then added
                 var C = new Vector128<float>[6];
                 for (int cc = 0; cc < 6; cc++) C[cc] = Lanes(gather[cc]) * Vector128.Create(tbl[fy * 6]);
                 for (int rr = 1; rr < 6; rr++)

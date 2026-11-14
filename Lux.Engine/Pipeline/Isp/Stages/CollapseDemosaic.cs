@@ -5,13 +5,13 @@ using System.Runtime.Intrinsics.X86;
 namespace Lux.Engine.Pipeline.Isp.Stages;
 
 /// <summary>
-/// `Demosaicking:collapse4/8` (`setDemosaicking` lambdas 27/28 → `FUN_1800c37e0(out, in, N, red)`; collapse2 is NOT this — see Demosaic2xCatmull): every N×N
+/// `Demosaicking:collapse4/8` (the `setDemosaicking` cases for collapse4/8; collapse2 is NOT this — see Demosaic2xCatmull): every N×N
 /// block of the float Bayer image becomes one RGBA pixel = (mean R, (mean G1 + mean G2)·½, mean B, 1) over the
 /// block's sites (partial blocks at the right/bottom use what is there). Sums follow the SSE order: per site and
 /// per sample row, four lanes over column groups of four (lane k = columns 2k, 2k+2 … within the group), combined as
 /// `(l2 + l0) + (l3 + l1)`, the last 1–4 samples added sequentially; rows fewer than 5 samples wide are summed
-/// sequentially. Means use `rcpss(count)`. The companion image at payload +0x40 is nearest-resized
-/// (`FUN_1801d6120`, 16.16 steps from `(int)(w·65536/w')`) to the collapsed size (lambda_23 `180415e20`).
+/// sequentially. Means use `rcpss(count)`. The companion image of the payload is nearest-resized
+/// (16.16 steps from `(int)(w·65536/w')`) to the collapsed size.
 /// </summary>
 public static class CollapseDemosaicKernel
 {
@@ -82,7 +82,7 @@ public static class CollapseDemosaicKernel
         return dst;
     }
 
-    /// <summary>`FUN_1801d6120(in, out, w', h')`: nearest resize, x step `(int)((w·65536.0)/w')`, y step
+    /// <summary>Nearest resize, x step `(int)((w·65536.0)/w')`, y step
     /// `(int)((h·65536.0)/h')` accumulated in 16.16.</summary>
     public static T[] NearestResize<T>(T[] src, int stride, int offset, int w, int h, int ow, int oh) where T : unmanaged
     {

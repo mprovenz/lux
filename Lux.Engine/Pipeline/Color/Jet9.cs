@@ -2,7 +2,7 @@ namespace Lux.Engine.Pipeline.Color;
 
 /// <summary>
 /// Forward-mode dual number with 9 partial derivatives — the equivalent of Ceres' <c>Jet&lt;double, 9&gt;</c> that
-/// Lumen's <c>AutoDiffCostFunction&lt;LabCostFunction, 25, 9&gt;</c> evaluates the colour-matrix fit with (SoT §9.3).
+/// Lumen's <c>AutoDiffCostFunction&lt;LabCostFunction, 25, 9&gt;</c> evaluates the colour-matrix fit with.
 /// Derivative rules follow ceres/jet.h.
 /// </summary>
 public readonly struct Jet9

@@ -4,7 +4,7 @@ using System.Runtime.Intrinsics.X86;
 namespace Lux.Engine.Pipeline.Isp.Stages;
 
 /// <summary>
-/// The constructor-installed slot 2 of the Bayer-ushort block (`Pipeline::Pipeline` lambda_4, `18041f600`):
+/// The constructor-installed slot 2 of the Bayer-ushort block (in Lumen's `Pipeline::Pipeline`):
 /// `float = ((float)raw − Sensor.black) · (1 / (Sensor.white − Sensor.black))` over the payload rect
 /// (`ImageParallelAssign&lt;RowExprMulScalar&lt;RowExprSubScalar&gt;&gt;`), producing the float Bayer image the
 /// crosstalk/demosaic stages consume. Not tunable — always present, like Lumen's slot.
@@ -14,16 +14,16 @@ public sealed class BayerToFloatStage : IStage
     static bool _dbgOnce;
     public StageName Stage => StageName.Placeholder;
     public string TypeString => "default";
-    public StageMeta Meta => new(1, 2, 1f);   // live stereo pipeline slot 3: pad 1, align 2, scale 1 (cp.dll stereo-tile reference run, 2026-08-26)
+    public StageMeta Meta => new(1, 2, 1f);   // pad 1, align 2, scale 1 (slot 3 of Lumen's live stereo pipeline)
     public void Apply(IspPayload p)
     {
         var src = p.Raw ?? throw new InvalidOperationException("BayerToFloat needs the ushort source");
         var noise = p.Frame.Noise ?? throw new InvalidOperationException("BayerToFloat needs the sensor black/white levels (SensorNoise)");
-        // LinearizeAndColorScaleImageDelegate<unsigned short> (18041fe90, called by the ctor's slot-2 lambda_0 18041fd50;
-        // row kernel lambda_1 180421b40): per CFA site  float = ((float)raw − black) · 1/(neutral_c · (white − black)),
-        // c = R at the red site, B at the opposite-parity site, G elsewhere. Verified live (cp.dll's ISP-stage listing, flat raw):
+        // LinearizeAndColorScaleImageDelegate<unsigned short> (called by the constructor's slot-2 lambda): per CFA site
+        // float = ((float)raw − black) · 1/(neutral_c · (white − black)),
+        // c = R at the red site, B at the opposite-parity site, G elsewhere. Thus
         // the module ISP's float Bayer image is white-balanced camera RGB.
-        // the linearize reads Stats+0x198 (the Sensor of the capture the stats were built from), not this frame's own record
+        // the linearize reads the Sensor of the capture the stats were built from, not this frame's own record
         float black = !float.IsNaN(p.Stats.SensorBlack) ? p.Stats.SensorBlack : (float.IsNaN(p.Frame.FrameBlack) ? noise.Black : p.Frame.FrameBlack);
         float white = !float.IsNaN(p.Stats.SensorWhite) ? p.Stats.SensorWhite : noise.White, range = white - black;
         if (Environment.GetEnvironmentVariable("LUX_FRAME_BLACK") is string fb) { black = float.Parse(fb, System.Globalization.CultureInfo.InvariantCulture); range = noise.White - black; }   // diagnostic
@@ -48,7 +48,7 @@ public sealed class BayerToFloatStage : IStage
 }
 
 /// <summary>The BayerFloat-block slot 3: `LinearizeAndColorScaleImageDelegate&lt;float&gt;` on the stacked/fused float Bayer (raw DN incl. black) —
-/// the same per-site `(x − black)·1/(neutral_c·(white − black))` as the ushort delegate, reading Stats+0x198 (the reference capture's sensor).</summary>
+/// the same per-site `(x − black)·1/(neutral_c·(white − black))` as the ushort delegate, reading the Stats sensor (the reference capture's sensor).</summary>
 public sealed class BayerFloatLinearizeStage : IStage
 {
     public StageName Stage => StageName.Placeholder;
@@ -79,7 +79,7 @@ public sealed class BayerFloatLinearizeStage : IStage
     }
 }
 
-/// <summary>Bayer-domain `Demosaicking:light_v1` (`setDemosaicking` lambda_23 → the functor at pipeline+0x1a70 =
+/// <summary>Bayer-domain `Demosaicking:light_v1` (the `setDemosaicking` functor =
 /// `DemosaickLightV1` dispatcher; slot pad/align/scale from the setter). Consumes the float Bayer image, produces the
 /// RGBA working image for the payload rect. The WB neutral is the Stats neutral (applied per CFA site inside).</summary>
 public sealed class DemosaicLightV1Stage : IStage

@@ -1,0 +1,188 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             xmlns:c="using:Lux.App.Controls"
+             x:Class="Lux.App.Views.BrowseView"
+             x:DataType="vm:LibraryViewModel"
+             Classes="browse"
+             Focusable="True" IsTabStop="True"
+             AutomationProperties.Name="Captures">
+  <!--
+    The three presentations of one ordered result. Each is a virtualising stack of rows (grid rows, day headings + card rows, list
+    rows); cells are not focusable: the view itself holds keyboard focus and moves a cursor through the result.
+  -->
+  <UserControl.Styles>
+    <Style Selector="Border.listrow TextBlock">
+      <Setter Property="Margin" Value="12,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+  </UserControl.Styles>
+  <Panel>
+    <!-- ======================================================== compact grid -->
+    <ScrollViewer x:Name="GridScroll" IsVisible="{Binding IsGrid}" HorizontalScrollBarVisibility="Disabled">
+      <c:RowsControl x:Name="GridItems" ItemsSource="{Binding GridRows}" Margin="12,12,12,4" Gap="8" RowMargin="0,0,0,8">
+        <c:RowsControl.ItemsPanel>
+          <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
+        </c:RowsControl.ItemsPanel>
+        <c:RowsControl.CellTemplate>
+                <DataTemplate x:DataType="vm:CaptureItemViewModel">
+                  <Border Classes="cell" Classes.selected="{Binding IsSelected}" Classes.cursor="{Binding IsCursor}"
+                          AutomationProperties.Name="{Binding AccessibleName}">
+                    <StackPanel Spacing="4">
+                      <Panel>
+                        <c:ThumbnailView CaptureId="{Binding Id}" Version="{Binding ThumbVersion}" Dimmed="{Binding HasProblem}"
+                                         Orientation="{Binding Orientation}" Made="{Binding ThumbnailMade}" Processing="{Binding IsProcessing}" Progress="{Binding ProcessingProgress}" Placeholder="{DynamicResource LuxPlaceholder}" />
+                        <Border Classes="badge" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="4" Padding="3"
+                                IsVisible="{Binding ShowLocalMarker}" ToolTip.Tip="{x:Static vm:CaptureItemViewModel.LocalTip}">
+                          <Ellipse Classes="marker" Width="7" Height="7" />
+                        </Border>
+                        <Border Classes="badge" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="4" Padding="3"
+                                IsVisible="{Binding NotSavedWithPhoto}" ToolTip.Tip="{x:Static vm:CaptureItemViewModel.NotSavedTip}">
+                          <Ellipse Classes="marker notsaved" Width="7" Height="7" />
+                        </Border>
+                        <Border Classes="badge" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="4">
+                          <TextBlock Classes="mono cachetag" Classes.full="{Binding IsFull}" Text="{Binding CacheTag}" />
+                        </Border>
+                        <Border Classes="badge" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="4">
+                          <TextBlock Text="{Binding Badge}" />
+                        </Border>
+                        <Border Classes="badge warn" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding HasProblem}">
+                          <TextBlock Text="{Binding ProblemText}" />
+                        </Border>
+                      </Panel>
+                      <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="mono tiny" Text="{Binding ShortName}" />
+                        <TextBlock Grid.Column="1" Classes="tiny" Text="{Binding Stars}" />
+                      </Grid>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+        </c:RowsControl.CellTemplate>
+      </c:RowsControl>
+    </ScrollViewer>
+
+    <!-- ======================================================== date-grouped timeline -->
+    <ScrollViewer x:Name="TimelineScroll" IsVisible="{Binding IsTimeline}" HorizontalScrollBarVisibility="Disabled">
+      <c:RowsControl x:Name="TimelineItems" ItemsSource="{Binding TimelineRows}" Margin="16,0,16,16" Gap="12" RowMargin="0,0,0,12">
+        <c:RowsControl.ItemsPanel>
+          <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
+        </c:RowsControl.ItemsPanel>
+        <c:RowsControl.HeaderTemplate>
+          <DataTemplate DataType="vm:TimelineHeaderViewModel">
+            <Border Classes="groupline" Margin="0,16,0,10">
+              <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                <TextBlock Classes="heading" Text="{Binding Title}" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Classes="secondary" Text="{Binding Sub}" Margin="12,2,0,0" VerticalAlignment="Center" />
+                <Button Grid.Column="3" Classes="link" Content="Select day" Command="{Binding SelectDayCommand}" Focusable="False" />
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </c:RowsControl.HeaderTemplate>
+        <c:RowsControl.CellTemplate>
+                <DataTemplate x:DataType="vm:CaptureItemViewModel">
+                  <Border Classes="card2" Classes.selected="{Binding IsSelected}" Classes.cursor="{Binding IsCursor}"
+                          AutomationProperties.Name="{Binding AccessibleName}">
+                    <StackPanel>
+                      <Panel>
+                        <c:ThumbnailView CaptureId="{Binding Id}" Version="{Binding ThumbVersion}" Dimmed="{Binding HasProblem}"
+                                         Orientation="{Binding Orientation}" Made="{Binding ThumbnailMade}" Processing="{Binding IsProcessing}" Progress="{Binding ProcessingProgress}" Placeholder="{DynamicResource LuxPlaceholder}" />
+                        <Border Classes="badge warn" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding HasProblem}">
+                          <TextBlock Text="{Binding ProblemText}" />
+                        </Border>
+                      </Panel>
+                      <StackPanel Margin="8" Spacing="2">
+                        <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                          <TextBlock Classes="mono" Text="{Binding Name}" />
+                          <Ellipse Grid.Column="1" Classes="marker" Margin="6,0,0,0" VerticalAlignment="Center"
+                                   IsVisible="{Binding ShowLocalMarker}" ToolTip.Tip="{x:Static vm:CaptureItemViewModel.LocalTip}" />
+                          <Ellipse Grid.Column="1" Classes="marker notsaved" Margin="6,0,0,0" VerticalAlignment="Center"
+                                   IsVisible="{Binding NotSavedWithPhoto}" ToolTip.Tip="{x:Static vm:CaptureItemViewModel.NotSavedTip}" />
+                          <TextBlock Grid.Column="3" Text="{Binding Stars}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="*,Auto">
+                          <TextBlock Classes="secondary small" Text="{Binding Meta}" />
+                          <TextBlock Grid.Column="1" Classes="mono small cachetag" Classes.full="{Binding IsFull}" Text="{Binding CacheWord}" Margin="8,0,0,0" />
+                        </Grid>
+                      </StackPanel>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+        </c:RowsControl.CellTemplate>
+      </c:RowsControl>
+    </ScrollViewer>
+
+    <!-- ======================================================== sortable list -->
+    <ScrollViewer x:Name="ListHScroll" IsVisible="{Binding IsList}" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                  Background="{DynamicResource LuxPanel}">
+      <Grid RowDefinitions="Auto,*" MinWidth="900">
+        <Border Background="{DynamicResource LuxBar}">
+          <Grid x:Name="ListHeader" ColumnDefinitions="76,108,100,70,164,100,108,76,*">
+            <Grid.Styles>
+              <Style Selector="TextBlock.th">
+                <Setter Property="Foreground" Value="{DynamicResource LuxTextSecondary}" />
+                <Setter Property="FontWeight" Value="Medium" />
+                <Setter Property="Margin" Value="12,10" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+              </Style>
+              <Style Selector="Button.th">
+                <Setter Property="MinHeight" Value="38" />
+                <Setter Property="Padding" Value="12,0" />
+                <Setter Property="HorizontalContentAlignment" Value="Left" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="Foreground" Value="{DynamicResource LuxTextSecondary}" />
+                <Setter Property="FontWeight" Value="Medium" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="0" />
+              </Style>
+            </Grid.Styles>
+            <TextBlock Classes="th" Text="Preview" />
+            <Button Grid.Column="1" Classes="th" Content="{Binding HeaderName}" Command="{Binding SortByCommand}" CommandParameter="name" ToolTip.Tip="Sort by name" />
+            <Button Grid.Column="2" Classes="th" Content="{Binding HeaderTime}" Command="{Binding SortByCommand}" CommandParameter="time" ToolTip.Tip="Sort by capture time" />
+            <Button Grid.Column="3" Classes="th" Content="{Binding HeaderLens}" Command="{Binding SortByCommand}" CommandParameter="lens" ToolTip.Tip="Sort by lens" />
+            <TextBlock Grid.Column="4" Classes="th" Text="Exposure" />
+            <Button Grid.Column="5" Classes="th" Content="{Binding HeaderRating}" Command="{Binding SortByCommand}" CommandParameter="rating" ToolTip.Tip="Sort by rating" />
+            <TextBlock Grid.Column="6" Classes="th" Text="Depth" />
+            <TextBlock Grid.Column="7" Classes="th" Text="Edits" />
+            <TextBlock Grid.Column="8" Classes="th" Text="Cached render" />
+          </Grid>
+        </Border>
+        <ScrollViewer x:Name="ListScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+          <c:RowsControl x:Name="ListItems" ItemsSource="{Binding ListRows}">
+            <c:RowsControl.ItemsPanel>
+              <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
+            </c:RowsControl.ItemsPanel>
+            <c:RowsControl.CellTemplate>
+              <DataTemplate x:DataType="vm:CaptureItemViewModel">
+                <Border Classes="listrow" Classes.selected="{Binding IsSelected}" Classes.cursor="{Binding IsCursor}"
+                        AutomationProperties.Name="{Binding AccessibleName}">
+                  <Grid ColumnDefinitions="76,108,100,70,164,100,108,76,*">
+                    <c:ThumbnailView Width="52" Height="39" Margin="12,0" HorizontalAlignment="Left" CaptureId="{Binding Id}" Version="{Binding ThumbVersion}"
+                                     Dimmed="{Binding HasProblem}" Orientation="{Binding Orientation}" Made="{Binding ThumbnailMade}" Processing="{Binding IsProcessing}" Progress="{Binding ProcessingProgress}" Placeholder="{DynamicResource LuxPlaceholder}" />
+                    <TextBlock Grid.Column="1" Classes="mono" Text="{Binding Name}" />
+                    <Ellipse Grid.Column="1" Classes="marker" HorizontalAlignment="Right" Margin="0,0,4,0"
+                             VerticalAlignment="Center" IsVisible="{Binding ShowLocalMarker}" ToolTip.Tip="{x:Static vm:CaptureItemViewModel.LocalTip}" />
+                    <Ellipse Grid.Column="1" Classes="marker notsaved" HorizontalAlignment="Right" Margin="0,0,4,0"
+                             VerticalAlignment="Center" IsVisible="{Binding NotSavedWithPhoto}" ToolTip.Tip="{x:Static vm:CaptureItemViewModel.NotSavedTip}" />
+                    <TextBlock Grid.Column="2" Text="{Binding Captured}" />
+                    <TextBlock Grid.Column="3" Text="{Binding Lens}" />
+                    <TextBlock Grid.Column="4" Classes="mono" Text="{Binding Exposure}" />
+                    <TextBlock Grid.Column="5" Classes="stars" Text="{Binding Stars}" />
+                    <TextBlock Grid.Column="6" Text="{Binding DepthText}" Classes.warning="{Binding HasProblem}" />
+                    <TextBlock Grid.Column="7" Text="{Binding EditsText}" />
+                    <TextBlock Grid.Column="8" Classes="mono" Classes.accent="{Binding IsFull}" Text="{Binding CachedRender}" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </c:RowsControl.CellTemplate>
+          </c:RowsControl>
+        </ScrollViewer>
+      </Grid>
+    </ScrollViewer>
+
+    <!-- nothing matches -->
+    <StackPanel IsVisible="{Binding IsEmptyResult}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" Margin="24">
+      <TextBlock Classes="heading" Text="No captures here" HorizontalAlignment="Center" />
+      <TextBlock Classes="secondary" Text="Try another folder, filter or chip." HorizontalAlignment="Center" />
+    </StackPanel>
+  </Panel>
+</UserControl>

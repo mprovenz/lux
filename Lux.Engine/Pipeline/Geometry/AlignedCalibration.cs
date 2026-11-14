@@ -4,10 +4,10 @@ using System.Runtime.Intrinsics.X86;
 
 namespace Lux.Engine.Pipeline.Geometry;
 
-/// <summary>3×3 float helpers with cp.dll's exact operation order (SoT A.8).</summary>
+/// <summary>3×3 float helpers with Lumen's exact operation order.</summary>
 public static class Mat3F
 {
-    /// <summary>`FUN_1800c2a00`: cofactor inverse. det = (c2·m2 + c0·m0) − c1·m1; every element × (1/det); [3] negated by xor.</summary>
+    /// <summary>Cofactor inverse. det = (c2·m2 + c0·m0) − c1·m1; every element × (1/det); [3] negated by xor.</summary>
     public static float[] Inverse(ReadOnlySpan<float> m)
     {
         float m0 = m[0], m1 = m[1], m2 = m[2], m3 = m[3], m4 = m[4], m5 = m[5], m6 = m[6], m7 = m[7], m8 = m[8];
@@ -23,7 +23,7 @@ public static class Mat3F
         };
     }
 
-    /// <summary>Row-major product with the association `FUN_180185030` uses for both of its products:
+    /// <summary>Row-major product with the association that <c>AlignedCalib.Build</c> uses for both of its products:
     /// C[i][j] = (A[i][1]·B[1][j] + A[i][0]·B[0][j]) + A[i][2]·B[2][j].</summary>
     public static float[] Mul(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
     {
@@ -34,8 +34,8 @@ public static class Mat3F
         return c;
     }
 
-    /// <summary>`M = Ra·Rbᵀ` (CreateStereoImage `180326993–180326aeb`, disasm-verified): M[i][j] = (Ra[i][0]·Rb[j][0] + Ra[i][1]·Rb[j][1]) + Ra[i][2]·Rb[j][2].
-    /// (The previous pairing from the decompile text differed at the ulp level for near-identity rotations — the A3 stereo image, 2026-08-27.)</summary>
+    /// <summary>`M = Ra·Rbᵀ` (as in CreateStereoImage): M[i][j] = (Ra[i][0]·Rb[j][0] + Ra[i][1]·Rb[j][1]) + Ra[i][2]·Rb[j][2].
+    /// Another pairing differs at the ulp level for near-identity rotations.</summary>
     public static float[] MulABt(ReadOnlySpan<float> ra, ReadOnlySpan<float> rb)
     {
         var c = new float[9];
@@ -46,10 +46,10 @@ public static class Mat3F
     }
 }
 
-/// <summary>`SecondOrderRatPolyMapping` polynomial branch (`FUN_180011180` @0x180011322, set-up `FUN_180011070`/`FUN_180011430`):
+/// <summary>`SecondOrderRatPolyMapping` polynomial branch:
 /// Brown–Conrady forward map with the .lri `Distortion.Polynomial` (centre, normalisation, coeffs [k1,k2,p1,p2,k3]).
 /// The normalisation is applied through the cofactor inverse of [nx 0 cx; 0 ny cy; 0 0 1] (rounding matters — the CRA LUT
-/// amplifies it at small radii), exactly as cp.dll does.</summary>
+/// amplifies it at small radii), exactly as Lumen does.</summary>
 public sealed class RatPolyMapping
 {
     private readonly float _nx, _ny, _cx, _cy, _k1, _k2, _k3, _p1, _p2;
@@ -85,13 +85,13 @@ public sealed class RatPolyMapping
     }
 }
 
-/// <summary>CRA radial LUT (`FUN_180184a30` + curve `FUN_1801855a0`): 4096 entries indexed by radius in pixels about the CRA
+/// <summary>CRA radial LUT: 4096 entries indexed by radius in pixels about the CRA
 /// distortion centre; LUT[0] = 1, LUT[i] = 1 + δ(r)/r with δ = Y − X Catmull-Rom-interpolated over 30 uniform knots
 /// X[i] = i·0.1 (mm), Y[i] = (poly.map(cx + i·0.1/pixCurve, cy).x − cx)·pixCurve, r = i·pixLut clamped to X[29].</summary>
 internal static class CraLut
 {
     public const int Size = 4096;
-    private const float Step = 0.1f; // DAT_1806a30dc
+    private const float Step = 0.1f;
 
     public static float[] Build(RatPolyMapping poly, float pixCurve, float pixLut)
     {
@@ -113,7 +113,7 @@ internal static class CraLut
         for (int i = 1; i < Size; i++)
         {
             float r = (float)i * pixLut;
-            if (xLast <= r) r = xLast;                      // minss
+            if (xLast <= r) r = xLast;                      // a NaN in either operand keeps r
             float u = (r - x0) / step;
             int k = (int)u; if (k > n - 3) k = n - 3; if (k < 1) k = 1;
             float t = u - (float)k, t2 = t * t;
@@ -133,7 +133,7 @@ public sealed record CameraCalib(float[] K, float[] T, float[] R, float ViewOffX
 {
     public static CameraCalib Identity(float[] k) => new(k, new float[3], new float[] { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, 0f, 0f, 1f, 1f);
 
-    /// <summary>`FUN_1803081a0` scale path: K[0],K[2] × sx; K[4],K[5] × sy (identity when scale == (1,1)).</summary>
+    /// <summary>Scale path: K[0],K[2] × sx; K[4],K[5] × sy (identity when scale == (1,1)).</summary>
     public CameraCalib Scaled(float sx, float sy)
     {
         if (sx == 1.0f && sy == 1.0f) return this;
@@ -152,7 +152,7 @@ public sealed class AlignedCalib
     public float[] H = new float[9];
     public float[] Lut = Array.Empty<float>();
 
-    /// <summary>`FUN_180185030` fed as the cache builders do (`FUN_1804f05f0`/`FUN_1804f0e80`): H = (K_mod·inv(R_view·R_modᵀ))·inv(K_view·scale),
+    /// <summary>The aligned calibration as the cache builders set it up: H = (K_mod·inv(R_view·R_modᵀ))·inv(K_view·scale),
     /// c = crop_mod·pp − viewOffset_mod, s = 1/(camScale·crop_mod), LUT from the module's polynomial distortion.</summary>
     public static AlignedCalib Build(CameraCalib view, CameraCalib module, float viewScaleX, float viewScaleY,
                                      float camScaleX, float camScaleY, float ppX, float ppY,
@@ -166,7 +166,7 @@ public sealed class AlignedCalib
             Cx = module.CropX * ppX - module.ViewOffX,
             Cy = module.CropY * ppY - module.ViewOffY,
         };
-        // `M` is the caller's rotation argument of FUN_180185030: the cache builders pass R_view·R_modᵀ, the reference guide passes I₃
+        // `M` is the caller's rotation argument: the cache builders pass R_view·R_modᵀ, the reference guide passes I₃
         // outright — with the reference's own (≈identity) rotations a float product would leave 1e-8 residues in H that Lumen does not have.
         var m = M ?? Mat3F.MulABt(a.R, module.R);
         var mi = Mat3F.Inverse(m);
@@ -203,7 +203,7 @@ public sealed class AlignedCalib
         return ((lu * dx + Cx) * inv, (Cy + dy * lu) * inv);
     }
 
-    /// <summary>`PipelineCache::processLevel1` inlined map (kernel `1804e49f0`, spec ab6d047c §3): the level-0 map with the final coordinate
+    /// <summary>`PipelineCache::processLevel1` inlined map: the level-0 map with the final coordinate
     /// associated as `((cx + −1) + lu·dx)` / `((cy + −1) + dy·lu)` (the reference-cache kernel does `((lu·dx + cx) + −1)`); the caller
     /// subtracts the source offset.</summary>
     public (float X, float Y) MapInlinedMinus1(float x, float y)
@@ -230,8 +230,8 @@ public sealed class AlignedCalib
 }
 
 /// <summary>
-/// `GetAlignedCalibration(out pair, refView, camView, img, halfSize, scale)` (`0x180302b00`, spec
-/// `a5db2cbe8ffbc9e6d.md`): the reference-like canvas of a higher-group camera. `base` = camView with
+/// `GetAlignedCalibration(out pair, refView, camView, img, halfSize, scale)`: the reference-like canvas of a higher-group
+/// camera. `base` = camView with
 /// K,R := refView and t = (R_ref·R_camᵀ)·t_cam; `scaled = Scale(base, scale)`; the per-module warp closure is
 /// `AlignedCalib.Build(view = base, module = camView, …)`. A seed box is projected from the `[0,hx]×[0,hy]` corners through
 /// `W = (K_scaled·R_scaled)·inv(K_cam·R_cam)`, widened by ±200, and scanned on a step-2 lattice for the first/last x and y whose
@@ -241,7 +241,7 @@ public static class AlignedCalibrationScan
 {
     public sealed record Result(CameraCalib First, int W, int H, int MinX, int MinY, int MaxX, int MaxY, int SeedX0, int SeedY0, int SeedX1, int SeedY1);
 
-    /// <summary>`FUN_1803041d0(camView, refView)`: camView's off/crop copied, K,R from refView, t = M·t_cam with M = R_ref·R_camᵀ.</summary>
+    /// <summary>CamView's off/crop copied, K,R from refView, t = M·t_cam with M = R_ref·R_camᵀ.</summary>
     public static CameraCalib BaseCalib(CameraCalib refView, CameraCalib camView)
     {
         var M = Mat3F.MulABt(refView.R, camView.R); var tc = camView.T; var t = new float[3];
@@ -261,7 +261,7 @@ public static class AlignedCalibrationScan
         var baseC = BaseCalib(refView, camView);
         var scaled = baseC.Scaled(scale.X, scale.Y);
         var closure = AlignedCalib.Build(baseC, camView, scale.X, scale.Y, camScaleX, camScaleY, ppX, ppY, poly, pixCurve, pixLut);
-        // seed box (§3)
+        // seed box
         var P = Mat3F.Mul(camView.K, camView.R); var Pinv = Mat3F.Inverse(P);
         var Q = Mat3F.Mul(scaled.K, scaled.R); var W = Mat3F.Mul(Q, Pinv);
         int hx = halfSize.X, hy = halfSize.Y; float fx = (float)hx, fy = (float)hy;
@@ -286,7 +286,7 @@ public static class AlignedCalibrationScan
         if (miny0 < yEnd) { bool f = false; for (int y = miny0; y < yEnd && !f; y += 2) for (int x = minx0; x < xEnd; x += 2) if (Inside(x, y)) { miny = y; f = true; break; } }
         if (minx0 < xEnd) { bool f = false; for (int x = maxX + 199; x >= minx0 && !f; x -= 2) for (int y = miny0; y < yEnd; y += 2) if (Inside(x, y)) { maxx = x; f = true; break; } if (!f) maxx = 0; }
         if (miny0 < yEnd) { bool f = false; for (int y = maxY + 199; y >= miny0 && !f; y -= 2) for (int x = minx0; x < xEnd; x += 2) if (Inside(x, y)) { maxy = y; f = true; break; } if (!f) maxy = 0; }
-        // output (§5): Shift(scaled, minx, miny)
+        // output: Shift(scaled, minx, miny)
         var k = (float[])scaled.K.Clone(); float dx = (float)minx, dy = (float)miny; k[2] -= dx; k[5] -= dy;
         var first = scaled with { K = k, ViewOffX = scaled.ViewOffX + dx, ViewOffY = scaled.ViewOffY + dy };
         return new Result(first, maxx - minx, maxy - miny, minx, miny, maxx, maxy, minx0, miny0, xEnd, yEnd);

@@ -9,21 +9,62 @@ namespace Lux.Engine.Mtp.GPhoto2;
 internal static class Gp
 {
     private const string Lib = "gphoto2";
+    private const string PortLib = "gphoto2_port";
     public const int GP_OK = 0;
     public const int GP_FILE_TYPE_NORMAL = 1;
+
+    // gphoto2-port-result.h / gphoto2-result.h (the ones the camera page tells apart)
+    public const int GP_ERROR = -1, GP_ERROR_NOT_SUPPORTED = -6, GP_ERROR_IO = -7, GP_ERROR_TIMEOUT = -10, GP_ERROR_IO_INIT = -31,
+                     GP_ERROR_IO_READ = -34, GP_ERROR_IO_WRITE = -35, GP_ERROR_IO_USB_CLEAR_HALT = -51, GP_ERROR_IO_USB_FIND = -52,
+                     GP_ERROR_IO_USB_CLAIM = -53, GP_ERROR_IO_LOCK = -60, GP_ERROR_MODEL_NOT_FOUND = -105, GP_ERROR_FILE_NOT_FOUND = -108,
+                     GP_ERROR_DIRECTORY_NOT_FOUND = -107, GP_ERROR_CAMERA_BUSY = -110, GP_ERROR_CANCEL = -112;
 
     static Gp() => NativeLibrary.SetDllImportResolver(typeof(Gp).Assembly, Resolver);
 
     private static IntPtr Resolver(string name, System.Reflection.Assembly asm, DllImportSearchPath? path)
     {
-        if (name != Lib) return IntPtr.Zero;
-        foreach (var c in new[] { "libgphoto2.so.6", "libgphoto2.so", "libgphoto2.6.dylib", "libgphoto2.dylib" })
+        string[] candidates = name switch
+        {
+            Lib => new[] { "libgphoto2.so.6", "libgphoto2.so", "libgphoto2.6.dylib", "libgphoto2.dylib" },
+            PortLib => new[] { "libgphoto2_port.so.12", "libgphoto2_port.so", "libgphoto2_port.12.dylib", "libgphoto2_port.dylib" },
+            _ => Array.Empty<string>(),
+        };
+        foreach (var c in candidates)
             if (NativeLibrary.TryLoad(c, out var h)) return h;
         return IntPtr.Zero;
     }
 
+    /// <summary>The backend's own text for an error number ("Could not claim the USB device").</summary>
+    [DllImport(Lib)] static extern IntPtr gp_result_as_string(int result);
+    public static string ResultText(int rc) { try { return Utf8(gp_result_as_string(rc)) ?? $"error {rc}"; } catch (EntryPointNotFoundException) { return $"error {rc}"; } }
+
+    /// <summary>The kind of an error number, in the terms the user can act on.</summary>
+    public static MtpErrorKind KindOf(int rc) => rc switch
+    {
+        GP_ERROR_IO_USB_CLAIM or GP_ERROR_IO_LOCK or GP_ERROR_CAMERA_BUSY => MtpErrorKind.Busy,
+        GP_ERROR_IO or GP_ERROR_IO_READ or GP_ERROR_IO_WRITE or GP_ERROR_IO_USB_FIND or GP_ERROR_IO_INIT or GP_ERROR_IO_USB_CLEAR_HALT or GP_ERROR_TIMEOUT
+            => MtpErrorKind.Disconnected,
+        GP_ERROR_FILE_NOT_FOUND or GP_ERROR_DIRECTORY_NOT_FOUND or GP_ERROR_MODEL_NOT_FOUND => MtpErrorKind.NotFound,
+        _ => MtpErrorKind.Failed,
+    };
+
+    public static MtpException Error(int rc, string what) => new(KindOf(rc), rc, $"{what}: {ResultText(rc)} ({rc})");
+
     // context
     [DllImport(Lib)] public static extern IntPtr gp_context_new();
+    [DllImport(Lib)] public static extern void gp_context_unref(IntPtr context);
+
+    // port selection (opens the camera on the port autodetect reported, not the first camera found)
+    [DllImport(PortLib)] public static extern int gp_port_info_list_new(out IntPtr list);
+    [DllImport(PortLib)] public static extern int gp_port_info_list_load(IntPtr list);
+    [DllImport(PortLib)] public static extern int gp_port_info_list_lookup_path(IntPtr list, [MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+    [DllImport(PortLib)] public static extern int gp_port_info_list_get_info(IntPtr list, int n, out IntPtr info);
+    [DllImport(PortLib)] public static extern int gp_port_info_list_free(IntPtr list);
+    [DllImport(Lib)] public static extern int gp_camera_set_port_info(IntPtr camera, IntPtr info);
+
+    // the camera's summary text (PTP device info: manufacturer, model, serial number, properties such as the battery level)
+    [DllImport(Lib)] public static extern int gp_camera_get_summary(IntPtr camera, byte[] text, IntPtr context);
+    public const int CameraTextSize = 32 * 1024;
 
     // camera lifecycle
     [DllImport(Lib)] public static extern int gp_camera_new(out IntPtr camera);
@@ -53,7 +94,10 @@ internal static class Gp
     // per-file info (size, modification time): gp_camera_file_get_info(camera, folder, file, CameraFileInfo*, context)
     [DllImport(Lib)] public static extern int gp_camera_file_get_info(IntPtr camera, [MarshalAs(UnmanagedType.LPUTF8Str)] string folder, [MarshalAs(UnmanagedType.LPUTF8Str)] string file, out CameraFileInfo info, IntPtr context);
 
-    public const uint GP_FILE_INFO_SIZE = 1 << 1, GP_FILE_INFO_MTIME = 1 << 6;   // CameraFileInfoFields bits
+    // CameraFileInfoFields bits (gphoto2-filesys.h): TYPE 1<<0, SIZE 1<<2, WIDTH 1<<3, HEIGHT 1<<4, PERMISSIONS 1<<5, STATUS 1<<6, MTIME 1<<7.
+    // An .lri reports 0xa5 (type, size, permissions, mtime). With 1<<1 and 1<<6 as SIZE and MTIME, no file has a date and
+    // `--since` matches nothing.
+    public const uint GP_FILE_INFO_SIZE = 1 << 2, GP_FILE_INFO_MTIME = 1 << 7;
 
     /// <summary>libgphoto2 2.5 `CameraFileInfoPreview`: fields, status, uint64 size, char type[64], width, height (88 bytes).</summary>
     [StructLayout(LayoutKind.Sequential)]

@@ -6,8 +6,8 @@ using Lux.Engine.Pipeline.Isp;
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// `lt::StereoISP::CreateStereoImage` (spec `aafa23577277adef4.md`) assembled from the verified pieces: the module ISP at half
-/// resolution with the shared reference Stats, the exposure gain (`FUN_1801ea0c0`), the Lanczos-3 warp through the (view, module) aligned
+/// `lt::StereoISP::CreateStereoImage`, assembled from its parts: the module ISP at half
+/// resolution with the shared reference Stats, the exposure gain, the Lanczos-3 warp through the (view, module) aligned
 /// calibration into `size`, `ConvertToYUV`, then — reference (p12): store the YUV float image and 8-bit it; non-reference with the reference
 /// crop (p13): the colour transfer onto the reference crop; higher group (p12 = p13 = 0): plain 8-bit. Mono sensors take the mono ISP path.
 /// Returns the 8-bit image and the saturation level `val` (255, or the mono code value).

@@ -5,23 +5,23 @@ using Lux.Engine.Pipeline.Isp;
 namespace Lux.Engine.Pipeline.Cache;
 
 /// <summary>
-/// `PipelineCache` = `TileCache&lt;Vec3&lt;Float16&gt;&gt;` (spec `ab6d047c4aab9a904.md`): 512×512 tiles per level, generated on demand by
+/// `PipelineCache` = `TileCache&lt;Vec3&lt;Float16&gt;&gt;`: 512×512 tiles per level, generated on demand by
 /// `PipelineCache::lambda_0` — levels 2–4 = the reference module's cache tiles (`ReferenceImageCache::processLevel` at cache level L−1 = module ISP +
 /// aligned warp), multiplied by the AsShot neutral and stored as round-toward-zero halves; `RenderRoi` gathers tiles back to float RGBA (alpha 1).
 /// Level 1 (`FusionCacheBayer` + undistort warp) comes from <see cref="Level1"/>; level 0 (`PipelineCache::processLevel0` = `lt::ImageResolutionAmp`
-/// + the `FUN_1800fb0b0` square, spec `a-resamp.md` §0) from <see cref="Level0"/> — a `ResAmp.ImageResolutionAmp` built by the caller.
+/// + the √ square) from <see cref="Level0"/> — a `ResAmp.ImageResolutionAmp` built by the caller.
 /// </summary>
 public sealed class PipelineCache
 {
     public const int TileSize = 512;
-    public readonly (int W, int H)[] LevelDims;           // +0x08: [0] ResAmp canvas, [1] sensor, [2..4] reference cache levels 1..3
-    public readonly (int X, int Y)[] Grid;                // +0x20: max(1, (256 + W) / 512)
+    public readonly (int W, int H)[] LevelDims;           // [0] ResAmp canvas, [1] sensor, [2..4] reference cache levels 1..3
+    public readonly (int X, int Y)[] Grid;                // max(1, (256 + W) / 512)
     readonly TileStore<(int L, int Tx, int Ty), ushort[]> _tiles = new();
     public Func<int, RectI, Image<Vec4F>> ReferenceLevel = null!;   // cache level L (1..3), rect in level pixels → float RGBA (processLevel)
     /// <summary>Level 1: `PipelineCache::processLevel1` (fusion cache render + inlined-map undistort warp), rect in sensor pixels → float RGBA.</summary>
     public Func<RectI, Image<Vec4F>>? Level1;
     /// <summary>Level 0: `lt::ImageResolutionAmp` over the canvas tile rect → √-domain RGBA (pre-square); normally `rect => amp.Run(rect)`
-    /// with a <see cref="ResAmp.ImageResolutionAmp"/> whose generators are the +0x220/+0x230/+0x258 lambdas of `initResAmp`.</summary>
+    /// with a <see cref="ResAmp.ImageResolutionAmp"/> whose generators are the generator lambdas of `initResAmp`.</summary>
     public Func<RectI, ResAmp.ResImage>? Level0;
     public float[] Neutral = { 1f, 1f, 1f };
     public Action<string>? Log;
@@ -31,6 +31,9 @@ public sealed class PipelineCache
     public Action<int>? Level0Prefetch;
     /// <summary>Progress of <see cref="Prefetch"/>: the "level-N tiles" phase, one unit per tile.</summary>
     public ProgressReporter Progress { get; set; } = ProgressReporter.None;
+    /// <summary>Tiles kept from an earlier run of the same capture (the analysis cache). A tile it has is taken from it instead of being
+    /// generated — the stored tile is the generated tile, bit for bit, so nothing downstream can tell.</summary>
+    public ITileSource? Stored { get; set; }
 
     public PipelineCache((int W, int H)[] levelDims)
     {
@@ -38,7 +41,7 @@ public sealed class PipelineCache
         for (int l = 0; l < levelDims.Length; l++) Grid[l] = (Math.Max(1, (TileSize / 2 + levelDims[l].W) / TileSize), Math.Max(1, (TileSize / 2 + levelDims[l].H) / TileSize));
     }
 
-    /// <summary>`FUN_1804bcde0`: a tile is 512×512 unless it is the last of its row/column, which absorbs the remainder (`min(W, x0 + 1024) − x0`).</summary>
+    /// <summary>A tile is 512×512 unless it is the last of its row/column, which absorbs the remainder (`min(W, x0 + 1024) − x0`).</summary>
     public (int W, int H) TileDims(int level, int tx, int ty)
     {
         var (nx, ny) = Grid[level]; var (W, H) = LevelDims[level]; int x0 = tx * TileSize, y0 = ty * TileSize;
@@ -58,7 +61,7 @@ public sealed class PipelineCache
             if (Level0 is null) throw new InvalidOperationException("Requested PipelineCache::processLevel0 before initResamp()!");
             var amp = Level0(rect);
             if (amp.W != w || amp.H != h) throw new InvalidOperationException("ImageResolutionAmp did not create image of correct size!");
-            ResAmp.ImageResolutionAmp.Square(amp);                       // FUN_1800fb0b0: the √ decode, every lane squared
+            ResAmp.ImageResolutionAmp.Square(amp);                       // the √ decode, every lane squared
             var t0 = new ushort[w * h * 3]; float r0 = Neutral[0], g0 = Neutral[1], b0 = Neutral[2];
             for (int y = 0; y < h; y++)
             {
@@ -92,7 +95,46 @@ public sealed class PipelineCache
         return tile;
     }
 
-    ushort[] Tile(int level, int tx, int ty) => _tiles.GetOrCreate((level, tx, ty), k => Generate(k.L, k.Tx, k.Ty));
+    ushort[] Tile(int level, int tx, int ty) => _tiles.GetOrCreate((level, tx, ty), k =>
+    {
+        if (Stored?.Load(k.L, k.Tx, k.Ty) is { } kept)
+        {
+            var (w, h) = TileDims(k.L, k.Tx, k.Ty);
+            if (kept.Length != w * h * 3) throw new InvalidOperationException($"stored PipelineCache tile L{k.L} ({k.Tx},{k.Ty}) has the wrong size");
+            return kept;
+        }
+        return Generate(k.L, k.Tx, k.Ty);
+    });
+
+    /// <summary>Whether a tile is in memory or in <see cref="Stored"/> (a read of it would generate nothing).</summary>
+    public bool IsAvailable(int level, int tx, int ty) => _tiles.TryGet((level, tx, ty), out _) || (Stored?.Has(level, tx, ty) ?? false);
+
+    /// <summary>The tile if it has been generated or loaded in this process; never generates.</summary>
+    public ushort[]? TryGetTile(int level, int tx, int ty) => _tiles.TryGet((level, tx, ty), out var t) ? t : null;
+
+    /// <summary>The tile, generating (or loading) it if needed.</summary>
+    public ushort[] GetTile(int level, int tx, int ty) => Tile(level, tx, ty);
+
+    /// <summary>Make, on the calling thread, whatever the generator of <paramref name="level"/> needs before its first tile (the registration,
+    /// the fusion, the telephoto caches) — set by the builder. Without it those are made by the first tile that asks, while every other
+    /// render thread waits on it.</summary>
+    public Action<int>? Warm { get; set; }
+
+    /// <summary>Run <see cref="Warm"/> for <paramref name="level"/> when some tile overlapping <paramref name="rect"/> (level pixels) will have to be
+    /// generated; a no-op when all of them are in memory or kept (<see cref="Stored"/>).</summary>
+    public void EnsureReady(int level, RectI rect)
+    {
+        if (Warm is null) return;
+        var (W, H) = LevelDims[level];
+        var r = new RectI(Math.Max(rect.X0, 0), Math.Max(rect.Y0, 0), Math.Min(rect.X1, W), Math.Min(rect.Y1, H));
+        if (r.Width <= 0 || r.Height <= 0) return;
+        var (tx0, tx1, ty0, ty1) = TileRange(level, r);
+        for (int ty = ty0; ty <= ty1; ty++) for (int tx = tx0; tx <= tx1; tx++)
+                if (!IsAvailable(level, tx, ty)) { Warm(level); return; }
+    }
+
+    /// <summary>Forget generated tiles of a level (they are regenerated, identically, on the next read).</summary>
+    public int Evict(int level, Func<int, int, bool>? which = null) => _tiles.RemoveWhere(k => k.L == level && (which?.Invoke(k.Tx, k.Ty) ?? true));
 
     /// <summary>The tile grid range overlapping <paramref name="rect"/> (level pixels), clamped to the grid.</summary>
     public (int Tx0, int Tx1, int Ty0, int Ty1) TileRange(int level, RectI rect)
@@ -104,21 +146,22 @@ public sealed class PipelineCache
     /// <summary>Generate every tile of <paramref name="level"/> overlapping <paramref name="rect"/> that is not cached yet, running up to
     /// <paramref name="threads"/> generations at once. A later <see cref="Render"/> of any part of the rect is then a cache hit. The tiles are
     /// the same whichever thread makes them: each is a pure function of the capture, memoised once by <see cref="TileStore{TKey,TValue}"/>.</summary>
-    public void Prefetch(int level, RectI rect, int threads)
+    public void Prefetch(int level, RectI rect, int threads, CancellationToken cancel = default)
     {
         var (W, H) = LevelDims[level];
         var r = new RectI(Math.Max(rect.X0, 0), Math.Max(rect.Y0, 0), Math.Min(rect.X1, W), Math.Min(rect.Y1, H));
         if (r.Width <= 0 || r.Height <= 0) return;
         var (tx0, tx1, ty0, ty1) = TileRange(level, r);
-        if (level == 0 && threads > 1) Level0Prefetch?.Invoke(threads);
         var keys = new List<(int, int)>();
         for (int ty = ty0; ty <= ty1; ty++) for (int tx = tx0; tx <= tx1; tx++) keys.Add((tx, ty));
+        // the level-0 inputs are only worth making when some tile under the rect will actually be generated
+        if (level == 0 && threads > 1 && keys.Any(k => !IsAvailable(level, k.Item1, k.Item2))) Level0Prefetch?.Invoke(threads);
         Progress.Begin($"level-{level} tiles", keys.Count);
-        if (threads <= 1) { foreach (var (tx, ty) in keys) { Tile(level, tx, ty); Progress.Tick(); } return; }
-        Parallel.ForEach(keys, new ParallelOptions { MaxDegreeOfParallelism = threads }, k => { Tile(level, k.Item1, k.Item2); Progress.Tick(); });
+        if (threads <= 1) { foreach (var (tx, ty) in keys) { cancel.ThrowIfCancellationRequested(); Tile(level, tx, ty); Progress.Tick(); } return; }
+        Parallel.ForEach(keys, new ParallelOptions { MaxDegreeOfParallelism = threads, CancellationToken = cancel }, k => { Tile(level, k.Item1, k.Item2); Progress.Tick(); });
     }
 
-    /// <summary>`TileCache::renderROI&lt;vec4x32f&gt;` (1804bd050): gather the tiles overlapping `rect` (level pixels) as float RGBA with alpha 1.</summary>
+    /// <summary>`TileCache::renderROI&lt;vec4x32f&gt;`: gather the tiles overlapping `rect` (level pixels) as float RGBA with alpha 1.</summary>
     public float[] RenderRoi(int level, RectI rect)
     {
         var (W, H) = LevelDims[level];
@@ -142,8 +185,8 @@ public sealed class PipelineCache
         return outp;
     }
 
-    /// <summary>`FUN_1804bd710(cache, out, rect, reqDims, level)`: `renderROI` when the stored dims equal the requested ones, else the 16.16 Catmull-Rom
-    /// `ImageResample&lt;2&gt;` of the ±2-margin source rect (spec §2/§2.2).</summary>
+    /// <summary>Render: `renderROI` when the stored dims equal the requested ones, else the 16.16 Catmull-Rom
+    /// `ImageResample&lt;2&gt;` of the ±2-margin source rect.</summary>
     /// <summary>The level rect a <see cref="Render"/> of <paramref name="rect"/> reads: the rect itself when the stored dims equal the requested
     /// ones, else the ±2-margin source rect of the resample.</summary>
     public RectI SourceRect(int level, RectI rect, (int W, int H) reqDims)
@@ -168,7 +211,15 @@ public sealed class PipelineCache
     }
 }
 
-/// <summary>`ImageResample&lt;2, vec4x32f&gt;` (1804451f0): 64-phase Catmull-Rom in 16.16 fixed point, taps clamped to the source, no half-pixel offsets.</summary>
+/// <summary>Kept PipelineCache tiles (round-toward-zero half RGB, row-major, exactly as generated) by (level, tx, ty).</summary>
+public interface ITileSource
+{
+    bool Has(int level, int tx, int ty);
+    /// <summary>The tile, or null when it is not kept (or could not be read intact — the caller then generates it).</summary>
+    ushort[]? Load(int level, int tx, int ty);
+}
+
+/// <summary>`ImageResample&lt;2, vec4x32f&gt;`: 64-phase Catmull-Rom in 16.16 fixed point, taps clamped to the source, no half-pixel offsets.</summary>
 public static class ImageResample2
 {
     static readonly float[] Table = BuildTable();

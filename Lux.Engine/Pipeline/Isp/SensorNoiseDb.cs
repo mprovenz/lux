@@ -1,8 +1,8 @@
 namespace Lux.Engine.Pipeline.Isp;
 
-/// <summary>cp.dll's built-in sensor noise database (dynamic initialiser `FUN_18012b230` → `DAT_180831f40` colour map {2 → A, 4 → B},
-/// `DAT_180831f50` mono map {3 → A, 5 → B}; tables `sensor_noise_db_colour_tables.txt`): per ISO key the (scale, threshold, cliff, black, white)
-/// and the VST (a, b) per channel — the ONLY source of `lt::Sensor` models (the LRI `sensor_data` is parsed but never used). Bit patterns verbatim.</summary>
+/// <summary>Lumen's built-in sensor noise database (colour map {2 → A, 4 → B}, mono map {3 → A, 5 → B}): per ISO key the
+/// (scale, threshold, cliff, black, white) and the VST (a, b) per channel — the ONLY source of `lt::Sensor` models (the LRI
+/// `sensor_data` is parsed but never used). Bit patterns verbatim.</summary>
 public static class SensorNoiseDb
 {
     public readonly record struct ColourRec(int Iso, uint Scale, uint Threshold, uint Cliff, float Black, float White, uint AR, uint AG, uint AB, uint BR, uint BG, uint BB);

@@ -5,17 +5,17 @@ using System.Runtime.Intrinsics.X86;
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// The sparse bundle-adjustment caller `FUN_1802dc770` and its helpers (spec `ae0fffee71d1e9f71.md`): DoubleCam map from the
-/// view-transformed stage-1 calibrations (rotation vector = OpenCV Rodrigues of the polar factor, `FUN_180226e60`), observation records (points
+/// The sparse bundle-adjustment caller and its helpers: DoubleCam map from the
+/// view-transformed stage-1 calibrations (rotation vector = OpenCV Rodrigues of the polar factor), observation records (points
 /// with Z &gt; 0, per-camera observations &gt; 0), `LightBA` when ≥ 10 points, and the per-camera write-back for cameras with ≥ 26 usable
-/// observations: `FUN_1802dc320` (doubles → CalibData, double Rodrigues) followed by `FUN_1802e29f0` (the exact inverse of `Apply`) into the
-/// module's CURRENT slot. Also the reprojection evaluator `FUN_1802d87f0`, the camera centre `FUN_180126650` and the WIDE/TELE acceptance rules.
+/// observations: <c>DoubleCamToCalib</c> (doubles → CalibData, double Rodrigues) followed by <c>InverseApply</c> (the exact inverse of `Apply`) into the
+/// module's CURRENT slot. Also the reprojection evaluator, the camera centre and the WIDE/TELE acceptance rules.
 /// </summary>
 public static class SparseBaCaller
 {
     public sealed class CamInput { public int Cam; public ViewPose Pose = null!; public CalibDataFull Slot = null!; }
 
-    /// <summary>`FUN_1802dc320`: K/t from the doubles, R = Rodrigues(aa) in double (θ ≤ 0 → I), the rest copied from `base`.</summary>
+    /// <summary>K/t from the doubles, R = Rodrigues(aa) in double (θ ≤ 0 → I), the rest copied from `base`.</summary>
     public static CalibDataFull DoubleCamToCalib(LightBA.DoubleCam dc, CalibDataFull baseCalib)
     {
         var o = baseCalib.Clone();
@@ -36,7 +36,7 @@ public static class SparseBaCaller
         return o;
     }
 
-    /// <summary>`FUN_1802e29f0`: the exact inverse of `ViewTransform.Apply` (Qᵀ·R, reciprocal scales, negated shifts, R·P and t + (R'·Pᵀ)·u).</summary>
+    /// <summary>The exact inverse of `ViewTransform.Apply` (Qᵀ·R, reciprocal scales, negated shifts, R·P and t + (R'·Pᵀ)·u).</summary>
     public static CalibDataFull InverseApply(ViewPose p, CalibDataFull inp)
     {
         var o = inp.Clone();
@@ -62,10 +62,10 @@ public static class SparseBaCaller
         return o;
     }
 
-    /// <summary>`FUN_180126650(img, stage)`: camera centre `−(Rᵀ·t)` of a slot.</summary>
+    /// <summary>Camera centre `−(Rᵀ·t)` of a slot.</summary>
     public static float[] Centre(float[] R, float[] t) => new[] { -((R[0] * t[0] + R[3] * t[1]) + R[6] * t[2]), -((R[1] * t[0] + R[4] * t[1]) + R[7] * t[2]), -((R[2] * t[0] + R[5] * t[1]) + R[8] * t[2]) };
 
-    /// <summary>`FUN_1802d87f0`: mean reprojection distance of the points with positive observations through `Apply(pose, slot)` (view K only).</summary>
+    /// <summary>Mean reprojection distance of the points with positive observations through `Apply(pose, slot)` (view K only).</summary>
     public static float MeanReprojection(ViewPose pose, CalibDataFull slot, TriPoint[] points, (float X, float Y)[] obs)
     {
         var v = ViewTransform.Apply(pose, slot); float[] R = v.R, K = v.K, t = v.T;
@@ -89,7 +89,7 @@ public static class SparseBaCaller
 
     public sealed class Result { public List<LightBA.DoubleCam> DoubleCams = null!; public LightBA? Ba; public Dictionary<int, CalibDataFull> Written = new(); public int UsablePoints; }
 
-    /// <summary>`FUN_1802dc770`. `slots[cam]` = the module's CURRENT-slot CalibData (fresh), `poses[cam]` its view pose; `obsMap` = per-camera observation vectors.</summary>
+    /// <summary>The BA caller. `slots[cam]` = the module's CURRENT-slot CalibData (fresh), `poses[cam]` its view pose; `obsMap` = per-camera observation vectors.</summary>
     public static Result Run(TriPoint[] points, SortedDictionary<int, (float X, float Y)[]> obsMap, int refCam, Dictionary<int, CamInput> cams, bool isHigher, uint mask, HashSet<int> exclusion, bool b8, bool b9, Action<string>? log = null)
     {
         int Group(int c) => c <= 4 ? 0 : c <= 9 ? 1 : 2;

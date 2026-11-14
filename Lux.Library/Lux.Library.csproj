@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Lux.Library — the desktop app's library core: everything under the user interface.
+
+    The library database (one per user, SQLite, in the app's data folder) indexing any number of capture folders; folder scanning
+    and content-hash identity; thumbnails; ratings, albums and smart filters; and the one background job queue (thumbnails, analysis,
+    cache builds / upgrades / releases, exports, Lumen edit imports, folder scans). No UI framework dependency: the app binds to the
+    interfaces in Contracts.cs.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Lux.Library</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- the library's exit tests reach the scheduler statistics and the synthetic-library loader -->
+    <InternalsVisibleTo Include="lux-decomp-utils" />
+    <InternalsVisibleTo Include="Lux.App.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Lux.Engine\Lux.Engine.csproj" />
+    <ProjectReference Include="..\Lux.Store\Lux.Store.csproj" />
+  </ItemGroup>
+
+</Project>

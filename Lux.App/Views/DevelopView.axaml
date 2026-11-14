@@ -1,0 +1,581 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             xmlns:v="using:Lux.App.Views"
+             xmlns:c="using:Lux.App.Controls"
+             xmlns:vw="using:Lux.App.Viewer"
+             xmlns:lib="using:Lux.Library"
+             xmlns:dev="using:Lux.App.Develop"
+             x:Class="Lux.App.Views.DevelopView"
+             x:DataType="vm:DevelopViewModel"
+             Focusable="True">
+  <!-- The Develop page (Studio editor): tools and history on the left, the picture with the crop bar, the viewer bar
+       and the filmstrip in the middle, histogram / info / depth effect / tone and colour / geometry / presets on the right. -->
+  <Grid ColumnDefinitions="220,*,Auto">
+
+    <!-- ================================================================ left: tools, depth version, history -->
+    <Border Classes="tree" Grid.Column="0">
+      <DockPanel Margin="12,12,12,8">
+        <StackPanel DockPanel.Dock="Top" Spacing="2">
+          <TextBlock Classes="strong" Text="Tools" Margin="0,0,0,4" />
+          <ItemsControl x:Name="ToolList" ItemsSource="{Binding Tools}" AutomationProperties.Name="Tools">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ToolViewModel">
+                <Button Classes="toolrow" Classes.active="{Binding IsActive}" Classes.dimmed="{Binding IsDimmed}" Margin="0,0,0,4" MinHeight="40"
+                        ToolTip.Tip="{Binding Tip}" ToolTip.ShowOnDisabled="True" AutomationProperties.Name="{Binding Name}"
+                        Command="{Binding $parent[UserControl].((vm:DevelopViewModel)DataContext).ToolCommand}" CommandParameter="{Binding}">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Classes="mono small secondary" Text="{Binding Key}" VerticalAlignment="Center" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+        <!-- depth version (C-Editor) -->
+        <StackPanel DockPanel.Dock="Top" Spacing="2" Margin="0,10,0,0" IsVisible="{Binding Depth.HasDepth}">
+          <TextBlock Classes="strong" Text="Depth version" Margin="0,0,0,4" />
+          <ItemsControl x:Name="VersionList" ItemsSource="{Binding Depth.Versions}" AutomationProperties.Name="Depth version">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:VersionRowViewModel">
+                <Button Classes="toolrow versionrow" Classes.active="{Binding IsCurrent}" Margin="0,0,0,3" MinHeight="34" ToolTip.Tip="{Binding Tip}"
+                        AutomationProperties.Name="{Binding Name}"
+                        Command="{Binding $parent[UserControl].((vm:DevelopViewModel)DataContext).Depth.SwitchVersionCommand}" CommandParameter="{Binding}">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="1" Classes="mono small secondary" Text="{Binding CountText}" VerticalAlignment="Center" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <WrapPanel>
+            <Button Classes="link small" Content="Start a clean version" Command="{Binding Depth.StartCleanVersionCommand}" Margin="0,0,10,0" MinHeight="26"
+                    IsVisible="{Binding Depth.CanStartClean}" ToolTip.Tip="A new version from Lux's own depth, with no depth edits; the versions you have stay as they are" />
+            <Button Classes="link small" Content="Import Lumen edits…" Command="{Binding ImportLumenEditsCommand}" IsVisible="{Binding Depth.CanImportLumen}" MinHeight="26"
+                    ToolTip.Tip="Bring this photo's Lumen edits in as a version of its own (the others are kept)" />
+          </WrapPanel>
+        </StackPanel>
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,4">
+          <TextBlock Classes="strong" Text="History" VerticalAlignment="Center" />
+          <Button Grid.Column="1" Classes="ghost small" Content="Undo" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}"
+                  ToolTip.Tip="{Binding UndoTip}" ToolTip.ShowOnDisabled="True" />
+          <Button Grid.Column="2" Classes="ghost small" Content="Redo" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}"
+                  ToolTip.Tip="{Binding RedoTip}" ToolTip.ShowOnDisabled="True" />
+        </Grid>
+        <!-- under the list: the rebuild indicator, the unreliable note, reset -->
+        <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,6,0,0">
+          <Border Classes="rebuild" IsVisible="{Binding Depth.IsRebuilding}" AutomationProperties.Name="Rebuilding earlier steps">
+            <StackPanel Spacing="4">
+              <TextBlock Classes="small secondary" Text="{Binding Depth.RebuildText}" />
+              <ProgressBar Minimum="0" Maximum="100" Value="{Binding Depth.RebuildProgress}" Height="4" MinHeight="4" />
+            </StackPanel>
+          </Border>
+          <Border Classes="note historynote" IsVisible="{Binding Depth.IsUnreliable}" AutomationProperties.Name="Earlier depth steps can't be undone"
+                  ToolTip.Tip="{Binding Depth.UnreliableText}">
+            <StackPanel Spacing="4">
+              <TextBlock Classes="strong small" Foreground="{DynamicResource LuxText}" Text="Earlier depth steps can't be undone" TextWrapping="Wrap" />
+              <TextBlock Classes="small wrap" Foreground="{DynamicResource LuxTextSecondary}" Text="{Binding Depth.UnreliableShort}" LineHeight="16" />
+              <Button Classes="link small" HorizontalAlignment="Left" Padding="0" MinHeight="24" Content="Start a clean version" Command="{Binding Depth.StartCleanVersionCommand}" />
+            </StackPanel>
+          </Border>
+          <!-- the history's own actions: revert as a step of its own, clear the list; depth reset stays separate -->
+          <StackPanel x:Name="HistoryActions" Orientation="Horizontal" Spacing="12">
+            <Button Classes="link small" Content="Revert to original" Command="{Binding RevertCommand}" IsEnabled="{Binding CanRevert}" MinHeight="24" x:Name="HistoryRevert"
+                    ToolTip.Tip="Tone, crop and rotation and the depth effect back to the capture's own — a step of its own, so Undo brings them back (Ctrl+Shift+R). Depth edits stay." />
+            <Button Classes="link small" Content="Clear history" Command="{Binding ClearHistoryCommand}" IsEnabled="{Binding CanClearHistory}" MinHeight="24" x:Name="HistoryClear"
+                    ToolTip.Tip="Keep the photo as it is now and drop the steps from the list (asks first: they can't be undone afterwards)" />
+          </StackPanel>
+          <Button Classes="link small" HorizontalAlignment="Left" Content="Reset depth edits" Command="{Binding Depth.ResetDepthEditsCommand}" MinHeight="24"
+                  IsVisible="{Binding Depth.HasDepthEdits}" ToolTip.Tip="This version's depth back to its start (Ctrl+R; asks first: a reset can't be undone)" />
+        </StackPanel>
+        <ScrollViewer x:Name="HistoryScroll" HorizontalScrollBarVisibility="Disabled">
+          <ItemsControl x:Name="HistoryList" ItemsSource="{Binding History}" AutomationProperties.Name="History">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:HistoryRowViewModel">
+                <Button Classes="row historyrow" Classes.current="{Binding IsCurrent}" Classes.undone="{Binding IsUndone}" Classes.unreachable="{Binding !IsReachable}"
+                        Command="{Binding $parent[UserControl].((vm:DevelopViewModel)DataContext).GoToHistoryCommand}" CommandParameter="{Binding}"
+                        ToolTip.Tip="{Binding Tip}">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Border Classes="depthmark" Classes.saved="{Binding IsSaved}" IsVisible="{Binding IsDepth}" Margin="0,0,7,0" ToolTip.Tip="A depth step" />
+                    <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="2" Classes="mono small" Text="{Binding Number}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </DockPanel>
+    </Border>
+
+    <!-- ================================================================ centre: crop bar, picture, viewer bar, filmstrip -->
+    <DockPanel Grid.Column="1">
+      <!-- crop tool options (S-Depth's tool option bar) -->
+      <Border DockPanel.Dock="Top" Classes="toolbar2" IsVisible="{Binding IsCropping}">
+        <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="12">
+          <TextBlock Classes="strong" Text="Crop" VerticalAlignment="Center" />
+          <Border Grid.Column="1" BorderBrush="{DynamicResource LuxLineLight}" BorderThickness="1" CornerRadius="2" VerticalAlignment="Center">
+            <ItemsControl x:Name="AspectBar" ItemsSource="{Binding AspectChoices}" AutomationProperties.Name="Aspect">
+              <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:AspectChoice">
+                  <Button Classes="seg" Classes.selected="{Binding IsSelected}" Content="{Binding Label}" MinHeight="40" Padding="10,0" Click="OnAspectClick" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </Border>
+          <Button Grid.Column="2" Content="{Binding IsPortraitAspects, Converter={x:Static v:DevelopView.OrientationLabel}}" Command="{Binding SwapAspectCommand}"
+                  ToolTip.Tip="Landscape or portrait presets (X)" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="3" Classes="secondary small" Text="Drag a corner, an edge or inside"
+                     VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+          <Button Grid.Column="4" Classes="ghost" Content="Reset" Command="{Binding ResetCropFrameCommand}" ToolTip.Tip="The whole picture" VerticalAlignment="Center" />
+          <Button Grid.Column="5" Content="Cancel" Command="{Binding CancelCropCommand}" ToolTip.Tip="Leave without changing the crop (Esc)" VerticalAlignment="Center" />
+          <Button Grid.Column="6" Classes="primary" Content="Apply" Command="{Binding ApplyCropCommand}" ToolTip.Tip="Apply the crop (Enter)" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+
+      <!-- depth tool option bars (S-Depth): the focus tool, refine edge / blend area, match depth (two rows) -->
+      <Border DockPanel.Dock="Top" Classes="toolbar2" IsVisible="{Binding Depth.IsFocusTool}" AutomationProperties.Name="Focus options">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Content="Done" Command="{Binding Depth.LeaveToolCommand}" VerticalAlignment="Center" Margin="10,0,0,0" ToolTip.Tip="Leave the focus tool (F or Esc)" />
+          <Button DockPanel.Dock="Right" Classes="ghost" Content="Default focus" Command="{Binding Depth.DefaultFocusCommand}" VerticalAlignment="Center" IsEnabled="{Binding Depth.IsReady}"
+                  ToolTip.Tip="Back to the camera's own focus point" />
+          <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+            <TextBlock Classes="strong" Text="Focus" VerticalAlignment="Center" />
+            <CheckBox Content="Shade outside focal region" IsChecked="{Binding Depth.ShadeOutsideFocus}" IsEnabled="{Binding Depth.CanShade}" MinHeight="32"
+                      ToolTip.Tip="Shade the parts of the photo that can't be brought into focus (H)" />
+            <TextBlock Classes="secondary" Text="In focus" VerticalAlignment="Center" />
+            <TextBlock Classes="mono" Text="{Binding Depth.InFocusText}" VerticalAlignment="Center" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
+      <Border DockPanel.Dock="Top" Classes="toolbar2" IsVisible="{Binding Depth.IsBrushTool}" AutomationProperties.Name="Brush options">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Content="Done" Command="{Binding Depth.LeaveToolCommand}" VerticalAlignment="Center" Margin="10,0,0,0" ToolTip.Tip="Leave the tool (Esc)" />
+          <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <TextBlock Classes="strong" Text="{Binding Depth.ToolTitle}" VerticalAlignment="Center" MinWidth="86" />
+            <TextBlock Classes="secondary" Text="Size" VerticalAlignment="Center" />
+            <Slider x:Name="BrushSizeSlider" Width="140" Minimum="1" Maximum="100" Value="{Binding Depth.SizeValue}" MinHeight="32" VerticalAlignment="Center"
+                    AutomationProperties.Name="Brush size" ToolTip.Tip="{Binding Depth.SizeTip}" IsEnabled="{Binding Depth.IsReady}" />
+            <TextBlock Classes="mono" Text="{Binding Depth.SizeText}" VerticalAlignment="Center" MinWidth="58" ToolTip.Tip="{Binding Depth.SizeTip}" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
+      <Border DockPanel.Dock="Top" Classes="toolbar2" IsVisible="{Binding Depth.IsMatchTool}" AutomationProperties.Name="Match depth options">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Content="Done" Command="{Binding Depth.LeaveToolCommand}" VerticalAlignment="Center" Margin="10,0,0,0" ToolTip.Tip="Leave the tool (Esc twice)" />
+          <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <TextBlock Classes="strong" Text="{Binding Depth.ToolTitle}" VerticalAlignment="Center" MinWidth="86" />
+            <Border BorderBrush="{DynamicResource LuxLineLight}" BorderThickness="1" CornerRadius="2" VerticalAlignment="Center">
+              <StackPanel Orientation="Horizontal" AutomationProperties.Name="Select with">
+                <Button Classes="seg" Classes.selected="{Binding Depth.IsMatchBrush}" Content="Brush" MinHeight="40" Padding="12,0" Command="{Binding Depth.SetModeCommand}"
+                        CommandParameter="{x:Static dev:MatchMode.Brush}" ToolTip.Tip="Paint the area" />
+                <Button Classes="seg" Classes.selected="{Binding Depth.IsLasso}" Content="Lasso" MinHeight="40" Padding="12,0" Command="{Binding Depth.SetModeCommand}"
+                        CommandParameter="{x:Static dev:MatchMode.Lasso}" ToolTip.Tip="Click corners or drag around the area" />
+                <Button Classes="seg" Classes.selected="{Binding Depth.IsQuickSelect}" Content="Quick select" MinHeight="40" Padding="12,0" Command="{Binding Depth.SetModeCommand}"
+                        CommandParameter="{x:Static dev:MatchMode.QuickSelect}" ToolTip.Tip="Paint to select along the photo's edges (Q)" />
+              </StackPanel>
+            </Border>
+            <Border BorderBrush="{DynamicResource LuxLineLight}" BorderThickness="1" CornerRadius="2" VerticalAlignment="Center" IsVisible="{Binding Depth.IsQuickSelect}">
+              <StackPanel Orientation="Horizontal" AutomationProperties.Name="Add or remove">
+                <Button Classes="seg" Classes.selected="{Binding Depth.AddToSelection}" Content="Add" MinHeight="40" Padding="12,0" Command="{Binding Depth.SetAddCommand}"
+                        CommandParameter="true" ToolTip.Tip="Strokes add to the selection (white)" />
+                <Button Classes="seg" Classes.selected="{Binding !Depth.AddToSelection}" Content="Remove" MinHeight="40" Padding="12,0" Command="{Binding Depth.SetAddCommand}"
+                        CommandParameter="false" ToolTip.Tip="Strokes take away from the selection (dark)" />
+              </StackPanel>
+            </Border>
+            <TextBlock Classes="secondary" Text="{Binding Depth.SizeLabel}" VerticalAlignment="Center" />
+            <Slider x:Name="MatchSizeSlider" Width="100" Minimum="0" Maximum="100" Value="{Binding Depth.SizeValue}" MinHeight="32" VerticalAlignment="Center"
+                    AutomationProperties.Name="{Binding Depth.SizeLabel}" ToolTip.Tip="{Binding Depth.SizeTip}" IsEnabled="{Binding Depth.IsReady}" />
+            <TextBlock Classes="mono" Text="{Binding Depth.SizeText}" VerticalAlignment="Center" MinWidth="54" ToolTip.Tip="{Binding Depth.SizeTip}" />
+            <CheckBox Content="Follow colour" IsChecked="{Binding Depth.FollowColour}" IsVisible="{Binding Depth.IsMatchBrush}" MinHeight="32"
+                      ToolTip.Tip="Paint only where the colour is like the start of the stroke (slower)" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
+      <Border DockPanel.Dock="Top" Classes="toolbar3" IsVisible="{Binding Depth.IsMatchTool}" AutomationProperties.Name="Depth to set">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Classes="primary" Content="Apply" Command="{Binding Depth.ApplyCommand}" IsEnabled="{Binding Depth.CanApply}" VerticalAlignment="Center"
+                  Margin="8,0,0,0" ToolTip.Tip="Give the selected area this depth (Enter)" ToolTip.ShowOnDisabled="True" />
+          <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding Depth.ClearCommand}" IsEnabled="{Binding Depth.HasPending}" VerticalAlignment="Center"
+                  ToolTip.Tip="Remove the selection and start again (Esc)" ToolTip.ShowOnDisabled="True" />
+          <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <TextBlock Classes="secondary" Text="Set depth to" VerticalAlignment="Center" />
+            <TextBox x:Name="TargetBox" Classes="mono targetfield" Classes.error="{Binding Depth.TargetError}" Width="88" Text="{Binding Depth.TargetEdit}" Watermark="—"
+                     KeyDown="OnTargetKeyDown" GotFocus="OnTargetGotFocus" LostFocus="OnTargetLostFocus" IsEnabled="{Binding Depth.IsReady}"
+                     AutomationProperties.Name="Set depth to" ToolTip.Tip="Type a distance (3.2, 3.2 m, 320 cm)" />
+            <Button Classes.picking="{Binding Depth.IsPicking}" Content="Pick from photo" Command="{Binding Depth.PickCommand}" IsEnabled="{Binding Depth.IsReady}"
+                    ToolTip.Tip="Click the photo where the depth is right (Alt + click does the same)" />
+            <TextBlock Classes="small secondary" Text="{Binding Depth.PendingText}" VerticalAlignment="Center" Margin="6,0,0,0" />
+            <TextBlock Classes="small secondary" Text="Tint" VerticalAlignment="Center" Margin="10,0,0,0" IsVisible="{Binding Depth.ShowsSelectionTint}" />
+            <Slider x:Name="TintSlider" Width="70" Minimum="0.1" Maximum="1" Value="{Binding Depth.SelectionOpacity}" MinHeight="32" VerticalAlignment="Center"
+                    IsVisible="{Binding Depth.ShowsSelectionTint}" AutomationProperties.Name="Selection tint" ToolTip.Tip="How strongly the selection is tinted over the photo" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
+      <!-- the tool's line: hint, message, progress, "Analyse now" -->
+      <Border DockPanel.Dock="Top" Classes="toolline" IsVisible="{Binding Depth.ShowLine}">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding Depth.IsBusy}" AutomationProperties.Name="Tool progress">
+              <ProgressBar Width="120" Minimum="0" Maximum="100" Value="{Binding Depth.ActivityProgress}" IsIndeterminate="{Binding Depth.ActivityIndeterminate}"
+                           VerticalAlignment="Center" Height="4" MinHeight="4" />
+              <TextBlock Classes="small" Text="{Binding Depth.ActivityText}" VerticalAlignment="Center" />
+              <Button Classes="link small" Content="Cancel" Command="{Binding Depth.CancelActivityCommand}" IsVisible="{Binding Depth.CanCancelActivity}" MinHeight="24" Padding="0" />
+            </StackPanel>
+          </StackPanel>
+          <TextBlock x:Name="ToolLine" Classes="small" Classes.warning="{Binding Depth.MessageIsWarning}" Classes.secondary="{Binding !Depth.MessageIsWarning}"
+                     Text="{Binding Depth.LineText}" VerticalAlignment="Center" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
+                     Margin="0,6" ToolTip.Tip="{Binding Depth.LineText}" />
+        </DockPanel>
+      </Border>
+
+      <!-- filmstrip (Ctrl+F) -->
+      <Border DockPanel.Dock="Bottom" Classes="filmstrip" IsVisible="{Binding FilmstripVisible}">
+        <Grid ColumnDefinitions="Auto,*,Auto" Margin="4,6">
+          <Button Classes="ghost" Content="‹" FontSize="20" Padding="8,0" MinHeight="55" Command="{Binding PreviousCommand}" IsEnabled="{Binding CanPrevious}"
+                  ToolTip.Tip="Previous (← at fit, Page Up)" AutomationProperties.Name="Previous" />
+          <ItemsControl x:Name="Strip" Grid.Column="1" ItemsSource="{Binding Strip}" AutomationProperties.Name="Filmstrip">
+            <ItemsControl.Template>
+              <ControlTemplate>
+                <ScrollViewer x:Name="StripScroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
+                  <ItemsPresenter ItemsPanel="{TemplateBinding ItemsPanel}" />
+                </ScrollViewer>
+              </ControlTemplate>
+            </ItemsControl.Template>
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><VirtualizingStackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:CaptureItemViewModel">
+                <Border Classes="stripcell" Margin="0,0,4,0" Tapped="OnStripTapped" ToolTip.Tip="{Binding AccessibleName}"
+                        AutomationProperties.Name="{Binding AccessibleName}">
+                  <Panel>
+                    <c:ThumbnailView CaptureId="{Binding Id}" Version="{Binding ThumbVersion}" Orientation="{Binding Orientation}"
+                                     Dimmed="{Binding HasProblem}" Processing="{Binding IsProcessing}" Made="{Binding ThumbnailMade}"
+                                     Placeholder="{DynamicResource LuxPlaceholder}" LabelMinWidth="1000" />
+                    <Border Classes="badge" HorizontalAlignment="Left" VerticalAlignment="Bottom" IsVisible="{Binding Rating}">
+                      <TextBlock Classes="stars" Text="{Binding Stars}" FontSize="9" />
+                    </Border>
+                  </Panel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Button Grid.Column="2" Classes="ghost" Content="›" FontSize="20" Padding="8,0" MinHeight="55" Command="{Binding NextCommand}" IsEnabled="{Binding CanNext}"
+                  ToolTip.Tip="Next (→ at fit, Page Down)" AutomationProperties.Name="Next" />
+        </Grid>
+      </Border>
+
+      <!-- viewer bar: zoom, rating, quality -->
+      <Border DockPanel.Dock="Bottom" Classes="viewerbar" IsVisible="{Binding HasItem}">
+        <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,*,Auto" ColumnSpacing="10">
+          <Border BorderBrush="{DynamicResource LuxLineMid}" BorderThickness="1" CornerRadius="2" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal">
+              <Button Classes="seg small" Classes.selected="{Binding IsFitted}" Content="Fit" Command="{Binding ZoomFitCommand}" ToolTip.Tip="The whole picture (Ctrl+0)" />
+              <Button Classes="seg small" Content="Fill" Command="{Binding ZoomFillCommand}" ToolTip.Tip="Fill the view" />
+              <Button Classes="seg small" Content="1:1" Command="{Binding ZoomActualCommand}" ToolTip.Tip="One picture pixel per screen pixel (Z toggles, Ctrl+Alt+0)" />
+            </StackPanel>
+          </Border>
+          <Slider Grid.Column="1" x:Name="ZoomSlider" Width="120" Minimum="0" Maximum="100" Value="{Binding ZoomSlider}" MinHeight="32"
+                  AutomationProperties.Name="Zoom" ToolTip.Tip="Zoom (wheel over the picture, Ctrl+= / Ctrl+−)" />
+          <TextBlock Grid.Column="2" Classes="mono small" Text="{Binding ZoomPercent, StringFormat='{}{0:0} %'}" VerticalAlignment="Center" MinWidth="44" />
+          <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="0" VerticalAlignment="Center" ToolTip.Tip="Rating (keys 0–5)">
+            <Button Classes="ghost small star" Padding="3,0" Content="★" Command="{Binding RateCommand}" CommandParameter="1" Classes.on="{Binding Rating, Converter={x:Static v:DevelopView.StarOn}, ConverterParameter=1}" />
+            <Button Classes="ghost small star" Padding="3,0" Content="★" Command="{Binding RateCommand}" CommandParameter="2" Classes.on="{Binding Rating, Converter={x:Static v:DevelopView.StarOn}, ConverterParameter=2}" />
+            <Button Classes="ghost small star" Padding="3,0" Content="★" Command="{Binding RateCommand}" CommandParameter="3" Classes.on="{Binding Rating, Converter={x:Static v:DevelopView.StarOn}, ConverterParameter=3}" />
+            <Button Classes="ghost small star" Padding="3,0" Content="★" Command="{Binding RateCommand}" CommandParameter="4" Classes.on="{Binding Rating, Converter={x:Static v:DevelopView.StarOn}, ConverterParameter=4}" />
+            <Button Classes="ghost small star" Padding="3,0" Content="★" Command="{Binding RateCommand}" CommandParameter="5" Classes.on="{Binding Rating, Converter={x:Static v:DevelopView.StarOn}, ConverterParameter=5}" />
+          </StackPanel>
+          <!-- the quality selector (shared with the details panel): one choice selected, the kept copy's tick only during a change -->
+          <v:QualitySelector Grid.Column="6" Compact="True" DataContext="{Binding Quality}" VerticalAlignment="Center" x:Name="ViewerQuality" />
+        </Grid>
+      </Border>
+
+      <!-- the picture (Photo + depth: two viewers, pan and zoom locked together) -->
+      <Panel>
+        <Grid x:Name="PictureGrid" ColumnDefinitions="*,4,*" Background="#5e5e5e" IsVisible="{Binding HasItem}">
+          <vw:PhotoViewer x:Name="Viewer" Grid.ColumnSpan="3" Background="#5e5e5e"
+                          Compare="{Binding CompareMode}" SplitPosition="{Binding SplitPosition, Mode=TwoWay}"
+                          State="{Binding ViewerState}" Progress="{Binding ProcessingProgress}"
+                          StandIn="{Binding StandIn}" StandInTurn="{Binding StandInTurn}" MonoFont="{DynamicResource LuxMonoFont}"
+                          AutomationProperties.Name="Picture" />
+          <vw:PhotoViewer x:Name="DepthViewer" Grid.Column="2" Background="#5e5e5e" IsVisible="False" MonoFont="{DynamicResource LuxMonoFont}"
+                          AutomationProperties.Name="Depth map" />
+        </Grid>
+        <Border Background="#5e5e5e" IsVisible="{Binding ShowEmpty}">
+          <TextBlock Classes="secondary wrap" Text="{Binding EmptyText}" MaxWidth="460" TextAlignment="Center"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14" />
+        </Border>
+        <!-- Photo + depth: the depth map beside the photo or alone -->
+        <Border Margin="12" HorizontalAlignment="Right" VerticalAlignment="Top" IsVisible="{Binding IsPhotoDepth}"
+                Background="{DynamicResource LuxLineDark}" BorderBrush="{DynamicResource LuxLineMid}" BorderThickness="1" CornerRadius="2">
+          <StackPanel Orientation="Horizontal">
+            <Button Classes="seg small" Classes.selected="{Binding ShowDepthBeside}" Content="Photo + depth" Command="{Binding ToggleDepthOnlyCommand}"
+                    IsEnabled="{Binding DepthOnly}" ToolTip.Tip="The photo beside its depth map (Shift+D)" />
+            <Button Classes="seg small" Classes.selected="{Binding MainShowsDepth}" Content="Depth only" Command="{Binding ToggleDepthOnlyCommand}"
+                    IsEnabled="{Binding !DepthOnly}" ToolTip.Tip="The depth map alone, large; the tools work on it (Shift+D)" />
+          </StackPanel>
+        </Border>
+        <!-- Lumen's five-second hint when the focus tool opens -->
+        <Border Classes="hintbadge" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="24" IsVisible="{Binding Depth.ShowHint}" IsHitTestVisible="False">
+          <TextBlock Text="{x:Static vm:DepthViewModel.FocusHint}" />
+        </Border>
+        <!-- the depth map is not ready and a depth tool is chosen -->
+        <Border Classes="card" MaxWidth="420" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Bottom" BorderBrush="{DynamicResource LuxLineLight}" BorderThickness="1"
+                IsVisible="{Binding ShowDepthNotReady}" AutomationProperties.Name="Depth map not ready">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="strong wrap" Text="{Binding Depth.ReadinessTitle}" />
+            <TextBlock Classes="small wrap secondary" Text="{Binding Depth.ReadinessText}" LineHeight="17" />
+            <ProgressBar IsVisible="{Binding Depth.IsAnalysing}" Minimum="0" Maximum="1" Value="{Binding Depth.AnalysisProgress}" Height="4" MinHeight="4" />
+            <Button Classes="primary small" HorizontalAlignment="Left" Content="Analyse now" Command="{Binding Depth.AnalyseNowCommand}" IsVisible="{Binding Depth.CanAnalyse}" />
+          </StackPanel>
+        </Border>
+        <!-- before / after controls -->
+        <StackPanel Orientation="Horizontal" Spacing="8" Margin="12" HorizontalAlignment="Left" VerticalAlignment="Top" IsVisible="{Binding IsBeforeAfter}">
+          <Border Background="{DynamicResource LuxLineDark}" BorderBrush="{DynamicResource LuxLineMid}" BorderThickness="1" CornerRadius="2">
+            <StackPanel Orientation="Horizontal">
+              <Button Classes="seg small" Classes.selected="{Binding IsSplit}" Content="Split" Command="{Binding SetCompareStyleCommand}"
+                      CommandParameter="{x:Static vm:CompareStyle.Split}" ToolTip.Tip="Before on the left of the divider, after on the right" />
+              <Button Classes="seg small" Classes.selected="{Binding IsToggle}" Content="Toggle" Command="{Binding SetCompareStyleCommand}"
+                      CommandParameter="{x:Static vm:CompareStyle.Toggle}" ToolTip.Tip="Switch between before and after (\)" />
+            </StackPanel>
+          </Border>
+          <Button Classes="small" Background="{DynamicResource LuxLineDark}" IsVisible="{Binding IsToggle}" Content="{Binding BeforeAfterLabel}"
+                  Command="{Binding ToggleBeforeCommand}" />
+        </StackPanel>
+        <Border Classes="picturebadge" Margin="12" HorizontalAlignment="Left" VerticalAlignment="Bottom" IsVisible="{Binding IsOpening}">
+          <TextBlock Text="Opening…" />
+        </Border>
+        <!-- render progress: what is on screen and what is coming, from the viewer's tiles and the quality
+             job; shown until the requested picture is wholly on screen; says what it waits for when nothing moves -->
+        <Border Classes="picturebadge" x:Name="RenderProgressBadge" Margin="12" HorizontalAlignment="Left" VerticalAlignment="Bottom" MaxWidth="520"
+                IsVisible="{Binding IsRenderBusy}" IsHitTestVisible="False" AutomationProperties.Name="Render progress">
+          <StackPanel Spacing="5">
+            <TextBlock x:Name="RenderProgressText" Classes="small wrap" Classes.warning="{Binding IsRenderStuck}" Text="{Binding RenderProgressText}" />
+            <ProgressBar Height="3" MinHeight="3" Minimum="0" Maximum="1" Value="{Binding RenderFraction}" IsIndeterminate="{Binding IsRenderIndeterminate}" />
+          </StackPanel>
+        </Border>
+        <Border Classes="warningbox" MaxWidth="460" HorizontalAlignment="Center" VerticalAlignment="Center"
+                IsVisible="{Binding OpenError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="strong warning" Text="This capture can't be opened" />
+            <TextBlock Classes="wrap" Text="{Binding OpenError}" />
+          </StackPanel>
+        </Border>
+        <!-- the animation preview over the picture while the Animate panel is open -->
+        <v:AnimationPlayer DataContext="{Binding AnimatePanel.Player, FallbackValue={x:Null}}" IsVisible="{Binding $parent[UserControl].((vm:DevelopViewModel)DataContext).IsAnimateOpen}" />
+        <!-- the quality selector's notice (shared with the library: storage up, confirmation down) -->
+        <Border Classes="note" Width="360" Margin="12" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                BorderBrush="{DynamicResource LuxAccent}" BorderThickness="1" IsVisible="{Binding Quality.HasNotice}">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="strong" Foreground="{DynamicResource LuxText}" Text="{Binding Quality.Notice.Title, FallbackValue=''}" />
+            <TextBlock Classes="wrap" Foreground="{DynamicResource LuxText}" Text="{Binding Quality.Notice.Text, FallbackValue=''}" />
+            <CheckBox IsChecked="{Binding Quality.Notice.DontAskAgain, FallbackValue=False}" IsVisible="{Binding Quality.Notice.IsUpgrade, FallbackValue=False}"
+                      MinHeight="32" Content="Don't ask again" ToolTip.Tip="Turn the question back on in Settings" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+              <Button Classes="small" Content="Cancel" Command="{Binding Quality.Notice.CancelCommand, FallbackValue={x:Null}}" />
+              <Button Classes="primary small" Content="{Binding Quality.Notice.Action, FallbackValue=''}" Command="{Binding Quality.Notice.ConfirmCommand, FallbackValue={x:Null}}" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+      </Panel>
+    </DockPanel>
+
+    <!-- ================================================================ right: panels, or the export side panel -->
+    <Panel Grid.Column="2">
+      <Border Classes="sidepanel" Width="310" IsVisible="{Binding !IsSidePanelOpen}">
+        <DockPanel>
+          <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,1,0,0" Padding="12,10">
+            <Grid ColumnDefinitions="*,8,*" RowDefinitions="Auto,Auto">
+              <Button HorizontalAlignment="Stretch" Content="Revert to original" Command="{Binding RevertCommand}" IsEnabled="{Binding CanRevert}"
+                      ToolTip.Tip="Remove every tone, colour, crop and rotation edit (Ctrl+Shift+R; undo brings them back)" ToolTip.ShowOnDisabled="True" />
+              <Button Grid.Column="2" Classes="primary" HorizontalAlignment="Stretch" Content="Export…" Command="{Binding OpenExportCommand}"
+                      IsEnabled="{Binding HasSession}" ToolTip.Tip="Export this photo as it is shown (Ctrl+E)" />
+              <Button Grid.Row="1" Grid.ColumnSpan="3" HorizontalAlignment="Stretch" Content="Animate…" Command="{Binding OpenAnimateCommand}" Margin="0,8,0,0"
+                      IsEnabled="{Binding HasSession}" ToolTip.Tip="Rack focus, aperture sweep, wigglegram, parallax or a tour of the lenses, with a live preview (Ctrl+Shift+A)" />
+            </Grid>
+          </Border>
+          <ScrollViewer x:Name="PanelScroll" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel IsEnabled="{Binding HasSession}">
+              <!-- histogram -->
+              <Border Classes="devsection">
+                <StackPanel Spacing="8">
+                  <Button Classes="ghost sectionhead" Command="{Binding ToggleHistogramCommand}" ToolTip.Tip="Show or hide">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock Classes="strong" Foreground="{DynamicResource LuxText}" Text="Histogram" />
+                      <Path Grid.Column="1" Classes="chevron" Classes.expanded="{Binding HistogramExpanded}" Data="M 0,0 L 4,4 L 0,8" />
+                    </Grid>
+                  </Button>
+                  <c:HistogramView Data="{Binding Histogram}" IsVisible="{Binding HistogramExpanded}" Height="72" />
+                </StackPanel>
+              </Border>
+              <!-- info (Ctrl+I) -->
+              <Border Classes="devsection">
+                <StackPanel Spacing="6">
+                  <Button Classes="ghost sectionhead" Command="{Binding ToggleInfoCommand}" ToolTip.Tip="Show or hide (Ctrl+I)">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock Classes="strong" Foreground="{DynamicResource LuxText}" Text="Info" />
+                      <Path Grid.Column="1" Classes="chevron" Classes.expanded="{Binding InfoExpanded}" Data="M 0,0 L 4,4 L 0,8" />
+                    </Grid>
+                  </Button>
+                  <ItemsControl ItemsSource="{Binding Info}" IsVisible="{Binding InfoExpanded}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:InfoRow">
+                        <Grid ColumnDefinitions="96,*" Margin="0,2">
+                          <TextBlock Classes="secondary" Text="{Binding Label}" />
+                          <TextBlock Grid.Column="1" Classes="mono small" Text="{Binding Value}" TextAlignment="Right" TextWrapping="Wrap" />
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </Border>
+              <!-- depth effect (S-Depth): aperture (f-numbers, "Off" at the right end), focus, the focal-region shade, the in-focus read-out -->
+              <Border Classes="devsection" AutomationProperties.Name="Depth effect">
+                <StackPanel Spacing="4">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="strong" Text="Depth effect" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Classes="link small" Content="Reset" Command="{Binding Depth.ResetEffectCommand}" IsEnabled="{Binding Depth.IsReady}"
+                            ToolTip.Tip="Effect off and the camera's own focus (Lumen's depth reset)" />
+                  </Grid>
+                  <Grid ColumnDefinitions="84,*,62" RowDefinitions="30,30" IsEnabled="{Binding Depth.IsReady}">
+                    <TextBlock x:Name="ApertureLabel" Classes="adjlabel" Classes.moved="{Binding !Depth.Aperture.IsOff}" Text="Aperture" DoubleTapped="OnApertureLabelDoubleTapped"
+                               ToolTip.Tip="{Binding Depth.Aperture.Tip}" />
+                    <c:AdjustmentSlider x:Name="ApertureSlider" Grid.Column="1" Target="{Binding Depth.Aperture}" Position="{Binding Depth.Aperture.Position}"
+                                        AutomationProperties.Name="Aperture" />
+                    <TextBox x:Name="ApertureBox" Grid.Column="2" Classes="valuefield" Classes.error="{Binding Depth.Aperture.HasError}" Text="{Binding Depth.Aperture.EditText}"
+                             KeyDown="OnEffectKeyDown" GotFocus="OnEffectGotFocus" LostFocus="OnEffectLostFocus" AutomationProperties.Name="Aperture value"
+                             ToolTip.Tip="f-number (2.8, f/4) or “off”" />
+                    <TextBlock x:Name="FocusLabel" Grid.Row="1" Classes="adjlabel" Classes.moved="{Binding !Depth.Session.FocusIsDefault, FallbackValue=False}" Text="Focus"
+                               DoubleTapped="OnFocusLabelDoubleTapped" ToolTip.Tip="{Binding Depth.Focus.Tip}" />
+                    <c:AdjustmentSlider x:Name="FocusSlider" Grid.Row="1" Grid.Column="1" Target="{Binding Depth.Focus}" Position="{Binding Depth.Focus.Position}"
+                                        AutomationProperties.Name="Focus" />
+                    <TextBox x:Name="FocusBox" Grid.Row="1" Grid.Column="2" Classes="valuefield" Classes.error="{Binding Depth.Focus.HasError}" Text="{Binding Depth.Focus.EditText}"
+                             KeyDown="OnEffectKeyDown" GotFocus="OnEffectGotFocus" LostFocus="OnEffectLostFocus" AutomationProperties.Name="Focus distance"
+                             ToolTip.Tip="A distance (4.5, 4.5 m, 450 cm)" />
+                  </Grid>
+                  <CheckBox Content="Shade outside focal region" IsChecked="{Binding Depth.ShadeOutsideFocus}" IsEnabled="{Binding Depth.CanShade}" MinHeight="32"
+                            ToolTip.Tip="Shade the parts of the photo that can't be brought into focus (H)" AutomationProperties.Name="Shade outside focal region" />
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="secondary" Text="In focus" />
+                    <TextBlock Grid.Column="1" Classes="mono" Text="{Binding Depth.InFocusText}" />
+                  </Grid>
+                  <Border Classes="note" Margin="0,6,0,0" IsVisible="{Binding ShowDepthCard}">
+                    <StackPanel Spacing="6">
+                      <TextBlock Classes="strong small wrap" Foreground="{DynamicResource LuxText}" Text="{Binding Depth.ReadinessTitle}" />
+                      <TextBlock Classes="small wrap" Foreground="{DynamicResource LuxTextSecondary}" Text="{Binding Depth.ReadinessText}" LineHeight="16" />
+                      <ProgressBar IsVisible="{Binding Depth.IsAnalysing}" Minimum="0" Maximum="1" Value="{Binding Depth.AnalysisProgress}" Height="4" MinHeight="4" />
+                      <Button Classes="primary small" HorizontalAlignment="Left" Content="Analyse now" Command="{Binding Depth.AnalyseNowCommand}" IsVisible="{Binding Depth.CanAnalyse}" />
+                    </StackPanel>
+                  </Border>
+                </StackPanel>
+              </Border>
+              <!-- tone and colour -->
+              <Border Classes="devsection">
+                <StackPanel Spacing="2">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <TextBlock Classes="strong" Text="Tone and colour" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Classes="small secondary" Text="JPG and preview only" VerticalAlignment="Center" Margin="8,0,0,0"
+                               ToolTip.Tip="Tone and colour change the JPG and the preview; DNG and HDR keep the unadjusted picture, as in Lumen" />
+                    <Button Grid.Column="2" Classes="link small" Content="Reset" Command="{Binding ResetToneCommand}" ToolTip.Tip="Every tone and colour slider back (Shift+R)" />
+                  </Grid>
+                  <ItemsControl x:Name="AdjustmentList" ItemsSource="{Binding Adjustments}" AutomationProperties.Name="Tone and colour">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:AdjustmentRowViewModel">
+                        <Grid ColumnDefinitions="84,*,62" Height="30">
+                          <TextBlock Classes="adjlabel" Classes.moved="{Binding !IsDefault}" Text="{Binding Name}" DoubleTapped="OnAdjustmentLabelDoubleTapped"
+                                     ToolTip.Tip="{Binding Tip}" />
+                          <c:AdjustmentSlider Grid.Column="1" Target="{Binding}" Position="{Binding Position}" AutomationProperties.Name="{Binding Name}"
+                                              TrackGradient="{Binding Key, Converter={x:Static v:DevelopView.TrackGradientOf}}" />
+                          <TextBox Grid.Column="2" Classes="valuefield" Classes.error="{Binding HasError}" Text="{Binding EditText}"
+                                   KeyDown="OnValueKeyDown" GotFocus="OnValueGotFocus" LostFocus="OnValueLostFocus" AutomationProperties.Name="{Binding Name}" />
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </Border>
+              <!-- geometry -->
+              <Border Classes="devsection">
+                <StackPanel Spacing="6">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="strong" Text="Geometry" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Classes="link small" Content="Reset" Command="{Binding ResetGeometryCommand}" ToolTip.Tip="No crop, rotation or flip" />
+                  </Grid>
+                  <Grid ColumnDefinitions="*,4,*,4,*" RowDefinitions="Auto,4,Auto">
+                    <Button Classes="accent" Classes.selected="{Binding IsCropping}" HorizontalAlignment="Stretch" Content="Crop" Command="{Binding CropCommand}"
+                            ToolTip.Tip="Crop (C); Enter applies, Esc cancels" />
+                    <ComboBox Grid.Column="2" ItemsSource="{Binding AspectChoices}" SelectedItem="{Binding CropAspectChoice}" MinHeight="44"
+                              AutomationProperties.Name="Aspect" ToolTip.Tip="Aspect of the crop" />
+                    <Button Grid.Column="4" HorizontalAlignment="Stretch" Command="{Binding SwapAspectCommand}" Padding="4,0"
+                            Content="{Binding IsPortraitAspects, Converter={x:Static v:DevelopView.OrientationLabel}}"
+                            ToolTip.Tip="Landscape or portrait presets (X while cropping)" />
+                  </Grid>
+                  <Grid ColumnDefinitions="*,4,*,4,*,4,*">
+                    <Button Classes="iconbutton" Command="{Binding RotateLeftCommand}" ToolTip.Tip="Rotate left (Ctrl+[)" AutomationProperties.Name="Rotate left">
+                      <Path Classes="icon" Data="M 5,9 A 6,6 0 1 1 6.5,15 M 4.5,4.5 L 5,9 L 9.5,8.5" />
+                    </Button>
+                    <Button Grid.Column="2" Classes="iconbutton" Command="{Binding RotateRightCommand}" ToolTip.Tip="Rotate right (Ctrl+])" AutomationProperties.Name="Rotate right">
+                      <Path Classes="icon" Data="M 15,9 A 6,6 0 1 0 13.5,15 M 15.5,4.5 L 15,9 L 10.5,8.5" />
+                    </Button>
+                    <Button Grid.Column="4" Classes="iconbutton" Command="{Binding FlipHorizontalCommand}" ToolTip.Tip="Flip horizontal" AutomationProperties.Name="Flip horizontal">
+                      <Path Classes="icon" Data="M 10,3 L 10,17 M 8,6 L 3,10 L 8,14 Z M 12,6 L 17,10 L 12,14 Z" />
+                    </Button>
+                    <Button Grid.Column="6" Classes="iconbutton" Command="{Binding FlipVerticalCommand}" ToolTip.Tip="Flip vertical" AutomationProperties.Name="Flip vertical">
+                      <Path Classes="icon" Data="M 3,10 L 17,10 M 6,8 L 10,3 L 14,8 Z M 6,12 L 10,17 L 14,12 Z" />
+                    </Button>
+                  </Grid>
+                  <Button HorizontalAlignment="Stretch" Content="{Binding RotateAsHeldLabel}" Command="{Binding RotateAsHeldCommand}" IsVisible="{Binding CanRotateAsHeld}"
+                          ToolTip.Tip="{Binding RotateAsHeldTip}" />
+                  <TextBlock Classes="small secondary" Text="{Binding GeometryText}" />
+                </StackPanel>
+              </Border>
+              <!-- presets, copy / paste -->
+              <Border Classes="devsection" BorderThickness="0">
+                <StackPanel Spacing="6">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="strong" Text="Presets" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Classes="link small" Content="Save as preset…" Command="{Binding SavePresetCommand}" ToolTip.Tip="Keep these adjustments as a preset" />
+                  </Grid>
+                  <ItemsControl ItemsSource="{Binding Presets}" AutomationProperties.Name="Presets">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:PresetViewModel">
+                        <Button Classes="small" Content="{Binding Name}" Margin="0,0,4,4" ToolTip.Tip="{Binding Tip}"
+                                Command="{Binding $parent[UserControl].((vm:DevelopViewModel)DataContext).ApplyPresetCommand}" CommandParameter="{Binding}">
+                          <Button.ContextMenu>
+                            <ContextMenu>
+                              <MenuItem Header="Apply" Command="{Binding $parent[UserControl].((vm:DevelopViewModel)DataContext).ApplyPresetCommand}" CommandParameter="{Binding}" />
+                              <MenuItem Header="Rename…" Command="{Binding $parent[UserControl].((vm:DevelopViewModel)DataContext).RenamePresetCommand}" CommandParameter="{Binding}" />
+                              <MenuItem Header="Delete preset…" Command="{Binding $parent[UserControl].((vm:DevelopViewModel)DataContext).DeletePresetCommand}" CommandParameter="{Binding}" />
+                            </ContextMenu>
+                          </Button.ContextMenu>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Classes="small secondary" Text="No presets yet" IsVisible="{Binding !HasPresets}" />
+                  <Grid ColumnDefinitions="*,4,*">
+                    <Button HorizontalAlignment="Stretch" Content="Copy…" Command="{Binding CopyCommand}" ToolTip.Tip="Copy adjustments: choose which (Ctrl+C)" />
+                    <Button Grid.Column="2" HorizontalAlignment="Stretch" Content="Paste" Command="{Binding PasteCommand}" IsEnabled="{Binding CanPaste}"
+                            ToolTip.Tip="Paste the copied adjustments (Ctrl+V; Ctrl+Shift+V to choose)" ToolTip.ShowOnDisabled="True" />
+                  </Grid>
+                  <TextBlock Classes="small secondary wrap" Text="{Binding ClipboardText}" LineHeight="17" />
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+      <Panel IsVisible="{Binding IsExportOpen}">
+        <v:ExportPanel DataContext="{Binding ExportPanel}" />
+      </Panel>
+      <Panel IsVisible="{Binding IsAnimateOpen}">
+        <v:AnimatePanel DataContext="{Binding AnimatePanel}" />
+      </Panel>
+    </Panel>
+  </Grid>
+</UserControl>

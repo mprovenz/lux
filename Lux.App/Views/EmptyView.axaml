@@ -1,0 +1,69 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             x:Class="Lux.App.Views.EmptyView"
+             x:DataType="vm:MainViewModel">
+  <!-- First run (S-Empty): three ways in, what analysis does, space per photo. -->
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+    <StackPanel MaxWidth="900" Margin="24" Spacing="24" VerticalAlignment="Center" HorizontalAlignment="Stretch">
+      <StackPanel Spacing="6">
+        <TextBlock Classes="title" Text="Add your Light L16 photos" />
+        <TextBlock Classes="secondary wrap" FontSize="14" MaxWidth="640" HorizontalAlignment="Left" LineHeight="21"
+                   Text="Lux works on the camera's original capture files. It never changes them: everything it makes is kept in a folder called LuxImageContext beside your photos." />
+      </StackPanel>
+      <UniformGrid Columns="3">
+        <Border Classes="card primary" Margin="0,0,8,0">
+          <DockPanel>
+            <Button DockPanel.Dock="Bottom" Classes="primary" HorizontalAlignment="Stretch" Content="Choose folder…" Command="{Binding AddFolderCommand}" />
+            <StackPanel Spacing="10" Margin="0,0,0,10">
+              <TextBlock Classes="large" Text="Open a folder" />
+              <TextBlock Classes="secondary wrap" Text="Choose a folder that already holds captures from the camera. Subfolders are included." />
+            </StackPanel>
+          </DockPanel>
+        </Border>
+        <Border Classes="card" Margin="4,0,4,0">
+          <DockPanel>
+            <Button DockPanel.Dock="Bottom" HorizontalAlignment="Stretch" Content="Open Camera" FontWeight="SemiBold" Command="{Binding OpenCameraCommand}" />
+            <StackPanel Spacing="10" Margin="0,0,0,10">
+              <TextBlock Classes="large" Text="Import from the camera" />
+              <TextBlock Classes="secondary wrap" Text="Connect the L16 by USB and copy new captures to your computer." />
+            </StackPanel>
+          </DockPanel>
+        </Border>
+        <Border Classes="card" Margin="8,0,0,0">
+          <DockPanel>
+            <Button DockPanel.Dock="Bottom" HorizontalAlignment="Stretch" Content="Find Lumen edits…" FontWeight="SemiBold" Command="{Binding FindLumenEditsCommand}" />
+            <StackPanel Spacing="10" Margin="0,0,0,10">
+              <TextBlock Classes="large" Text="Coming from Lumen" />
+              <TextBlock Classes="secondary wrap" Text="Open your Lumen library folder. Lux can bring across the depth edits and settings you made there." />
+            </StackPanel>
+          </DockPanel>
+        </Border>
+      </UniformGrid>
+      <UniformGrid Columns="2">
+        <Border Background="{DynamicResource LuxBar}" Padding="14" Margin="0,0,6,0">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="strong" Text="What happens after you add photos" />
+            <TextBlock Classes="secondary wrap" LineHeight="21"
+                       Text="Each capture is analysed once, about a minute each, in the background. After that it opens straight away, and the depth tools are ready. You can browse and rate while this runs." />
+          </StackPanel>
+        </Border>
+        <Border Background="{DynamicResource LuxBar}" Padding="14" Margin="6,0,0,0">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="strong" Text="Space Lux uses per photo" />
+            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" RowSpacing="4" ColumnSpacing="12">
+              <TextBlock Classes="secondary" Text="Standard (13 MP working copy)" />
+              <TextBlock Grid.Column="1" Classes="mono" Text="about 70 MB" />
+              <TextBlock Grid.Row="1" Classes="secondary" Text="Full detail, when you ask for it" />
+              <TextBlock Grid.Row="1" Grid.Column="1" Classes="mono" Text="about 270 MB" />
+              <TextBlock Grid.Row="2" Classes="secondary" Text="Your depth edits" />
+              <TextBlock Grid.Row="2" Grid.Column="1" Classes="mono" Text="15–25 MB" />
+            </Grid>
+            <Button Classes="link" HorizontalAlignment="Left" Content="Change storage settings" Padding="0" Command="{Binding ShowPageCommand}"
+                    CommandParameter="{x:Static vm:Page.Settings}" />
+          </StackPanel>
+        </Border>
+      </UniformGrid>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

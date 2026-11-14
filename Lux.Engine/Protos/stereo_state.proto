@@ -1,4 +1,3 @@
-// reconstructed from cp.dll
 syntax = "proto2";
 package ltpb;
 import "camera_id.proto";

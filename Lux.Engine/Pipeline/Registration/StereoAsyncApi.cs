@@ -7,7 +7,7 @@ using Lux.Engine.Pipeline.Isp;
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// `StereoAsyncAPI` (ctor `1804eb200` + `start` state machine, spec `ad108613f7a1daa2b.md` §1 and `a1f28d783d7f417c5.md` §1):
+/// `StereoAsyncAPI` (ctor + `start` state machine):
 /// the whole online-calibration chain from an LRI — load-time slots (`CalibSlotInit`), ctor poses (P = R_ref, u = t_ref, A-cam crop → shift1/scale1,
 /// ctor pairs), state 2 stereo images (`StereoImageBuilder`, scale2 = shift2 = 0.5), state 3 WIDE (`CalibDataProcessor`), states 4/5 dense stereo on
 /// the post-BA views, state 6 canvas poses + B-cam stereo images + pairs, state 7 coarse init + TELE. Results: the final CURRENT slots, the pose map,
@@ -20,20 +20,20 @@ public sealed class StereoAsyncApi
     public Dictionary<int, CdpCamera> Cams = new(); public Dictionary<int, string> Names = new();
     public Dictionary<int, (CameraCalib First, CameraCalib Second)> Pairs = new(); public Dictionary<int, (int W, int H)> Sizes = new();
     public float[]? RefYuv; public IspStats RefStats = null!; public Color.LumenProfile Profile = null!;
-    public float[] Neutral = null!;                      // api+0x1b8 = FUN_18020be30(mgr): the capture AsShot neutral
+    public float[] Neutral = null!;                      // the capture AsShot neutral
     public Dictionary<int, (CameraCalib View, CameraCalib Module)> State2Views = new();
     public DenseLayer[]? Dense; public Dictionary<int, StereoImageBuilder.Distortion> Dist = new();
-    /// <summary>`api+0x1f8`: the full-res reference guide of the `UpsampleLayer` (`StereoISP::GetReferenceImage`, state 1 `1804ed3d0`, port
-    /// `Registration/ReferenceGuide.cs`). Built in <see cref="State1And2"/> unless preset (e.g. from a cp.dll reference dump) or `LUX_NO_GUIDE=1`; when null the
+    /// <summary>The full-res reference guide of the `UpsampleLayer` (`StereoISP::GetReferenceImage`, state 1; see
+    /// `Registration/ReferenceGuide.cs`). Built in <see cref="State1And2"/> unless preset or `LUX_NO_GUIDE=1`; when null the
     /// upsample layer is skipped and `FullDepth` stays null.</summary>
     public Rgba8Image? ReferenceGuide;
-    /// <summary>Layer 6 (`UpsampleLayer+0xa0`): the (W0, H0) metric depth read by the level-0 WarpFields (`a-resamp.md` §7.1).</summary>
+    /// <summary>Layer 6 of the `UpsampleLayer`: the (W0, H0) metric depth read by the level-0 WarpFields.</summary>
     public DenseUpsampleLayer.Result? FullDepth;
     public int RefId;
 
     static int Group(int id) => id <= 4 ? 0 : id <= 9 ? 1 : 2;
     static CameraCalib Shifted(CameraCalib c, float dx, float dy) { var k = (float[])c.K.Clone(); k[2] -= dx; k[5] -= dy; return c with { K = k, ViewOffX = c.ViewOffX + dx, ViewOffY = c.ViewOffY + dy }; }
-    /// <summary>`FUN_180111e00` pixel size by sensor type (`DAT_18068a548`): AR1335 (types 2/3) 0.0011, IMX386 0.0012, AR835 0.0014.</summary>
+    /// <summary>Pixel size by sensor type: AR1335 (types 2/3) 0.0011, IMX386 0.0012, AR835 0.0014.</summary>
     static float PixMm(SensorType s) => s is SensorType.SensorAr1335 or SensorType.SensorAr1335Mono ? 0.0011f : s is SensorType.SensorAr835 ? 0.0014f : 0.0012f;
 
     /// <summary>Progress of <see cref="Run"/>: the "registration" phase, one unit per state or per camera image.</summary>
@@ -46,12 +46,19 @@ public sealed class StereoAsyncApi
     /// logged in the sequential order, the dense aggregation sweep itself stays serial — so 1 (the default) and N are bit-identical.</summary>
     public int Threads = 1;
     public static StereoAsyncApi Run(LriFile lri, Action<string>? log = null, bool runHigher = true, bool runDense = true, float[]? depthOverride = null, ProgressReporter? progress = null, string? dumpPrefix = null, int threads = 1)
+        => Run(lri, log, runHigher, runDense, depthOverride, progress, dumpPrefix, threads, default);
+
+    /// <summary>The same, cancellable between states (a state, once started, runs to its end).</summary>
+    public static StereoAsyncApi Run(LriFile lri, Action<string>? log, bool runHigher, bool runDense, float[]? depthOverride, ProgressReporter? progress, string? dumpPrefix, int threads, CancellationToken cancel)
     {
         var api = new StereoAsyncApi { Lri = lri, Log = log, DumpPrefix = dumpPrefix, Progress = progress ?? ProgressReporter.None, Threads = Math.Max(1, threads) }; api.Cdp.Threads = api.Threads; api.Setup();
         int refGroup = api.RefGroupCams().Count(), higher = api.Cdp.Higher.Count;
         // guide + one per reference-group image + sparse wide + dense + upsample + one per higher image + coarse/tele
         api.Progress.Begin("registration", 1 + refGroup + 1 + 2 + higher + 1);
-        api.State1And2(); api.State3(); if (runDense || depthOverride is not null) api.State4And5(depthOverride); if (runHigher) { api.State6(); api.State7(depthOverride); }
+        cancel.ThrowIfCancellationRequested(); api.State1And2();
+        cancel.ThrowIfCancellationRequested(); api.State3();
+        cancel.ThrowIfCancellationRequested(); if (runDense || depthOverride is not null) api.State4And5(depthOverride);
+        if (runHigher) { cancel.ThrowIfCancellationRequested(); api.State6(); cancel.ThrowIfCancellationRequested(); api.State7(depthOverride); }
         api.Progress.End();
         return api;
     }
@@ -63,7 +70,7 @@ public sealed class StereoAsyncApi
         Profile = Color.LumenProfile.Compute(Lri);
         var refSlot = CalibSlotInit.Build(Lri, refName);
         var refInfo = ModuleFrameInfo.From(Lri, refName);
-        foreach (var kv in Lri.Modules)   // capture (file) order = FUN_180112240 order
+        foreach (var kv in Lri.Modules)   // capture (file) order
         {
             var m = kv.Value.Module; int id = (int)m.Id; Names[id] = kv.Key;
             var slot = CalibSlotInit.Build(Lri, kv.Key);
@@ -108,12 +115,12 @@ public sealed class StereoAsyncApi
         foreach (var c in Cams.Values) if (c.Id != RefId && Group(c.Id) == Group(RefId)) yield return c;
     }
 
-    /// <summary>States 1/2: the reference YUV image and the half-res stereo images of the reference group (`FUN_1804edb40`: scale2 = shift2 = 0.5).</summary>
+    /// <summary>States 1/2: the reference YUV image and the half-res stereo images of the reference group (scale2 = shift2 = 0.5).</summary>
     public void State1And2()
     {
         var refFrame = CapturedFrame.Load(Lri, Names[RefId]);
         Neutral = Lri.LumenNeutral; var neutral = Neutral;
-        // state 1 (FUN_1804ed3d0): the guide from the reference capture through the ctor pose (scale2/shift2 still at their defaults)
+        // state 1: the guide from the reference capture through the ctor pose (scale2/shift2 still at their defaults)
         if (ReferenceGuide is null && Environment.GetEnvironmentVariable("LUX_NO_GUIDE") != "1") ReferenceGuide = BuildReferenceGuide(refFrame).Guide;
         Progress.Tick();
         RefStats = StereoImageBuilder.Isp(refFrame, Profile, null).ComputeStats(refFrame);
@@ -145,7 +152,7 @@ public sealed class StereoAsyncApi
         if (Threads > 1 && others.Count > 1) Parallel.For(0, others.Count, new ParallelOptions { MaxDegreeOfParallelism = Threads }, One); else for (int i = 0; i < others.Count; i++) One(i);
         foreach (var l in lines) Log?.Invoke(l);
     }
-    /// <summary>State 1 (`FUN_1804ed3d0`): `GetReferenceImage(img, img, FUN_180307b30(img) = the reference module's CURRENT slot, FUN_1802e1580(pose[ref], slot) = its view, api+0x1b8)`.
+    /// <summary>State 1: `GetReferenceImage(img, img, the reference module's CURRENT slot, its view, <c>Neutral</c>)`.
     /// Must run before state 2 sets scale2/shift2 on the pose.</summary>
     public ReferenceGuide.Result BuildReferenceGuide(CapturedFrame? refFrame = null, bool keepFloat = false, int maxTiles = int.MaxValue)
     {
@@ -168,7 +175,7 @@ public sealed class StereoAsyncApi
     /// <summary>State 3: `runReferenceGroupCams`.</summary>
     public void State3() { Cdp.RunReferenceGroupCams(); Progress.Tick(); }
 
-    /// <summary>States 4/5: dense stereo on the reference-group images with the post-BA views (`FUN_1804fa6f0` + `FUN_18030cd00` per layer); the depth for the TELE stage
+    /// <summary>States 4/5: dense stereo on the reference-group images with the post-BA views, per layer; the depth for the TELE stage
     /// is the finest layer (2080×1560).</summary>
     public void State4And5(float[]? depthOverride = null)
     {
@@ -178,12 +185,12 @@ public sealed class StereoAsyncApi
             var images = cams.Select(c => c.Image).ToArray(); var gray = cams.Select(c => c.Gray).ToArray(); var calibs = cams.Select(c => c.View().Basic()).ToList();
             Dense = DenseStereoPyramid.Run(images, gray, calibs, Cdp.ZRange.Min, Cdp.ZRange.Max, Log, Threads);
             var top = Dense[^1]; Cdp.Depth = top.Depth; Cdp.DepthW = top.W; Cdp.DepthH = top.H;
-            if (DumpPrefix is string dp)   // twins of the oracle's ORACLE_DEPTH `<out>_dense_L<i>_depth.f32` (WTA hook per layer)
+            if (DumpPrefix is string dp)   // per-layer depth dumps `<out>_dense_L<i>_depth.f32` (after the WTA of each layer)
             {
                 for (int i = 0; i < Dense.Length; i++) DumpF32($"{dp}_dense_L{i}_depth.f32", Dense[i].Depth, Dense[i].W, Dense[i].H);
-                // `_dense_calibs.bin`: the layer-0 CalibData vector in the oracle's 0xa8 layout (K @0x00, t @0x24, R @0x30, the rest zero — Lux's Basic() carries only these)
+                // `_dense_calibs.bin`: the layer-0 CalibData vector, 0xa8 bytes per camera (K at 0x00, t at 0x24, R at 0x30, the rest zero — Lux's Basic() carries only these)
                 { var cb = new byte[calibs.Count * 0xa8]; for (int c = 0; c < calibs.Count; c++) { Buffer.BlockCopy(calibs[c].K, 0, cb, c * 0xa8, 36); Buffer.BlockCopy(calibs[c].T, 0, cb, c * 0xa8 + 0x24, 12); Buffer.BlockCopy(calibs[c].R, 0, cb, c * 0xa8 + 0x30, 36); } File.WriteAllBytes($"{dp}_dense_calibs.bin", cb); }
-                // the layer-0 inputs and the small layers' cost volumes in the oracle's exact layouts (sinputs_wrap / wta_wrap / pass2_wrap dumps)
+                // the layer-0 inputs and the cost volumes of the small layers
                 for (int k = 0; k < images.Length; k++) { DumpRgba8($"{dp}_dense_img{k}.img", images[k]); DumpRgba8($"{dp}_dense_filt{k}.img", Dense[0].Images[k]); }
                 int cvMax = int.TryParse(Environment.GetEnvironmentVariable("LUX_DENSE_DUMP_CV"), out int cm) ? cm : 2;
                 for (int i = 0; i < Dense.Length; i++)
@@ -202,9 +209,9 @@ public sealed class StereoAsyncApi
         Progress.Tick();
     }
 
-    /// <summary>State 5, last layer (`FUN_18030cd00` mode 0): `UpsampleLayer::slot(0x08)(layers[5])` → `FullDepth` (W0×H0) when the guide (`api+0x1f8`) is available.
-    /// LayerStack size = (W0/2, H0/2) with (W0, H0) = the level-0 reference frame (`FUN_18030be70`, `StereoAsyncAPI::start`).</summary>
-    /// <summary>Oracle `dump_image` format for an RGBA8 image: int32 {w, h, stride(px), 4} then `h` rows of `w·4` bytes.</summary>
+    /// <summary>State 5, last layer (mode 0): the upsample step of `UpsampleLayer` on layers[5] → `FullDepth` (W0×H0) when the guide (<c>ReferenceGuide</c>) is available.
+    /// LayerStack size = (W0/2, H0/2) with (W0, H0) = the level-0 reference frame (`StereoAsyncAPI::start`).</summary>
+    /// <summary>Dump format for an RGBA8 image: int32 {w, h, stride(px), 4} then `h` rows of `w·4` bytes.</summary>
     public static void DumpRgba8(string path, Rgba8Image im)
     {
         var b = new byte[16 + (long)im.W * im.H * 4];
@@ -212,7 +219,7 @@ public sealed class StereoAsyncApi
         for (int y = 0; y < im.H; y++) Buffer.BlockCopy(im.Data, im.Offset(0, y), b, 16 + y * im.W * 4, im.W * 4);
         File.WriteAllBytes(path, b);
     }
-    /// <summary>The oracle's cost-volume layout (`layer+0x118` buffer + `layer+0x128` offsets image): per pixel an 8-byte header
+    /// <summary>Writes the cost volume of a layer in Lumen's memory layout (cost buffer + offsets image): per pixel an 8-byte header
     /// `{start u16, count u16, 1, cap u16}` then `cap` u16 aggregates then (computed pixels only) `cap` u8 raw costs. Writes
     /// `<prefix>_offsets.u32` (int32 header + u32 per pixel), `<prefix>_costvol.bin` (final aggregates) and `<prefix>_costvol_pass1.bin`
     /// (the pass-1 copy, when kept).</summary>
@@ -237,14 +244,14 @@ public sealed class StereoAsyncApi
         Write($"{prefix}_costvol.bin", L.Agg);
         if (L.AggPass1 is not null) Write($"{prefix}_costvol_pass1.bin", L.AggPass1);
     }
-    /// <summary>Diagnostic dump in the oracle's image format: int32 {w, h, stride, bpp=4} then the rows.</summary>
+    /// <summary>Diagnostic dump in the same image format: int32 {w, h, stride, bpp=4} then the rows.</summary>
     public static void DumpF32(string path, float[] data, int w, int h)
     {
         var b = new byte[16 + (long)w * h * 4];
         BitConverter.GetBytes(w).CopyTo(b, 0); BitConverter.GetBytes(h).CopyTo(b, 4); BitConverter.GetBytes(w).CopyTo(b, 8); BitConverter.GetBytes(4).CopyTo(b, 12);
         Buffer.BlockCopy(data, 0, b, 16, w * h * 4); File.WriteAllBytes(path, b);
     }
-    /// <summary>Read a dump written by <see cref="DumpF32"/> / the oracle (`int32 {w, h, stride, bpp}` + rows of `w` floats).</summary>
+    /// <summary>Read a dump written by <see cref="DumpF32"/> (`int32 {w, h, stride, bpp}` + rows of `w` floats).</summary>
     public static (float[] Data, int W, int H) LoadF32(string path)
     {
         var b = File.ReadAllBytes(path); int w = BitConverter.ToInt32(b, 0), h = BitConverter.ToInt32(b, 4), bpp = BitConverter.ToInt32(b, 12);
@@ -285,6 +292,40 @@ public sealed class StereoAsyncApi
         }
         if (Threads > 1 && Cdp.Higher.Count > 1) Parallel.For(0, Cdp.Higher.Count, new ParallelOptions { MaxDegreeOfParallelism = Threads }, One); else for (int i = 0; i < Cdp.Higher.Count; i++) One(i);
         foreach (var l in lines) Log?.Invoke(l);
+    }
+
+    /// <summary>
+    /// The registration state a Lumen session restores instead of running the chain — the calibration half of the Stereo record's reader
+    /// — on a state that has only been <see cref="Setup"/> (the ctor of `setInputDataStream`):
+    /// <list type="number">
+    /// <item>the reference module's stored (K, R, t) into its CURRENT slot (stage 1) and its pose's scale2 = shift2 =
+    /// (0.5, 0.5) (what state 2 sets);</item>
+    /// <item>only when the reference had an entry: for every higher-group camera (the <see cref="CalibDataProcessor.Higher"/> list)
+    /// state 6's canvas pose against the restored reference view — scale2 = shift2 = 0.5, `GetAlignedCalibration`, scale3 / shift3 / Q — and the
+    /// renderer maps <c>Sizes[id]</c> = 2·size, <c>Pairs[id]</c> = the aligned and the module calibration ×2, shifted by −0.5, computed from the
+    /// camera's slot as it is at this point (the ctor slot, exactly as state 6 sees it in a fresh run);</item>
+    /// <item>every stored module's (K, R, t) into its CURRENT slot.</item>
+    /// </list>
+    /// The 2-D / 3-D calibration points the record also restores feed only the calibration stages, which a restored state never runs again.
+    /// </summary>
+    public void RestoreCalibration(IReadOnlyDictionary<int, (float[] K, float[] R, float[] T)> stored)
+    {
+        static void Write(CdpCamera c, (float[] K, float[] R, float[] T) v)
+        {
+            c.Slot.K = (float[])v.K.Clone(); c.Slot.R = (float[])v.R.Clone(); c.Slot.T = (float[])v.T.Clone();
+        }
+        if (stored.TryGetValue(RefId, out var rc) && Cams.TryGetValue(RefId, out var refCam))
+        {
+            Write(refCam, rc);
+            refCam.Pose.Scale2 = (0.5f, 0.5f); refCam.Pose.Shift2 = (0.5f, 0.5f);
+            foreach (var c in Cdp.Higher)
+            {
+                var (aligned, module, size) = Cdp.CanvasPose(c);
+                Sizes[c.Id] = (2 * size.W, 2 * size.H);
+                Pairs[c.Id] = (Shifted(aligned.Scaled(2f, 2f), -0.5f, -0.5f), Shifted(module.Scaled(2f, 2f), -0.5f, -0.5f));
+            }
+        }
+        foreach (var (id, v) in stored) if (Cams.TryGetValue(id, out var c)) Write(c, v);
     }
 
     /// <summary>State 7: coarse optimizer init on the depth image, then `runHigherGroupCams`.</summary>

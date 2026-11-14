@@ -1,0 +1,197 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             xmlns:c="using:Lux.App.Controls"
+             x:Class="Lux.App.Views.CameraView"
+             x:DataType="vm:CameraViewModel">
+  <!-- The Camera page (S-Camera): the camera's state and the filter, the captures by day with tick boxes, the import panel. Read-only
+       towards the camera: it lists, previews and copies. -->
+  <UserControl.Styles>
+    <Style Selector="Border.camcell">
+      <Setter Property="Padding" Value="4" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Border.camcell:pointerover">
+      <Setter Property="Background" Value="{DynamicResource LuxHover}" />
+    </Style>
+    <Style Selector="Border.camcell.selected">
+      <Setter Property="Background" Value="{DynamicResource LuxSelection}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LuxAccent}" />
+    </Style>
+    <Style Selector="Border.strip">
+      <Setter Property="Background" Value="{DynamicResource LuxPanel}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LuxLineDark}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="Padding" Value="12,10" />
+    </Style>
+    <Style Selector="TextBlock.stateline.warn">
+      <Setter Property="Foreground" Value="{DynamicResource LuxWarning}" />
+    </Style>
+  </UserControl.Styles>
+
+  <DockPanel>
+    <!-- ============================================================ the camera's state and the filter -->
+    <Border Classes="strip" DockPanel.Dock="Top">
+      <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="12">
+        <StackPanel Spacing="2" VerticalAlignment="Center" MinHeight="44">
+          <TextBlock x:Name="StateTitleText" Text="{Binding StateTitle}" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+          <TextBlock x:Name="StateLineText" Classes="secondary stateline" Classes.warn="{Binding IsWarning}" Text="{Binding StateLine}" TextWrapping="Wrap" />
+          <ProgressBar x:Name="ListingBar" IsVisible="{Binding IsListing}" IsIndeterminate="{Binding ListingIndeterminate}" Value="{Binding ListingProgress}"
+                       Minimum="0" Maximum="1" Width="320" HorizontalAlignment="Left" Margin="0,4,0,0" />
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <Button Content="Read again" Command="{Binding RetryCommand}" IsVisible="{Binding CanReread}" Classes="ghost"
+                  ToolTip.Tip="Read the camera's list of captures again (about 20 seconds)" />
+        </StackPanel>
+        <ComboBox Grid.Column="2" x:Name="SinceChoice" ItemsSource="{Binding SinceChoices}" SelectedItem="{Binding SinceDay}" IsVisible="{Binding IsSinceFilter}"
+                  MinWidth="230" VerticalAlignment="Center" AutomationProperties.Name="Captures since" ToolTip.Tip="Show the captures of this day and later" />
+        <Border Grid.Column="3" BorderBrush="{DynamicResource LuxLineLight}" BorderThickness="1" CornerRadius="2" VerticalAlignment="Center" IsEnabled="{Binding IsOpen}">
+          <StackPanel Orientation="Horizontal">
+            <Button x:Name="FilterNew" Classes="seg" Classes.selected="{Binding IsNewFilter}" Content="{Binding NewLabel}"
+                    Command="{Binding SetFilterCommand}" CommandParameter="{x:Static vm:CameraFilter.New}" ToolTip.Tip="Captures not in your library yet" />
+            <Button x:Name="FilterAll" Classes="seg" Classes.selected="{Binding IsAllFilter}" Content="{Binding AllLabel}"
+                    Command="{Binding SetFilterCommand}" CommandParameter="{x:Static vm:CameraFilter.All}" ToolTip.Tip="Every capture on the camera" />
+            <Button x:Name="FilterSince" Classes="seg" Classes.selected="{Binding IsSinceFilter}" Content="{Binding SinceLabel}"
+                    Command="{Binding SetFilterCommand}" CommandParameter="{x:Static vm:CameraFilter.Since}" ToolTip.Tip="Captures from a day on" />
+          </StackPanel>
+        </Border>
+        <Button Grid.Column="4" x:Name="SelectAllButton" Content="{Binding SelectAllLabel}" Command="{Binding SelectAllCommand}" IsEnabled="{Binding ShowGrid}"
+                VerticalAlignment="Center" MinWidth="96" />
+      </Grid>
+    </Border>
+
+    <!-- ============================================================ the import panel -->
+    <Border DockPanel.Dock="Right" Width="340" Background="{DynamicResource LuxPanel}" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="1,0,0,0">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="12" Spacing="14">
+          <TextBlock x:Name="ImportTitleText" Classes="strong" Text="{Binding ImportTitle}" />
+          <StackPanel Spacing="6">
+            <TextBlock Classes="secondary" Text="Copy to" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+              <TextBox x:Name="DestinationBox" Classes="tall mono" Text="{Binding Destination}" AutomationProperties.Name="Copy to folder" />
+              <Button Grid.Column="1" Content="Choose…" Command="{Binding ChooseFolderCommand}" />
+            </Grid>
+            <CheckBox x:Name="PerDayBox" IsChecked="{Binding OneFolderPerDay}" Content="One folder per capture day" MinHeight="44"
+                      ToolTip.Tip="Each capture goes into a folder named after its day, such as 2026-10-12" />
+            <TextBlock Classes="small secondary wrap" Text="{Binding FolderPreview}" IsVisible="{Binding FolderPreview, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          </StackPanel>
+          <StackPanel Spacing="6">
+            <TextBlock Classes="secondary" Text="After copying" />
+            <ComboBox x:Name="AfterChoice" ItemsSource="{x:Static vm:CameraViewModel.AfterChoices}" SelectedIndex="{Binding AfterIndex}" HorizontalAlignment="Stretch"
+                      AutomationProperties.Name="After copying" />
+            <TextBlock Classes="small secondary wrap" LineHeight="18" Text="{Binding AfterHint}" />
+          </StackPanel>
+          <TextBlock Classes="small secondary wrap" Text="{Binding PlanNote}" IsVisible="{Binding PlanNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <Border Classes="warningbox" IsVisible="{Binding HasProblem}">
+            <TextBlock x:Name="ProblemText" Classes="wrap" Text="{Binding Problem}" />
+          </Border>
+          <Button x:Name="ImportButton" Classes="primary" HorizontalAlignment="Stretch" Content="{Binding ImportButtonText}" Command="{Binding ImportCommand}"
+                  IsEnabled="{Binding CanImport}" />
+          <StackPanel Spacing="6" IsVisible="{Binding IsImporting}">
+            <ProgressBar Value="{Binding ImportProgress}" Minimum="0" Maximum="1" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <TextBlock x:Name="ImportProgressLine" Classes="small secondary wrap" Text="{Binding ImportProgressText}" VerticalAlignment="Center" />
+              <Button Grid.Column="1" Content="Cancel" Command="{Binding CancelImportCommand}" ToolTip.Tip="Stop the import: the photos already copied are kept" />
+            </Grid>
+          </StackPanel>
+          <Border BorderBrush="{DynamicResource LuxLineMid}" BorderThickness="0,1,0,0" Padding="0,12,0,0" IsVisible="{Binding HasLastImport}">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="strong" Text="Last import" />
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock x:Name="LastImportWhenText" Classes="secondary" Text="{Binding LastImportWhen}" />
+                <TextBlock Grid.Column="1" x:Name="LastImportStateText" Text="{Binding LastImportState}" Classes.warning="{Binding LastImportFailed}" />
+              </Grid>
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="secondary" Text="Copied" />
+                <TextBlock Grid.Column="1" Classes="mono" Text="{Binding LastImportCopied}" />
+              </Grid>
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="secondary" Text="{Binding LastImportAnalysisLabel}" />
+                <TextBlock Grid.Column="1" x:Name="LastImportAnalysisText" Classes.mono="{Binding LastImportAnalysisIsCount}" Text="{Binding LastImportAnalysis}" />
+              </Grid>
+              <TextBlock Classes="small wrap warning" Text="{Binding LastImportProblem}" IsVisible="{Binding HasLastImportProblem}" />
+              <Button x:Name="ContinueButton" Content="Continue the import" Command="{Binding ContinueImportCommand}" IsVisible="{Binding CanContinue}"
+                      HorizontalAlignment="Left" ToolTip.Tip="Copy the rest; the photos already copied are skipped" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+
+    <!-- ============================================================ the captures -->
+    <Panel>
+      <ScrollViewer x:Name="CameraScroll" IsVisible="{Binding ShowGrid}" HorizontalScrollBarVisibility="Disabled">
+        <c:RowsControl x:Name="CameraRows" ItemsSource="{Binding Rows}" Margin="12,0,12,12" Gap="8" RowMargin="0,0,0,8">
+          <c:RowsControl.ItemsPanel>
+            <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
+          </c:RowsControl.ItemsPanel>
+          <c:RowsControl.HeaderTemplate>
+            <DataTemplate DataType="vm:CameraDayHeaderViewModel">
+              <Border Classes="groupline" Margin="0,16,0,8">
+                <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                  <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1" Classes="secondary" Text="{Binding Sub}" Margin="12,0,0,0" VerticalAlignment="Center" />
+                  <Button Grid.Column="3" Classes="link" Content="{Binding SelectLabel}" Command="{Binding SelectDayCommand}" Focusable="False" />
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </c:RowsControl.HeaderTemplate>
+          <c:RowsControl.CellTemplate>
+            <DataTemplate x:DataType="vm:CameraItemViewModel">
+              <Border Classes="camcell" Classes.selected="{Binding IsSelected}" AutomationProperties.Name="{Binding AccessibleName}" ToolTip.Tip="{Binding Tip}">
+                <StackPanel Spacing="4">
+                  <Panel>
+                    <c:CameraThumbnailView Key="{Binding Key}" HasPreview="{Binding HasPreview}" Orientation="{Binding Rotation}" Placeholder="{DynamicResource LuxPlaceholder}" LabelMinWidth="400" />
+                    <CheckBox IsChecked="{Binding IsSelected, Mode=OneWay}" IsHitTestVisible="False" Focusable="False" HorizontalAlignment="Left" VerticalAlignment="Top"
+                              Margin="4,2,0,0" MinHeight="0" Padding="0" />
+                    <Border Classes="badge" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="4" IsVisible="{Binding InLibrary}">
+                      <TextBlock Text="In library" />
+                    </Border>
+                  </Panel>
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="mono tiny" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="1" Classes="tiny secondary" Text="{Binding SizeText}" Margin="4,0,0,0" />
+                  </Grid>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </c:RowsControl.CellTemplate>
+        </c:RowsControl>
+      </ScrollViewer>
+
+      <!-- no camera (or no camera support) -->
+      <Border Classes="card" IsVisible="{Binding ShowConnect}" MaxWidth="560" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24">
+        <StackPanel Spacing="10">
+          <TextBlock x:Name="ConnectTitleText" Classes="large" Text="{Binding ConnectTitle}" />
+          <TextBlock Classes="secondary wrap" LineHeight="20" Text="{Binding ConnectText}" />
+        </StackPanel>
+      </Border>
+      <!-- busy / could not be read -->
+      <Border Classes="card" IsVisible="{Binding ShowProblemCard}" MaxWidth="560" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24">
+        <StackPanel Spacing="10">
+          <TextBlock x:Name="ProblemTitleText" Classes="large" Text="{Binding StateTitle}" />
+          <TextBlock Classes="secondary wrap" LineHeight="20" Text="{Binding Status.Message}" />
+          <Button Content="Try again" Command="{Binding RetryCommand}" HorizontalAlignment="Left" />
+        </StackPanel>
+      </Border>
+      <!-- opening / reading the file list -->
+      <StackPanel IsVisible="{Binding ShowWaiting}" Spacing="10" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24" MaxWidth="520">
+        <ProgressBar IsIndeterminate="True" Width="240" HorizontalAlignment="Center" />
+        <TextBlock Classes="secondary wrap" TextAlignment="Center" Text="{Binding WaitingText}" />
+      </StackPanel>
+      <!-- nothing new / nothing at all -->
+      <StackPanel IsVisible="{Binding ShowNothingNew}" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24">
+        <TextBlock Classes="heading" Text="Nothing new on the camera" HorizontalAlignment="Center" />
+        <TextBlock Classes="secondary" Text="Every capture on the camera is already in your library." HorizontalAlignment="Center" />
+        <Button Content="Show all captures" Command="{Binding ShowAllCommand}" HorizontalAlignment="Center" />
+      </StackPanel>
+      <StackPanel IsVisible="{Binding ShowNoCaptures}" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24">
+        <TextBlock Classes="heading" Text="No captures on the camera" HorizontalAlignment="Center" />
+        <TextBlock Classes="secondary" Text="The camera holds no Light L16 captures (.lri files)." HorizontalAlignment="Center" />
+      </StackPanel>
+    </Panel>
+  </DockPanel>
+</UserControl>

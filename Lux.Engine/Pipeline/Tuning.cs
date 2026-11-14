@@ -5,7 +5,7 @@ namespace Lux.Engine.Pipeline;
 /// <summary>
 /// Lumen's tuning tree, reproduced verbatim: a flat map of Lumen's own keys ("demosaicking.type",
 /// "lens_shading.multiplier", ...) to values. Implementations of every stage are selected by the
-/// <c>&lt;stage&gt;.type</c> string exactly as cp.dll does (SoT §3.2 defaults, §4.1 string→enum tables), so a
+/// <c>&lt;stage&gt;.type</c> string exactly as Lumen does (same defaults, same string→enum tables), so a
 /// new method is added by registering it under a new type string, never by an if/else in the pipeline.
 /// </summary>
 public sealed class Tuning
@@ -43,7 +43,7 @@ public sealed class Tuning
     }
 
     /// <summary>
-    /// Lumen's compiled-in defaults (`FUN_1803d61c0`, SoT §3.2): every stage "none" except auto_white_balance /
+    /// Lumen's compiled-in defaults: every stage "none" except auto_white_balance /
     /// demosaicking / color_correction "default"; output.color_space "srgb", output.white_point "native".
     /// </summary>
     public static Tuning LumenDefaults()
@@ -59,7 +59,7 @@ public sealed class Tuning
         t.Set("auto_white_balance.neutral_temp", 5000.0).Set("auto_white_balance.neutral_tint", 0.0);
         t.Set("adaptive_desaturation.shadow_cutoff", 0.01).Set("adaptive_desaturation.highlight_cutoff", 0.8);
         t.Set("denoising.threshold_multiplier", 1.0);
-        // FUN_1803d61c0 L289–329 (tree defaults; spec a0349917a78884e46 §1.2)
+        // tree defaults
         t.Set("bilateral_denoiser.window_size", 5.0).Set("bilateral_denoiser.chroma_boost", 2.0).Set("bilateral_denoiser.pyramid_size", 5.0)
          .Set("bilateral_denoiser.gradient_threshold", 0.0).Set("bilateral_denoiser.min_luma_std", 0.0025);
         t.Set("nlm_denoiser.window_size", 5.0).Set("nlm_denoiser.patch_size", 5.0).Set("nlm_denoiser.step_size", 2.0).Set("nlm_denoiser.chroma_boost", 2.0)
@@ -76,8 +76,8 @@ public sealed class Tuning
          .Set("tone_adjust.fusion_noise_filter_scale", 0.015).Set("tone_adjust.fusion_noise_gain", 1.0)
          .Set("tone_adjust.fusion_shadow_detail", 1.0).Set("tone_adjust.fusion_sharpening", 0.0)
          .Set("tone_adjust.filter_epsilon2", -12.0);
-        // `A::LaplacianPyramidConfig` ctor defaults (`FUN_180398b10`, pipeline+0x1b90; `0x1806d46e0` = 0/1/1/0.5,
-        // percentiles −8 / 0.2 / −1, samples `0x1806d4770` = −8.0 … +1.0 step 0.5) — read by `ToneAdjust:laplacian_pyramid`.
+        // `A::LaplacianPyramidConfig` ctor defaults (0/1/1/0.5,
+        // percentiles −8 / 0.2 / −1, samples −8.0 … +1.0 step 0.5) — read by `ToneAdjust:laplacian_pyramid`.
         t.Set("tone_adjust.lpyr_clarity", 0.0).Set("tone_adjust.lpyr_shadows", 1.0).Set("tone_adjust.lpyr_highlights", 1.0)
          .Set("tone_adjust.lpyr_sigma", 0.5).Set("tone_adjust.lpyr_lower_percentile", -8.0)
          .Set("tone_adjust.lpyr_higher_percentile", 0.2).Set("tone_adjust.lpyr_mid_percentile", -1.0);
@@ -86,7 +86,7 @@ public sealed class Tuning
     }
 }
 
-/// <summary>Lumen's tuning string → enum tables (static-init block 0x1803f34d0–0x1803fb4b0; SoT §4.1).</summary>
+/// <summary>Lumen's tuning string → enum tables.</summary>
 public static class StageEnums
 {
     public static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> Tables = new Dictionary<string, IReadOnlyDictionary<string, int>>

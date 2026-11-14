@@ -6,7 +6,7 @@ namespace Lux.Engine.Imaging;
 /// <summary>
 /// Camera pose for a module: X_module = R · X_ref + t, plus the intrinsic matrix K. Handles the
 /// reference camera (identity), canonical extrinsics, and the movable-mirror virtual camera (B/C
-/// modules fold the scene off an actuated mirror). Ports the verified Python <c>module_pose.py</c>.
+/// modules fold the scene off an actuated mirror).
 /// </summary>
 public static class ModulePose
 {

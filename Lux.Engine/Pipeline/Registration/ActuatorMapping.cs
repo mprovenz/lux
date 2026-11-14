@@ -1,6 +1,6 @@
 namespace Lux.Engine.Pipeline.Registration;
 
-/// <summary>`MirrorActuatorMapping&lt;double&gt;` (180213470/180213730, `FUN_18024daf0`): hall code → mirror angle through the
+/// <summary>`MirrorActuatorMapping&lt;double&gt;`: hall code → mirror angle through the
 /// quadratic model `a(x)·r² + b(x)·r + c(x) = 0` with `a = c0·x + c3`, `b = c1·x + c4`, `c = c2·x + c5`, `x = (hall − m_in)/s_in`,
 /// root chosen by the segment flags, output `r·s_out + m_out` (type 0) or `atan(r)·360/π` (type 1).</summary>
 public sealed class ActuatorMapping

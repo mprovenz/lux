@@ -1,15 +1,16 @@
+using Lux.Engine.Pipeline;
 using Lux.Engine.Pipeline.Export;
 using Lux.Engine.Pipeline.Isp;
 
 namespace Lux.Cli;
 
 /// <summary>
-/// `convert &lt;lri…&gt;` — what Lumen does when you open a capture and export it: the ported cp.dll pipeline, run once,
+/// `convert &lt;lri…&gt;` — what Lumen does when you open a capture and export it: the ported Lumen pipeline, run once,
 /// written out in any combination of Lumen's `ExportImageFormat`s, plus the Lux-only formats (the depth pair,
-/// `lens-frames`, the `parallax-*` effects) that share the same render. Nothing is derived from a dump and nothing
+/// `lens-frames`, the `parallax-*` effects) that share the same render. Nothing is taken from Lumen's output and nothing
 /// Lux-specific is applied to the Lumen formats: the reference calibration and the level-0 dense depth come from the
 /// `.lri` through the ported registration chain, the export window/size are Lumen's own (`setInputDataStream` →
-/// `GetExportTransformOutput`), and every writer is the verified port.
+/// `GetExportTransformOutput`), and every writer is the ported one.
 ///
 /// <para>This is the command's **flag surface only** — `--formats`, the output naming, the grid, the adjustment
 /// flags and the Lux-format flags. The export itself is <see cref="Exporter"/>.</para>
@@ -21,17 +22,9 @@ namespace Lux.Cli;
 public static class ConvertCmd
 {
     /// <summary>Lumen's default export pair: the DNG and its companion JPEG.</summary>
-    public static readonly ExportImageFormat[] DefaultFormats = { ExportImageFormat.Dng, ExportImageFormat.Jpeg };
+    public static readonly ExportImageFormat[] DefaultFormats = ExportFormats.DefaultFormats;
 
-    public static string Extension(ExportImageFormat f) => f switch
-    {
-        ExportImageFormat.Jpeg => ".jpg",
-        ExportImageFormat.Ppm => ".ppm",
-        ExportImageFormat.Dng => ".dng",
-        ExportImageFormat.Hdr => ".hdr",
-        ExportImageFormat.JpegGDepth => "_gdepth.jpg",
-        _ => throw new ArgumentOutOfRangeException(nameof(f)),
-    };
+    public static string Extension(ExportImageFormat f) => ExportFormats.Extension(f);
 
     /// <summary>The parsed `--formats` list: the Lumen rasters, the depth pair, and the Lux formats.</summary>
     public sealed record FormatSet(ExportImageFormat[] Raster, bool Depth, bool LensFrames, ParallaxFormat[] Parallax)
@@ -101,15 +94,32 @@ public static class ConvertCmd
         ("--jpeg-v2",       new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-sharpening", new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-modify",   new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
+        // tone & colour: the output stage the JPG (and jpg+depth) runs; DNG, PPM and HDR never run it
+        ("--exposure",      new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
+        ("--contrast",      new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
+        ("--temperature",   new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
+        ("--tint",          new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
+        ("--vibrance",      new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
+        ("--saturation",    new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
+        ("--sharpening",    new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
+        ("--shadows",       new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
+        ("--highlights",    new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
+        ("--clarity",       new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-comment",  new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-software", new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--hdr-cs",        new[] { ExportImageFormat.Hdr }),
         ("--fnum",          new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
+        // the depth effect replaces the fused image under every raster format (the tile source is shared by all of them)
+        ("--f-number",      new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth, ExportImageFormat.Hdr, ExportImageFormat.Ppm }),
+        ("--focus-depth",   new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth, ExportImageFormat.Hdr, ExportImageFormat.Ppm }),
+        ("--focus-point",   new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth, ExportImageFormat.Hdr, ExportImageFormat.Ppm }),
         ("--iso",           new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--focal",         new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         // rotation is baked by ExportTransform upstream of every writer, so it reaches all four raster formats
-        // (verified: export-hdr rotate:90 writes -Y 1040 +X 780 against the default's -Y 780 +X 1040).
+        // (export-hdr rotate:90 writes -Y 1040 +X 780 against the default's -Y 780 +X 1040).
         ("--rotate",        new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth, ExportImageFormat.Hdr, ExportImageFormat.Ppm }),
+        ("--transform",     new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth, ExportImageFormat.Hdr, ExportImageFormat.Ppm }),
+        ("--upright",       new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth, ExportImageFormat.Hdr, ExportImageFormat.Ppm }),
     };
 
     static readonly string[] LensFlags = { "--lens-quality", "--lens-ev", "--lens-level", "--lens-profile", "--lens-modules", "--lens-stack" };
@@ -143,6 +153,7 @@ public static class ConvertCmd
         ("--parallax-quality",     ParallaxFormats.IsAnimated, "the animated parallax formats, webp container"),
         ("--parallax-crf",         ParallaxFormats.IsAnimated, "the animated parallax formats, avif container"),
         ("--parallax-order",       f => f == ParallaxFormat.Wiggle, "parallax-wiggle"),
+        ("--parallax-encoder",     ParallaxFormats.IsAnimated, "the animated parallax formats"),
         ("--parallax-pivot",       f => f == ParallaxFormat.Wiggle, "parallax-wiggle"),
     };
 
@@ -152,6 +163,7 @@ public static class ConvertCmd
     internal static Plan? TryPlan(Options o, int inputCount, out string? error)
     {
         error = null;
+        if (o.LevelIsName) { error = $"--level takes an export level number (0 = full size … 4) for convert, not '{o.LevelText}'"; return null; }
         FormatSet set;
         try
         {
@@ -165,6 +177,10 @@ public static class ConvertCmd
         var px = set.Parallax;
 
         string label = string.Join("+", set.Names);
+
+        // ---- the animate command's own flags
+        if (o.Given.FirstOrDefault(g => g.StartsWith("--anim-", StringComparison.Ordinal)) is { } af)
+        { error = $"{af} is an option of `lux-light animate`, not of convert"; return null; }
 
         // ---- a prefixed flag naming a format this run does not write
         foreach (var (flag, needs) in Scoped)
@@ -192,7 +208,10 @@ public static class ConvertCmd
         // ---- the parallax value checks, so a typo fails here rather than after a level-0 build
         string container = o.ParallaxFormat ?? "gif";
         if (!Animation.Containers.Contains(container)) { error = $"--parallax-format must be one of {string.Join(", ", Animation.Containers)}"; return null; }
+        if (o.ParallaxEncoder is not null and not ("lux" or "ffmpeg")) { error = "--parallax-encoder must be lux or ffmpeg"; return null; }
+        bool ffmpegEncoder = o.ParallaxEncoder == "ffmpeg" || container == "avif";
         if (o.ParallaxQuality is not null && container != "webp") { error = "--parallax-quality is the WebP encoder quality; pass --parallax-format webp"; return null; }
+        if (o.ParallaxQuality is not null && !ffmpegEncoder) { error = "Lux's own WebP writer is lossless; --parallax-quality is the quality of ffmpeg's lossy WebP — add --parallax-encoder ffmpeg"; return null; }
         if (o.ParallaxCrf is not null && container != "avif") { error = "--parallax-crf is the AVIF encoder crf; pass --parallax-format avif"; return null; }
         if (o.ParallaxLoop is not null and not ("pingpong" or "forward")) { error = "--parallax-loop must be pingpong or forward"; return null; }
         if (o.ParallaxFill is not null and not ("donors" or "inpaint" or "none")) { error = "--parallax-fill must be donors, inpaint or none"; return null; }
@@ -202,16 +221,19 @@ public static class ConvertCmd
         { error = "--parallax-converge must be metres, auto or none"; return null; }
         if (px.Length > 0 && o.Rotate is not null and not 0)
         { error = "--rotate cannot be combined with the parallax formats: the rig geometry is in the unrotated image's axes"; return null; }
+        if (o.Transform is not null && (o.Rotate ?? 0) != 0) { error = "--transform and --rotate cannot be combined"; return null; }
+        if (px.Length > 0 && o.Transform is not null) { error = "--transform cannot be combined with the parallax formats"; return null; }
+        if (o.Upright && (o.Transform is not null || (o.Rotate ?? 0) != 0)) { error = "--upright cannot be combined with --transform or --rotate"; return null; }
+        if (o.Upright && px.Length > 0) { error = "--upright cannot be combined with the parallax formats: the rig geometry is in the unrotated image's axes"; return null; }
         if (o.LensProfile is < 0 or > 3) { error = "--lens-profile must be 0-3"; return null; }
 
-        // ---- ffmpeg, checked before anything renders
-        if (px.Any(ParallaxFormats.IsAnimated) && Animation.Ffmpeg() is null)
+        // ---- ffmpeg (AVIF, or asked for), checked before anything renders; GIF, APNG and WebP are Lux's own writers
+        VisualFormats.UseFfmpeg = o.ParallaxEncoder == "ffmpeg";
+        if (px.Any(ParallaxFormats.IsAnimated) && ffmpegEncoder && Animation.Ffmpeg() is null)
         {
-            error = "ffmpeg not found on PATH. The animated parallax formats ("
-                  + string.Join(", ", px.Where(ParallaxFormats.IsAnimated).Select(ParallaxFormats.Name))
-                  + ") are encoded by ffmpeg: the frames are produced by Lux, but GIF, animated WebP, AVIF and APNG are\n"
-                  + "       VP8/AV1-class containers that cannot be hand-written the way this project's JPEG and DNG writers were.\n"
-                  + "       Install ffmpeg (https://ffmpeg.org) and run again — nothing has been written.";
+            error = "ffmpeg not found on PATH. " + (container == "avif" ? "AVIF animations are encoded by ffmpeg" : "--parallax-encoder ffmpeg was given")
+                  + " (the animated parallax formats: " + string.Join(", ", px.Where(ParallaxFormats.IsAnimated).Select(ParallaxFormats.Name)) + ").\n"
+                  + "       GIF, APNG and WebP need no ffmpeg: Lux writes them itself (the default). Nothing has been written.";
             return null;
         }
 
@@ -234,13 +256,58 @@ public static class ConvertCmd
         var notes = new List<string>();
         var applied = new List<string>();
         void Say(string flag, object? v) { if (v is not null) applied.Add(v is bool ? flag : $"{flag} {v}"); }
+        // ---- the depth effect
+        if (o.DepthFNumber is float dfn && !(dfn > 0f)) { error = "--f-number must be greater than 0"; return null; }
+        if (o.FocusDepth is float fdm && !(fdm > 0f)) { error = "--focus-depth must be greater than 0 (millimetres)"; return null; }
+        if (o.FocusDepth is not null && o.FocusPoint is not null) { error = "--focus-depth and --focus-point both set the focus distance — give one"; return null; }
+        if (o.FocusPoint is { } fpt && !(fpt.X >= 0f && fpt.X <= 1f && fpt.Y >= 0f && fpt.Y <= 1f)) { error = "--focus-point takes x,y, each between 0 and 1 (0,0 = top left of the exported image)"; return null; }
+        if ((o.FocusDepth is not null || o.FocusPoint is not null) && o.DepthFNumber is null)
+        { error = "--focus-depth / --focus-point choose where the depth effect focuses; they need --f-number"; return null; }
+        if (o.DepthFNumber is not null && (o.Rotate ?? 0) != 0 && o.FocusPoint is not null)
+        { error = "--focus-point is given in the unrotated image; it cannot be combined with --rotate"; return null; }
+
+        if (o.MemoryBudgetGb is double mb && !(mb > 0)) { error = "--memory-budget takes a size in GB greater than 0"; return null; }
+        // ---- tone & colour
+        if (o.Sharpening is not null && o.JpegSharpening is not null) { error = "--sharpening and --jpeg-sharpening set the same thing — give one"; return null; }
+        Adjustments? adjustments = null;
+        if (o.HasToneAdjustments)
+        {
+            string? Range(string flag, float? v, float lo, float hi, string unit = "")
+                => v is float x && !(x >= lo && x <= hi) ? FormattableString.Invariant($"{flag} must be between {lo} and {hi}{unit}") : null;
+            error = Range("--exposure", o.Exposure, Adjustments.ExposureMin, Adjustments.ExposureMax, " (stops)")
+                 ?? Range("--contrast", o.Contrast, Adjustments.PercentMin, Adjustments.PercentMax)
+                 ?? Range("--temperature", o.Temperature, Adjustments.TemperatureMin, Adjustments.TemperatureMax, " (kelvin)")
+                 ?? Range("--tint", o.Tint, Adjustments.TintMin, Adjustments.TintMax)
+                 ?? Range("--vibrance", o.Vibrance, Adjustments.PercentMin, Adjustments.PercentMax)
+                 ?? Range("--saturation", o.Saturation, Adjustments.PercentMin, Adjustments.PercentMax)
+                 ?? Range("--sharpening", o.Sharpening, Adjustments.PercentMin, Adjustments.PercentMax)
+                 ?? Range("--shadows", o.Shadows, Adjustments.PercentMin, Adjustments.PercentMax)
+                 ?? Range("--highlights", o.Highlights, Adjustments.PercentMin, Adjustments.PercentMax)
+                 ?? Range("--clarity", o.Clarity, Adjustments.PercentMin, Adjustments.PercentMax);
+            if (error is not null) return null;
+            adjustments = new Adjustments
+            {
+                Exposure = o.Exposure ?? 0f, Contrast = o.Contrast ?? 0f, Temperature = o.Temperature, Tint = o.Tint,
+                Vibrance = o.Vibrance ?? 0f, Saturation = o.Saturation ?? 0f, Sharpening = o.Sharpening ?? o.JpegSharpening ?? Adjustments.GuiSharpening,
+                Shadows = o.Shadows ?? 0f, Highlights = o.Highlights ?? 0f, Clarity = o.Clarity ?? 0f,
+            }.Validate();
+        }
+        if (o.NoCache) notes.Add("--no-cache: the capture's analysis cache is neither read nor written");
+        if (o.NoEdits && o.Edits is not null) { error = "--no-edits and --edits are alternatives; pass one"; return null; }
+        if (o.NoEdits) notes.Add("--no-edits: saved depth edits are ignored; the depth is the one computed from the capture");
+        else if (o.Edits is not null) notes.Add($"--edits {o.Edits}: that variant of each capture's saved depth edits is used wherever the depth is read");
+
         Say("--rotate", o.Rotate); Say("--fnum", o.FNumber); Say("--iso", o.Iso); Say("--focal", o.Focal);
         Say("--dng-cs", o.DngCs); Say("--dng-tone", o.DngTone); Say("--dng-comp", o.DngComp);
         Say("--jpeg-cs", o.JpegCs); Say("--jpeg-quality", o.JpegQuality); Say("--jpeg-sub", o.JpegSub);
         if (o.JpegV2) applied.Add("--jpeg-v2");
         Say("--jpeg-sharpening", o.JpegSharpening);
+        Say("--exposure", o.Exposure); Say("--contrast", o.Contrast); Say("--temperature", o.Temperature); Say("--tint", o.Tint);
+        Say("--vibrance", o.Vibrance); Say("--saturation", o.Saturation); Say("--sharpening", o.Sharpening);
+        Say("--shadows", o.Shadows); Say("--highlights", o.Highlights); Say("--clarity", o.Clarity);
         Say("--jpeg-modify", o.JpegModify?.ToString("yyyy-MM-ddTHH:mm:ss")); Say("--jpeg-comment", o.JpegComment); Say("--jpeg-software", o.JpegSoftware);
         Say("--hdr-cs", o.HdrCs);
+        Say("--f-number", o.DepthFNumber); Say("--focus-depth", o.FocusDepth); if (o.FocusPoint is { } sfp) applied.Add(FormattableString.Invariant($"--focus-point {sfp.X},{sfp.Y}"));
         if (applied.Count > 0)
             notes.Add($"adjustments: {string.Join(", ", applied)} — these depart from the values the .lri and Lumen's own rules supply");
 
@@ -261,15 +328,33 @@ public static class ConvertCmd
             notes.Add("the parallax source is this run's own JPEG render, at full size here and then downscaled to --parallax-size; "
                     + "--level 2 renders the base at 2608 px, which is plenty for a 1600 px animation and much faster");
 
+        // the settings given here override the ones a capture's saved edits carry (an imported Lumen session); the rest come from there
+        var overridden = new HashSet<string>();
+        if (o.DepthFNumber is not null) overridden.Add("f-number");
+        if (o.FocusDepth is not null || o.FocusPoint is not null) overridden.Add("focus");
+        if (o.Rotate is not null || o.Transform is not null) overridden.Add("transform");
+        foreach (var (v, id) in new (object?, string)[] { (o.Exposure, "2"), (o.Temperature, "3"), (o.Tint, "4"), (o.Shadows, "5"), (o.Highlights, "6"), (o.Contrast, "7"),
+                                                          (o.Saturation, "8"), (o.Vibrance, "9"), (o.Clarity, "10"), (o.Sharpening ?? o.JpegSharpening, "13") })
+            if (v is not null) overridden.Add(id);
+
         var req = new ExportRequest
         {
+            OverriddenSettings = overridden,
             Formats = formats,
             DepthMap = depth,
             Level = o.Level,
             Size = o.Size,
             Origin = o.Origin,
             Rotate = o.Rotate ?? 0,
+            Transform = o.Transform,
             FNumber = o.FNumber,
+            DepthEffectFNumber = o.DepthFNumber,
+            FocusDepthMm = o.FocusDepth,
+            FocusPoint = o.FocusPoint,
+            UseSavedEdits = !o.NoEdits,
+            CacheUse = o.NoCache ? CacheUse.None : CacheUse.ReadWriteGeometry,
+            MemoryBudgetBytes = o.MemoryBudgetGb is double gb ? (long)(gb * (1L << 30)) : null,
+            EditsVariant = o.Edits,
             Iso = o.Iso,
             FocalLengthMm = o.Focal,
             DngColorSpace = o.DngCs,
@@ -279,12 +364,14 @@ public static class ConvertCmd
             JpegQuality = o.JpegQuality,
             JpegSubsampling = o.JpegSub,
             JpegSharpening = o.JpegSharpening ?? DisplayIspTuning.GuiSharpeningProperty,
+            Adjustments = adjustments,          // null unless a tone & colour flag was given: Lumen's bytes
             JpegV2 = o.JpegV2,          // deliberately NOT LUX_DISPLAY_V2: the flag is the supported route and
                                         // `convert` stays immune to the environment variable.
             JpegModifyTime = o.JpegModify,
             JpegComment = o.JpegComment,
             JpegSoftware = o.JpegSoftware,
             HdrColorSpace = o.HdrCs,
+            LuxFormats = set.LensFrames || px.Length > 0 ? VisualFormats.Writer : null,
             LensFrames = set.LensFrames ? new LensRequest
             {
                 Ev = o.LensEv, Quality = o.LensQuality, Level = o.LensLevel, Profile = (RendererProfile)o.LensProfile,
@@ -305,15 +392,38 @@ public static class ConvertCmd
         return new Plan(req, notes, label);
     }
 
-    public static string NameOf(ExportImageFormat f) => f switch
+    public static string NameOf(ExportImageFormat f) => ExportFormats.NameOf(f);
+
+    /// <summary>The quarter turn of a saved transform's matrix (0 for none or a mirror).</summary>
+    public static int TurnOf(float[]? m)
     {
-        ExportImageFormat.Jpeg => "jpg",
-        ExportImageFormat.JpegGDepth => "jpg+depth",
-        ExportImageFormat.Dng => "dng",
-        ExportImageFormat.Hdr => "hdr",
-        ExportImageFormat.Ppm => "ppm",
-        _ => f.ToString().ToLowerInvariant(),
-    };
+        if (m is null || m.Length < 5) return 0;
+        int a = (int)MathF.Round(m[0]), b = (int)MathF.Round(m[1]), d = (int)MathF.Round(m[3]), e = (int)MathF.Round(m[4]);
+        if (a * e - b * d < 0) return 0;
+        return (a, b, d, e) switch { (-1, 0, 0, -1) => 180, (0, -1, 1, 0) => 90, (0, 1, -1, 0) => 270, _ => 0 };
+    }
+
+    /// <summary>`--upright`: the held turn of a capture whose crop / rotation was never edited (no saved transform and no
+    /// geometry decision — `CaptureRecipe.IsGeometryDecided`), as Lumen's own rotate right / left — bit for bit the transform the desktop app
+    /// saves for "Rotate as the camera was held" and applies to its default exports. Returns the request unchanged otherwise (held upright, no
+    /// gravity recorded, or a saved crop / rotation, which the export follows anyway), with the reason.</summary>
+    public static (ExportRequest Request, string Note) Upright(string lriPath, ExportRequest req, Lux.Store.StoreCaptureContext? ctx)
+    {
+        var lri = Lux.Engine.Lri.LriFile.Load(lriPath);
+        int held = Lux.Store.HeldTurn.Degrees(lri);
+        if (held <= 0) return (req, held == 0 ? "--upright: held upright, nothing to turn" : "--upright: the camera recorded no orientation, nothing turned");
+        if (req.UseSavedEdits && ctx is not null)
+        {
+            var (variant, recipe) = Lux.Store.SavedDepthEdits.LoadParts(ctx.Context);
+            if (Lux.Store.CaptureRecipe.IsGeometryDecided(recipe, variant?.Transform))
+                return (req, "--upright: the photo's saved crop / rotation decides its orientation; nothing added");
+        }
+        var id = ExportTransform.Identity(Lux.Store.LumenEditImport.Levels(lri).ExportDims[0]);
+        var t = Lux.Store.HeldTurn.Transform(id.AspectW, id.AspectH, held);
+        if (t is null) return (req, $"--upright: aspect {id.AspectW}:{id.AspectH} is not one Lumen's rotate is known for; nothing turned");
+        var over = new HashSet<string>(req.OverriddenSettings) { "transform" };
+        return (req with { Transform = t, OverriddenSettings = over }, $"--upright: turned {held}° clockwise as the camera was held (Lumen's rotate)");
+    }
 
     /// <summary>One capture, the pre-flag entry point: options as an <see cref="ExportRequest"/>, handed to
     /// <see cref="Exporter"/>.</summary>

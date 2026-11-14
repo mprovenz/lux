@@ -4,10 +4,10 @@ using static Lux.Engine.Pipeline.Color.LumenColorTables;
 
 namespace Lux.Engine.Pipeline.Color;
 
-/// <summary>Result of the per-illuminant colour fit (SoT §9.3): the fitted camera-RGB→XYZ(D50) matrix, the DNG
+/// <summary>Result of the per-illuminant colour fit: the fitted camera-RGB→XYZ(D50) matrix, the DNG
 /// ForwardMatrix derived from it, and the 32×32×1 HSV map stored Lumen-style as a padded 33×33 vec4 grid.</summary>
 public sealed record ColorFit(
-    float[] Matrix,          // row-major 3×3, xyz = M·rgb (Lumen M', column-major read L768–779 of OHL)
+    float[] Matrix,          // row-major 3×3, xyz = M·rgb (Lumen's M′, read column-major)
     float[] InitialMatrix,   // the weighted-LSQ start M₀ (row-major)
     float[] ForwardMatrix,   // row-major 3×3 = M'·diag(M'⁻¹·XYZ_D50)
     float[] Grid,            // 33×33 vec4, index (h + 33·s)·4, cell = (1+Δh, s_ratio, v_ratio, 0)
@@ -15,7 +15,7 @@ public sealed record ColorFit(
 {
     public const int HueDivisions = 32, SatDivisions = 32, ValDivisions = 1;
 
-    /// <summary>DNG ProfileHueSatMapData encoding (`FUN_18017bd30`): hue outer, sat inner, per entry
+    /// <summary>DNG ProfileHueSatMapData encoding: hue outer, sat inner, per entry
     /// ((cell.x − 1)·360 in double → float, cell.y, cell.z).</summary>
     public float[] ToDngHueSatMap()
     {
@@ -25,7 +25,7 @@ public sealed record ColorFit(
             for (int s = 0; s < SatDivisions; s++)
             {
                 int c = (h + (HueDivisions + 1) * s) * 4;
-                o[k++] = (float)(((double)Grid[c] + -1.0) * 360.0);   // DAT_1806a29e0 = −1.0, DAT_1806a29e8 = 360.0
+                o[k++] = (float)(((double)Grid[c] + -1.0) * 360.0);
                 o[k++] = Grid[c + 1];
                 o[k++] = Grid[c + 2];
             }
@@ -34,31 +34,31 @@ public sealed record ColorFit(
 }
 
 /// <summary>
-/// Port of `lt::A::OptimizeHSVLut` (`FUN_18014f4b0`) and the ForwardMatrix step of `FUN_18014b500` (SoT §9.3):
+/// Port of Lumen's `OptimizeHSVLut` and of the ForwardMatrix step of Lumen's per-entry calibration processing:
 /// ColorChecker camera RGB → ΔE2000-optimal RGB→XYZ matrix (BFGS over Lab), ForwardMatrix, and the thin-plate-spline
-/// HueSatMap. Constants are cited to their `.rdata` addresses.
+/// HueSatMap. The constants are Lumen's values.
 /// </summary>
 public static class HsvLutOptimizer
 {
-    public const float HueDeltaClamp = 0.027777778f;   // DAT_1806a07f0 / 07fc (±10° in turns)
-    public const float SatRatioLo = 0.9f, SatRatioHi = 1.1f;        // DAT_1806a07f4 / 0800
-    public const float ValRatioLo = 0.975f, ValRatioHi = 1.025f;    // DAT_1806a07f8 / 0804
-    public const double LambdaScale = 0.001500000013038516;         // DAT_1806a0810 = (double)0.0015f
-    public const double AnchorHueStep = 0.16666666666666666;        // DAT_1806a0808 = 1/6
-    public const double LabEpsilon = 0.008856451679035631;          // DAT_1806a0900 (216/24389)
-    public const double LabKappa = 7.787037037037037;               // DAT_1806a0910 (841/108)
-    public const double LabOffset = 0.13793103448275862;            // DAT_1806a0918 (16/116)
-    public const int WhitePatch = 18;                                // patch 19 (1-based), OHL L205–212
-    public const double NeutralSatEpsilon = 0.0001;                  // DAT_1806a0ad8, the `_Do_call` valScale-1 threshold
+    public const float HueDeltaClamp = 0.027777778f;   // ±10° in turns
+    public const float SatRatioLo = 0.9f, SatRatioHi = 1.1f;
+    public const float ValRatioLo = 0.975f, ValRatioHi = 1.025f;
+    public const double LambdaScale = 0.001500000013038516;         // (double)0.0015f
+    public const double AnchorHueStep = 0.16666666666666666;        // 1/6
+    public const double LabEpsilon = 0.008856451679035631;          // 216/24389
+    public const double LabKappa = 7.787037037037037;               // 841/108
+    public const double LabOffset = 0.13793103448275862;            // 16/116
+    public const int WhitePatch = 18;                                // patch 19 (1-based)
+    public const double NeutralSatEpsilon = 0.0001;                  // below this saturation the grid forces the value scale to 1
 
-    /// <summary>Full fit for one ColorCalibration entry's 24 `macbeth_data` points. Spec a-fm-refit.md.</summary>
+    /// <summary>Full fit for one ColorCalibration entry's 24 `macbeth_data` points.</summary>
     public static ColorFit Fit(IReadOnlyList<Point3F> macbeth, Action<string>? log = null, CeresLineSearchOptions? options = null)
     {
-        if (macbeth.Count != 24) throw new InvalidOperationException("Missing calibration data points");   // 18014b500 L80
+        if (macbeth.Count != 24) throw new InvalidOperationException("Missing calibration data points");
         options ??= new CeresLineSearchOptions();
         var prep = Prepare(macbeth);
         var res = CeresLineSearchMinimizer.Minimize(prep.Evaluate, prep.X0, options);
-        var p = res.Termination == CeresTermination.Convergence ? res.X : prep.X0;   // OHL L571: keep M₀ unless Ceres reports CONVERGENCE
+        var p = res.Termination == CeresTermination.Convergence ? res.X : prep.X0;   // keep M₀ unless Ceres reports CONVERGENCE
         if (res.Termination != CeresTermination.Convergence) log?.Invoke($"colour fit did not converge ({res.Message}); using the linear LSQ matrix");
         return Finish(prep, p, res);
     }
@@ -67,12 +67,12 @@ public static class HsvLutOptimizer
     /// camera RGB (design matrix A, 25×3 with the 1e-6 row), the Lab white reciprocals, the LSQ start M₀ and the Ceres-side evaluator.</summary>
     public sealed class Prepared
     {
-        public float[] Cam = new float[24 * 3];        // white-scaled camera RGB (float, OHL L205–212)
+        public float[] Cam = new float[24 * 3];        // white-scaled camera RGB (float)
         public double[] A = new double[25 * 3];        // design matrix, row-major here (Lumen stores it column-major)
         public double[] RefLab = new double[25 * 3];   // reference Lab (float → double, row 24 = 1e-6)
         public double[] Weights = new double[25];      // 24 × 1.0, then 0
         public float[] RefXyz = new float[24 * 3];     // the Lab→XYZ round trip = LSQ targets
-        public float RecipXn, RecipZn;                 // functor +0x18 / +0x20
+        public float RecipXn, RecipZn;                 // Lab white reciprocals, as floats
         public double[] X0 = new double[9];            // weighted-LSQ start (column-major M₀: x[r + 3c] = M(r, c))
         public bool Evaluate(double[] x, out double cost, double[] gradient) => HsvLutOptimizer.Evaluate(this, x, out cost, gradient, null, null);
     }
@@ -80,13 +80,13 @@ public static class HsvLutOptimizer
     public static Prepared Prepare(IReadOnlyList<Point3F> macbeth)
     {
         var pr = new Prepared();
-        // reference chart: XYZ → Lab (18014b500 L105) and Lab → XYZ (OHL L203/L221), both float kernels at D50
+        // reference chart: XYZ → Lab and Lab → XYZ, both float kernels at D50
         var (refLabF, refXyz) = LumenLabKernels.ReferenceChart(IllumD50);
         pr.RefXyz = refXyz;
         for (int i = 0; i < 24 * 3; i++) pr.RefLab[i] = refLabF[i];
         for (int k = 0; k < 3; k++) pr.RefLab[24 * 3 + k] = 1e-6;
 
-        // camera RGB scaled so that patch 19's G equals the round-tripped reference Y (OHL L205–212: `xyz[0xdc/4] / cam[0x37]`, float)
+        // camera RGB scaled so that patch 19's G equals the round-tripped reference Y (float: reference Y / camera G)
         for (int i = 0; i < 24; i++) { pr.Cam[i * 3] = macbeth[i].X; pr.Cam[i * 3 + 1] = macbeth[i].Y; pr.Cam[i * 3 + 2] = macbeth[i].Z; }
         float scale = refXyz[WhitePatch * 3 + 1] / pr.Cam[WhitePatch * 3 + 1];
         for (int i = 0; i < 24; i++) { pr.Cam[i * 3] = pr.Cam[i * 3] * scale; pr.Cam[i * 3 + 1] = pr.Cam[i * 3 + 1] * scale; pr.Cam[i * 3 + 2] = pr.Cam[i * 3 + 2] * scale; }
@@ -95,7 +95,7 @@ public static class HsvLutOptimizer
         for (int i = 0; i < 24; i++) pr.Weights[i] = 1.0;
         pr.Weights[24] = 0.0;
 
-        // Lab white reciprocals stored in the functor as floats (OHL: `invY = 1/y; +0x20 = 1/(((1 − y) − x)·invY); +0x18 = 1/(x·invY)`)
+        // Lab white reciprocals stored as floats: invY = 1/y; RecipZn = 1/(((1 − y) − x)·invY); RecipXn = 1/(x·invY)
         {
             float x = IlluminantX[IllumD50], y = IlluminantY[IllumD50];
             float invY = 1.0f / y;
@@ -103,7 +103,7 @@ public static class HsvLutOptimizer
             pr.RecipXn = 1.0f / (x * invY);
         }
 
-        // initial M₀ (OHL L396–441): `LDLT(Aᵀ·W·A).solve(Aᵀ·W·XYZ′)` per XYZ column, W = diag(weights) (Eigen 3.2 semantics, EigenLdlt);
+        // initial M₀: `LDLT(Aᵀ·W·A).solve(Aᵀ·W·XYZ′)` per XYZ column, W = diag(weights) (Eigen 3.2 semantics, EigenLdlt);
         // the products are summed in index order (Eigen's GEMM accumulation order is not reproduced — x0 agrees with ceres.dll to ~1e-13)
         {
             const int N = 25;
@@ -122,7 +122,7 @@ public static class HsvLutOptimizer
     }
 
     /// <summary>The Ceres side of one evaluation (`ProgramEvaluator` + `ResidualBlock::Evaluate` + `AutoDiffCostFunction::Evaluate`):
-    /// residuals/Jacobian from the Jet functor (`FUN_180160420`), `cost = 0.5·‖r‖²` (Eigen squaredNorm) and `gradient = Jᵀ·r`
+    /// residuals/Jacobian from the Jet functor, `cost = 0.5·‖r‖²` (Eigen squaredNorm) and `gradient = Jᵀ·r`
     /// (small_blas `MatrixTransposeVectorMultiply`: per column, sequential over the rows). Optional copies of r (25) and J (25×9 row-major).</summary>
     public static bool Evaluate(Prepared pr, double[] x, out double cost, double[] gradient, double[]? residualsOut, double[]? jacobianOut)
     {
@@ -139,7 +139,7 @@ public static class HsvLutOptimizer
             Jet9 X = (a2 * pj[6] + a1 * pj[3]) + (a0 * pj[0]);
             Jet9 Y = (a2 * pj[7] + a1 * pj[4]) + (a0 * pj[1]);
             Jet9 Z = (a2 * pj[8] + a1 * pj[5]) + (a0 * pj[2]);
-            // Lab with the float white reciprocals (functor +0x18/+0x1c/+0x20), f(t) = pow(t, 1/3) / 7.787·t + 16/116 (DAT_180681c88, 1806a0900/0980/0990)
+            // Lab with the float white reciprocals, f(t) = pow(t, 1/3) / 7.787·t + 16/116
             Jet9 fx = LabF(rXn * X), fy = LabF(rYn * Y), fz = LabF(rZn * Z);
             Jet9 L = fy * 116.0 + (-16.0), a = (fx - fy) * 500.0, b = (fy - fz) * 200.0;
             Jet9 de = DeltaE2000(pr.RefLab[i * 3], pr.RefLab[i * 3 + 1], pr.RefLab[i * 3 + 2], L, a, b);
@@ -155,20 +155,20 @@ public static class HsvLutOptimizer
         return ok;
     }
 
-    /// <summary>After the solve: M′ = the parameters as floats (OHL L768–779, column-major read), ForwardMatrix (18014b500) and the HSV map.</summary>
+    /// <summary>After the solve: M′ = the parameters as floats (read column-major), the ForwardMatrix and the HSV map.</summary>
     public static ColorFit Finish(Prepared pr, double[] p, CeresSummary res)
     {
         var cam = pr.Cam;
         var M = new float[9]; var M0 = new float[9];
         for (int r = 0; r < 3; r++) for (int k = 0; k < 3; k++) { M[r * 3 + k] = (float)p[k * 3 + r]; M0[r * 3 + k] = (float)pr.X0[k * 3 + r]; }
 
-        // --- ForwardMatrix = M'·diag(M'⁻¹·XYZ_D50) in float (18014b500 L224–311) ---
+        // --- ForwardMatrix = M'·diag(M'⁻¹·XYZ_D50) in float ---
         var FM = ForwardMatrixFrom(M);
 
-        // --- HSV deltas (OHL L811–945) ---
-        // corrected XYZ = the double product A·M (`FUN_18016a5c0`, small-product path: `((A0·M0c + A1·M1c) + A2·M2c)`),
-        // conservative-resized to 24 rows and stored as floats (OHL L751–766) — not float(M)·float(cam);
-        // reference = the float Lab of the chart converted straight to ProPhoto by the Lab kernel (OHL L811: src space 8, dst space 5).
+        // --- HSV deltas ---
+        // corrected XYZ = the double product A·M (small-product path: `((A0·M0c + A1·M1c) + A2·M2c)`),
+        // conservative-resized to 24 rows and stored as floats — not float(M)·float(cam);
+        // reference = the float Lab of the chart converted straight to ProPhoto by the Lab kernel (src space 8, dst space 5).
         var proXyz = LumenLabKernels.XyzToRgbMatrix(ProPhotoToXyz);
         var proLab = LumenLabKernels.LabToRgbMatrix(ProPhotoToXyz, IllumD50);
         var refHsv = new float[24 * 3]; var corHsv = new float[24 * 3];
@@ -185,7 +185,7 @@ public static class HsvLutOptimizer
             RgbToHsv(rgb, corHsv, i * 3);
         }
         var pts = new List<(float H, float S)>(); var vals = new List<(float Dh, float Sr, float Vr)>();
-        int chroma = Math.Min(24, 18);   // OHL: min(count, 0x12) — the 18 chromatic patches
+        int chroma = Math.Min(24, 18);   // min(count, 18): the 18 chromatic patches
         for (int i = 0; i < chroma; i++)
         {
             float hc = corHsv[i * 3], sc = corHsv[i * 3 + 1], vc = corHsv[i * 3 + 2];
@@ -204,20 +204,20 @@ public static class HsvLutOptimizer
             } while (hf < 1f);
         }
         int nb = pts.Count;
-        for (int i = 0; i < nb; i++)   // wrap duplicates at h+1 and h−1 (DAT_180681c90 = −1)
+        for (int i = 0; i < nb; i++)   // wrap duplicates at h+1 and h−1
         {
             pts.Add((pts[i].H + 1f, pts[i].S)); vals.Add(vals[i]);
             pts.Add((pts[i].H + -1f, pts[i].S)); vals.Add(vals[i]);
         }
 
-        // --- thin-plate splines, one per channel (OHL L955–1280) ---
+        // --- thin-plate splines, one per channel ---
         var wDh = TpsSolve(pts, vals.Select(v => (double)v.Dh).ToArray());
         var wSr = TpsSolve(pts, vals.Select(v => (double)v.Sr).ToArray());
         var wVr = TpsSolve(pts, vals.Select(v => (double)v.Vr).ToArray());
 
-        // --- grid (FUN_18017b500): dims (32,32,1) stored 33×33 with the last row/col duplicated ---
+        // --- grid: dims (32,32,1) stored 33×33 with the last row/col duplicated ---
         int hd_ = ColorFit.HueDivisions, sd = ColorFit.SatDivisions;
-        // `18017b6*`: step = 1 / max((float)(n − 1), 1.0f), sample index = min(i, n − 1)
+        // step = 1 / max((float)(n − 1), 1.0f), sample index = min(i, n − 1)
         float hStep = 1f / MathF.Max((float)(hd_ - 1), 1f), sStep = 1f / MathF.Max((float)(sd - 1), 1f);
         var grid = new float[(hd_ + 1) * (sd + 1) * 4];
         for (int j = 0; j <= sd; j++)
@@ -227,13 +227,12 @@ public static class HsvLutOptimizer
             {
                 float h = (float)Math.Min(i, hd_ - 1) * hStep;
                 float dh = TpsEval(pts, wDh, h, s), sr = TpsEval(pts, wSr, h, s), vr = TpsEval(pts, wVr, h, s);
-                // `_Func_impl<lambda_0>::_Do_call` (0x18016a350) — the std::function thunk the grid builder calls, not the
-                // lambda itself: it hands the lambda the (h, s) pair and then, on return, forces the **value** lane to 1
-                // when the queried saturation is below 1e-4 (`ucomisd (double)s, DAT_1806a0ad8 (1e-4)` / `jae`), i.e. the
-                // neutral row of the map never scales value. With s = j/31 only j = 0 is affected.
+                // Lumen's grid builder calls the lambda through a std::function wrapper. The wrapper hands the lambda the (h, s) pair.
+                // On return, it forces the **value** lane to 1 when the queried saturation is below 1e-4 (compared in double precision).
+                // Thus the neutral row of the map never scales value. With s = j/31, only j = 0 is affected.
                 if ((double)s < NeutralSatEpsilon) vr = 1.0f;
                 int c = (i + (hd_ + 1) * j) * 4;
-                grid[c] = Math.Clamp(dh, -1f, 1f) + 1f;      // clamp (−1,0,0,0)…(1,2,2,0): DAT_180681c90 / _DAT_1806a29d0
+                grid[c] = Math.Clamp(dh, -1f, 1f) + 1f;      // clamp (−1,0,0,0)…(1,2,2,0)
                 grid[c + 1] = Math.Clamp(sr, 0f, 2f);
                 grid[c + 2] = Math.Clamp(vr, 0f, 2f);
                 grid[c + 3] = 0f;
@@ -242,10 +241,10 @@ public static class HsvLutOptimizer
         return new ColorFit(M, M0, FM, grid, res.Termination == CeresTermination.Convergence, res.NumIterations, res.FinalCost, res.InitialCost, res.Message);
     }
 
-    /// <summary>FM = M'·diag(M'⁻¹·w), w = XYZ of the D50 white (float math, `18014b500` L224–311).</summary>
+    /// <summary>FM = M'·diag(M'⁻¹·w), w = XYZ of the D50 white (float math).</summary>
     public static float[] ForwardMatrixFrom(float[] M)
     {
-        // w = (x·(1/y), 1, ((1 − y) − x)·(1/y)) in float; inv = FUN_1800c2a00(M'); n_r = ((inv[r][0]·Xw) + inv[r][1]) + (inv[r][2]·Zw) (disasm 18014b8a8–);
+        // w = (x·(1/y), 1, ((1 − y) − x)·(1/y)) in float; inv = inverse(M'); n_r = ((inv[r][0]·Xw) + inv[r][1]) + (inv[r][2]·Zw);
         // FM(r, c) = M'(r, c)·n_c (the other lanes of the SSE product are exact zeros)
         float wx = IlluminantX[IllumD50], wy = IlluminantY[IllumD50];
         float invY = 1.0f / wy;
@@ -262,14 +261,13 @@ public static class HsvLutOptimizer
 
     private static Jet9 LabF(Jet9 t) => t < LabEpsilon ? t * LabKappa + LabOffset : Jet9.Pow(t, 1.0 / 3.0);
 
-    private const double Pow25_7 = 6103515625.0;   // DAT_1806a0818
+    private const double Pow25_7 = 6103515625.0;
     private const double TwoPi = 6.283185307179586, Pi = 3.141592653589793;
 
-    /// <summary>CIEDE2000 exactly as `FUN_180161c80` (double instantiation; the Jet twin `FUN_180162140` has the same structure) computes it
-    /// between the reference Lab (`param_2`) and the candidate (`param_3`) — every association, the hue conventions (radians, `h ≤ 0 → h + 2π`,
-    /// `|Δh| > π` corrections with `DAT_1806a09c0 = (−2π, +2π)` indexed by `h2 &lt; h1`, `H̄ = (h1 + h2)/D + π`, D ∈ {1, 2} by the 1e-8 chroma tests)
-    /// and the constants (`DAT_1806a0868 = −30°, 0870 = −0.17, 0878 = 0.24, 09d0/09e0 = 3/6°, 09d8/09e8 = 4/−63°, 09f0 = 0.32, 09f8 = −0.2,
-    /// 0a00..0a18 = the (H° − 275)²/25² factors, 08d0 = 60°, 08d8 = −50, 0a20 = 0.0075, 0a28 = −0.75, 08e8 = 20, 0a30 = 0.0225, 08c0 = −2`).</summary>
+    /// <summary>CIEDE2000 exactly as Lumen computes it (double instantiation; Lumen's Jet version has the same structure)
+    /// between the reference Lab (<paramref name="L1"/>, <paramref name="a1"/>, <paramref name="b1"/>) and the candidate — every association, the hue conventions (radians, `h ≤ 0 → h + 2π`,
+    /// `|Δh| > π` corrections with the pair (−2π, +2π) indexed by `h2 &lt; h1`, `H̄ = (h1 + h2)/D + π`, D ∈ {1, 2} by the 1e-8 chroma tests)
+    /// and the constants (−30°, −0.17, 0.24, 3/6°, 4/−63°, 0.32, −0.2, the (H° − 275)²/25² factors, 60°, −50, 0.0075, −0.75, 20, 0.0225, −2).</summary>
     public static Jet9 DeltaE2000(double L1, double a1, double b1, Jet9 L2, Jet9 a2, Jet9 b2)
     {
         Jet9 Cb = (Jet9.Sqrt(b2 * b2 + a2 * a2) + Math.Sqrt(a1 * a1 + b1 * b1)) * 0.5;
@@ -310,9 +308,9 @@ public static class HsvLutOptimizer
         return Jet9.Sqrt(tL * tL + tC * tC + (tC * -2.0 * s2 * Jet9.Sqrt(Cbp7 / den7) + tH) * tH);
     }
 
-    /// <summary>RGB → HSV, hue in turns [0,1) (`FUN_1800d0100` loop `1800d02a0–1800d0364`, same body as the image lambda `1800e79b0`):
+    /// <summary>RGB → HSV, hue in turns [0,1), as Lumen's RGB→HSV loop computes it (its per-image version has the same body):
     /// the lanes are first clamped to ≥ 0 (`maxps`), `v = max`, `s = max == 0 ? 0 : (max−min)/max`, and when `s ≠ 0` the hue uses the
-    /// **reciprocal** `1/(max−min)` times the difference, plus 2/4 (`DAT_180682414/408`), scaled by `1/6` (`DAT_1806874c0`, a multiply —
+    /// **reciprocal** `1/(max−min)` times the difference, plus 2/4, scaled by `1/6` (a multiply —
     /// not a division by 6) and wrapped by `+1` when negative.</summary>
     public static void RgbToHsv(ReadOnlySpan<float> rgbIn, float[] dst, int o)
     {
@@ -337,8 +335,8 @@ public static class HsvLutOptimizer
 
     private static double Phi(double r) => r > 0 ? r * r * Math.Log10(r) : 0.0;   // φ(r) = r²·log10 r, as `log10(r)·r·r`
 
-    /// <summary>`sqrt(x)` as the binary computes every point distance: `rsqrtss` + one Newton step
-    /// (`((x·rs)·rs + (−3))·(x·rs)·(−0.5)`, `DAT_180681c7c = −0.5`, `DAT_180681c80 = −3`), masked to 0 when `x == 0`.
+    /// <summary>`sqrt(x)` as Lumen computes every point distance: `rsqrtss` + one Newton step
+    /// (`((x·rs)·rs + (−3))·(x·rs)·(−0.5)`), masked to 0 when `x == 0`.
     /// This is **not** a correctly-rounded square root (≈1e-7 relative error) and the λ/φ values depend on it.</summary>
     public static float RsqrtSqrt(float x)
     {
@@ -348,7 +346,7 @@ public static class HsvLutOptimizer
         return ((t * rs + -3.0f) * t) * -0.5f;
     }
 
-    /// <summary>Distance between two TPS points, exactly as `OHL` L1069+ / the evaluator compute it: float differences,
+    /// <summary>Distance between two TPS points, exactly as Lumen's spline fit and evaluator compute it: float differences,
     /// `r² = dy² + dx²`, then <see cref="RsqrtSqrt"/>.</summary>
     private static float Dist((float H, float S) a, (float H, float S) b)
     {
@@ -357,10 +355,10 @@ public static class HsvLutOptimizer
     }
 
     /// <summary>Solve [[K+λI, P],[Pᵀ, 0]]·[w; a] = [v; 0] with P = [1, h, s], λ = (mean of all n² pairwise
-    /// distances, zero diagonal included)² × 0.0015 (`DAT_1806a0810`). Returns w[0..n−1], a0, a1, a2.
-    /// The mean is accumulated in the binary's order (`OHL` L1069–1157): a 4-wide inner loop over j with four
+    /// distances, zero diagonal included)² × 0.0015. Returns w[0..n−1], a0, a1, a2.
+    /// The mean is accumulated in Lumen's order: a 4-wide inner loop over j with four
     /// double accumulators (lane 0 being the running total), combined per row as `((s2 + total) + s3) + s1`,
-    /// then a scalar tail. The system is solved by Eigen's `ColPivHouseholderQR` (`FUN_180164940`/`FUN_180168190`).</summary>
+    /// then a scalar tail. The system is solved by Eigen's `ColPivHouseholderQR` (<see cref="EigenColPivQr"/>).</summary>
     private static double[] TpsSolve(List<(float H, float S)> pts, double[] v, double[]? lambdaOut = null)
     {
         int n = pts.Count, m = n + 3;
@@ -400,8 +398,8 @@ public static class HsvLutOptimizer
         return new EigenColPivQr(S, m, m).Solve(rhs);
     }
 
-    /// <summary>Evaluator `1801644d0` (OptimizeHSVLut lambda_0): float query/points, double weights, the affine part
-    /// and the running sum rounded to float after every term exactly as the binary does.</summary>
+    /// <summary>The spline evaluator (the lambda in Lumen's `OptimizeHSVLut`): float query/points, double weights, the affine part
+    /// and the running sum rounded to float after every term exactly as Lumen does.</summary>
     private static float TpsEval(List<(float H, float S)> pts, double[] w, float h, float s)
     {
         int n = pts.Count;

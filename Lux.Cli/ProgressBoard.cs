@@ -22,7 +22,7 @@ internal sealed class ProgressBoard : IDisposable
     /// <param name="NominalUnits">the unit count assumed before the phase reports its own</param>
     internal sealed record PhaseCost(double Serial, double ThreadSecondsPerUnit, double SerialPerUnit, int NominalUnits);
 
-    // 2026-09-02 profile: L16_00466, 8320×6240, 24 render threads (see the vault's performance assessment)
+    // measured phase costs: an 8320×6240 render with 24 render threads
     static readonly Dictionary<string, PhaseCost> Costs = new(StringComparer.Ordinal)
     {
         ["loading"] = new(2, 0, 0, 1),
@@ -268,6 +268,7 @@ internal sealed class ProgressBoard : IDisposable
     }
 
     static readonly bool Trace = Environment.GetEnvironmentVariable("LUX_PROGRESS_TRACE") == "1";   // every update, one line, for debugging the flow
+    static readonly bool MemTrace = Environment.GetEnvironmentVariable("LUX_MEMTRACE") == "1";       // live heap at each phase start (forces a full GC)
 
     public void Update(FileState f, ProgressUpdate u)
     {
@@ -275,6 +276,11 @@ internal sealed class ProgressBoard : IDisposable
         if (Trace) lock (_gate) _err.WriteLine($"  trace [{f.Stem}] {u.Phase} {u.Done}/{u.Total}");
         bool phaseStarted;
         lock (_gate) { string before = f.Phase; f.Apply(u, now); phaseStarted = f.Phase != before; }
+        if (phaseStarted && MemTrace)
+        {   // diagnostic: the live managed heap (after a full collection) at each phase start
+            long live = GC.GetTotalMemory(forceFullCollection: true);
+            lock (_gate) _err.WriteLine($"  memtrace [{f.Stem}] {u.Phase}: live heap {live / 1e9:F2} GB, process {Environment.WorkingSet / 1e9:F2} GB");
+        }
         if (_interactive) Redraw(force: phaseStarted);
         else if (phaseStarted) lock (_gate) _err.WriteLine($"  [{f.Stem}] {u.Phase}{(u.Total > 0 ? $" ({u.Total} units)" : "")}");
     }

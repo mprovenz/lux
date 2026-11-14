@@ -5,7 +5,7 @@ namespace Lux.Engine.Pipeline.Parallax;
 
 /// <summary>An 8-bit RGBA image, row-major, tightly packed (stride = 4·W). The currency of the parallax formats: the
 /// export renderer hands out exactly this layout (<see cref="Export.JpegExportRenderer.Render"/>), so no conversion
-/// happens between the verified pipeline's output and the warper's input.</summary>
+/// happens between the pipeline's output and the warper's input.</summary>
 public sealed class Rgba
 {
     public readonly int W, H;

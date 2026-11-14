@@ -1,0 +1,215 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="using:Lux.App.Controls"
+             x:Class="Lux.App.Views.GalleryView">
+  <!-- Every token and control state of the design system, for review (lux-app - -gallery; screenshot "gallery"). -->
+  <UserControl.Styles>
+    <Style Selector="TextBlock.sec">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource LuxTextSecondary}" />
+      <Setter Property="Margin" Value="0,0,0,6" />
+    </Style>
+    <Style Selector="WrapPanel.row > :is(Control)">
+      <Setter Property="Margin" Value="0,0,8,8" />
+    </Style>
+    <Style Selector="Border.swatch">
+      <Setter Property="Width" Value="112" />
+      <Setter Property="Height" Value="56" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LuxLineLight}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="6,4" />
+    </Style>
+  </UserControl.Styles>
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+    <Grid ColumnDefinitions="*,*" Margin="20" ColumnSpacing="24">
+      <StackPanel Spacing="16">
+        <TextBlock Classes="title" Text="Lux · Studio design system" />
+
+        <StackPanel>
+          <TextBlock Classes="sec" Text="Colour tokens" />
+          <WrapPanel Classes="row">
+            <Border Classes="swatch" Background="{DynamicResource LuxGround}"><TextBlock Classes="mono tiny" Text="LuxGround&#10;#404040" /></Border>
+            <Border Classes="swatch" Background="{DynamicResource LuxPanel}"><TextBlock Classes="mono tiny" Text="LuxPanel&#10;#3a3a3a" /></Border>
+            <Border Classes="swatch" Background="{DynamicResource LuxBar}"><TextBlock Classes="mono tiny" Text="LuxBar&#10;#333333" /></Border>
+            <Border Classes="swatch" Background="{DynamicResource LuxLineDark}"><TextBlock Classes="mono tiny" Text="LuxLineDark&#10;#262626" /></Border>
+            <Border Classes="swatch" Background="{DynamicResource LuxLineMid}"><TextBlock Classes="mono tiny" Text="LuxLineMid&#10;#555555" /></Border>
+            <Border Classes="swatch" Background="{DynamicResource LuxLineLight}"><TextBlock Classes="mono tiny" Text="LuxLineLight&#10;#6a6a6a" /></Border>
+            <Border Classes="swatch" Background="{DynamicResource LuxText}"><TextBlock Classes="mono tiny" Foreground="#1c1c1c" Text="LuxText&#10;#f2f2f2" /></Border>
+            <Border Classes="swatch" Background="{DynamicResource LuxTextSecondary}"><TextBlock Classes="mono tiny" Foreground="#1c1c1c" Text="LuxTextSecondary&#10;#d6d6d6" /></Border>
+            <Border Classes="swatch" Background="{DynamicResource LuxTextDisabled}"><TextBlock Classes="mono tiny" Foreground="#1c1c1c" Text="LuxTextDisabled&#10;#a8a8a8" /></Border>
+            <Border Classes="swatch" Background="{DynamicResource LuxAccent}"><TextBlock Classes="mono tiny" Foreground="#1c1c1c" Text="LuxAccent&#10;#a9dcff" /></Border>
+            <Border Classes="swatch" Background="{DynamicResource LuxSelection}"><TextBlock Classes="mono tiny" Text="LuxSelection&#10;#2b3a44" /></Border>
+            <Border Classes="swatch" Background="{DynamicResource LuxWarningGround}"><TextBlock Classes="mono tiny" Foreground="{DynamicResource LuxWarning}" Text="LuxWarning&#10;#f0b47a / #4a4033" /></Border>
+            <Border Classes="swatch" Background="{DynamicResource LuxSuccess}"><TextBlock Classes="mono tiny" Foreground="#1c1c1c" Text="LuxSuccess&#10;#8fd6a3" /></Border>
+            <Border Classes="swatch" Background="{DynamicResource LuxPlaceholder}"><TextBlock Classes="mono tiny" Text="LuxPlaceholder&#10;#4c4c4c" /></Border>
+          </WrapPanel>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Classes="sec" Text="Type" />
+          <TextBlock Classes="title" Text="Title 22 · Add your Light L16 photos" />
+          <TextBlock Classes="dialogtitle" Text="Dialog title 17 · Import edits from Lumen" />
+          <TextBlock Classes="heading" Text="Heading 16 · 12 October 2026" />
+          <TextBlock Classes="large" Text="Large 15 · Open a folder" />
+          <TextBlock Classes="strong" Text="Body 13 semibold · 2026 · Autumn" />
+          <TextBlock Text="Body 13 · Depth map ready" />
+          <TextBlock Classes="secondary" Text="Secondary 13 · 64 captures · 3 selected" />
+          <TextBlock Classes="secondary small" Text="Small 12 · Finished 16:52 · 9 s from cached render" />
+          <TextBlock Classes="mono" Text="Mono 13 · L16_00493 · f/2.0 · 4.56 m · 13 MP · 70 MB" />
+          <TextBlock Classes="mono tiny" Text="Mono 11 · 00493 · FULL · 13" />
+          <WrapPanel Classes="row">
+            <TextBlock Classes="accent" Text="Accent text" />
+            <TextBlock Classes="warning" Text="Warning text" />
+            <TextBlock Classes="success" Text="Success text" />
+            <TextBlock Classes="disabled" Text="Disabled text" />
+          </WrapPanel>
+        </StackPanel>
+
+        <StackPanel>
+          <TextBlock Classes="sec" Text="Buttons — normal, disabled" />
+          <WrapPanel Classes="row">
+            <Button Content="Outline" />
+            <Button Classes="primary" Content="Primary" />
+            <Button Classes="accent" Content="Accent outline" />
+            <Button Classes="link" Content="Link" />
+            <Button Classes="ghost" Content="Sort: capture time ↓" />
+            <Button Classes="small" Content="Small 32" />
+          </WrapPanel>
+          <WrapPanel Classes="row">
+            <Button Content="Outline" IsEnabled="False" />
+            <Button Classes="primary" Content="Primary" IsEnabled="False" />
+            <Button Classes="accent" Content="Accent outline" IsEnabled="False" />
+            <Button Classes="link" Content="Link" IsEnabled="False" />
+          </WrapPanel>
+          <TextBlock Classes="secondary small" Text="Keyboard focus (Tab) draws the accent ring:" Margin="0,4,0,8" />
+          <WrapPanel Classes="row">
+            <Button x:Name="FocusSample" Content="Focused button" />
+            <Button Classes="primary" Content="Primary" />
+          </WrapPanel>
+        </StackPanel>
+
+        <StackPanel>
+          <TextBlock Classes="sec" Text="Tab bar · segmented switch · chips" />
+          <Border Classes="header" HorizontalAlignment="Left">
+            <StackPanel Orientation="Horizontal" Spacing="4">
+              <TextBlock Text="Lux" FontWeight="SemiBold" Margin="4,0,12,0" VerticalAlignment="Center" />
+              <Button Classes="tab selected" Content="Library" />
+              <Button Classes="tab" Content="Develop" />
+              <Button Classes="tab" Content="Queue · 2" />
+              <Button Classes="tab" Content="Camera" IsEnabled="False" />
+            </StackPanel>
+          </Border>
+          <WrapPanel Classes="row" Margin="0,8,0,0">
+            <Border BorderBrush="{DynamicResource LuxLineMid}" BorderThickness="1" CornerRadius="2">
+              <StackPanel Orientation="Horizontal">
+                <Button Classes="seg selected" Content="Grid" />
+                <Button Classes="seg" Content="Timeline" />
+                <Button Classes="seg" Content="List" />
+              </StackPanel>
+            </Border>
+            <Button Classes="chip on" Content="All" />
+            <Button Classes="chip" Content="Rated 4 and up" />
+            <Button Classes="chip" Content="Not analysed · 12" />
+          </WrapPanel>
+        </StackPanel>
+
+        <StackPanel>
+          <TextBlock Classes="sec" Text="Tree rows" />
+          <Border Classes="tree" Width="230" HorizontalAlignment="Left" Padding="0,8">
+            <StackPanel>
+              <Button Classes="tree" Padding="12,0"><Grid ColumnDefinitions="*,Auto"><TextBlock Classes="strong" Text="All captures" VerticalAlignment="Center" /><TextBlock Grid.Column="1" Classes="mono small secondary" Text="146" VerticalAlignment="Center" /></Grid></Button>
+              <Button Classes="tree selected" Padding="28,0,12,0"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Autumn" VerticalAlignment="Center" /><TextBlock Grid.Column="1" Classes="mono small secondary" Text="64" VerticalAlignment="Center" /></Grid></Button>
+              <Button Classes="tree droptarget" Padding="28,0,12,0"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Portfolio (drop target)" VerticalAlignment="Center" /><TextBlock Grid.Column="1" Classes="mono small secondary" Text="22" VerticalAlignment="Center" /></Grid></Button>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </StackPanel>
+
+      <StackPanel Grid.Column="1" Spacing="16">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="sec" Text="Text field · select · slider" />
+          <WrapPanel Classes="row">
+            <TextBox Width="200" Watermark="Filter" />
+            <TextBox Width="200" Text="Autumn" />
+            <TextBox Width="200" Text="Disabled" IsEnabled="False" />
+          </WrapPanel>
+          <TextBox Classes="tall mono" Text="~/Pictures/Lux exports/2026-10" Width="420" HorizontalAlignment="Left" />
+          <WrapPanel Classes="row">
+            <ComboBox Width="260" SelectedIndex="0">
+              <ComboBoxItem Content="Full size · 8320 × 6240" />
+              <ComboBoxItem Content="13 MP · 4160 × 3120" />
+            </ComboBox>
+            <ComboBox Width="200" SelectedIndex="0" IsEnabled="False">
+              <ComboBoxItem Content="Disabled" />
+            </ComboBox>
+          </WrapPanel>
+          <WrapPanel Classes="row">
+            <Slider Width="200" Minimum="90" Maximum="320" Value="150" />
+            <Slider Width="200" Minimum="0" Maximum="1" Value="0.3" IsEnabled="False" />
+          </WrapPanel>
+        </StackPanel>
+
+        <StackPanel>
+          <TextBlock Classes="sec" Text="Check boxes · option rows" />
+          <WrapPanel Classes="row">
+            <CheckBox Content="Unticked" />
+            <CheckBox Content="Ticked" IsChecked="True" />
+            <CheckBox Content="Mixed" IsChecked="{x:Null}" IsThreeState="True" />
+            <CheckBox Content="Disabled" IsEnabled="False" />
+            <CheckBox Content="Disabled, ticked" IsChecked="True" IsEnabled="False" />
+          </WrapPanel>
+          <StackPanel Width="440" HorizontalAlignment="Left">
+            <CheckBox Classes="optionrow" IsChecked="True"><Grid ColumnDefinitions="110,*"><TextBlock Text="DNG" /><TextBlock Grid.Column="1" Classes="secondary small" Text="Raw-style file for other editors" /></Grid></CheckBox>
+            <CheckBox Classes="optionrow"><Grid ColumnDefinitions="110,*"><TextBlock Text="HDR" /><TextBlock Grid.Column="1" Classes="secondary small" Text="Radiance, linear" /></Grid></CheckBox>
+          </StackPanel>
+        </StackPanel>
+
+        <StackPanel Spacing="8">
+          <TextBlock Classes="sec" Text="Progress · badges" />
+          <ProgressBar Value="0.62" Width="420" HorizontalAlignment="Left" />
+          <ProgressBar Classes="done" Value="1" Width="420" HorizontalAlignment="Left" />
+          <ProgressBar Classes="failed" Value="0.4" Width="420" HorizontalAlignment="Left" />
+          <WrapPanel Classes="row">
+            <Border Classes="badge"><TextBlock Classes="mono cachetag full" Text="FULL" /></Border>
+            <Border Classes="badge"><TextBlock Classes="mono cachetag" Text="13" /></Border>
+            <Border Classes="badge"><TextBlock Text="stack ×4" /></Border>
+            <Border Classes="badge"><TextBlock Text="edited" /></Border>
+            <Border Classes="badge warn"><TextBlock Text="Missing" /></Border>
+          </WrapPanel>
+        </StackPanel>
+
+        <StackPanel Spacing="8">
+          <TextBlock Classes="sec" Text="Browse items: cell · card · list row (normal / selected)" />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Border Classes="cell" Width="120"><StackPanel Spacing="4"><Border Height="83" Background="#7c8a96" /><TextBlock Classes="mono tiny" Text="00493" /></StackPanel></Border>
+            <Border Classes="cell selected" Width="120"><StackPanel Spacing="4"><Border Height="83" Background="#a08a72" /><TextBlock Classes="mono tiny" Text="00494" /></StackPanel></Border>
+            <Border Classes="card2" Width="150"><StackPanel><Border Height="110" Background="#78907f" /><TextBlock Classes="mono" Text="L16_00495" Margin="8" /></StackPanel></Border>
+            <Border Classes="card2 selected" Width="150"><StackPanel><Border Height="110" Background="#93809a" /><TextBlock Classes="mono" Text="L16_00496" Margin="8" /></StackPanel></Border>
+          </StackPanel>
+          <Border Classes="listrow" Width="420" HorizontalAlignment="Left"><TextBlock Classes="mono" Text="L16_00497   12 Oct 16:58   28 mm" Margin="12,0" VerticalAlignment="Center" /></Border>
+          <Border Classes="listrow selected" Width="420" HorizontalAlignment="Left"><TextBlock Classes="mono" Text="L16_00498   12 Oct 17:03   75 mm" Margin="12,0" VerticalAlignment="Center" /></Border>
+        </StackPanel>
+
+        <StackPanel Spacing="8">
+          <TextBlock Classes="sec" Text="Surfaces: card · note · warning · job · tooltip · status bar" />
+          <Border Classes="card primary" Width="420" HorizontalAlignment="Left"><TextBlock Classes="large" Text="Card (primary)" /></Border>
+          <Border Classes="note" Width="420" HorizontalAlignment="Left"><TextBlock Classes="wrap" Text="Tone and colour adjustments are applied to JPG files." /></Border>
+          <Border Classes="warningbox" Width="420" HorizontalAlignment="Left"><TextBlock Classes="strong wrap" Text="Imported edits are slightly lower fidelity than editing again in Lux" /></Border>
+          <Border Classes="job running" Width="420" HorizontalAlignment="Left"><StackPanel Spacing="4"><TextBlock Classes="mono" Text="L16_00495" /><ProgressBar Value="0.62" /><TextBlock Classes="secondary small" Text="Rendering full detail · about 20 s left" /></StackPanel></Border>
+          <Border Background="{DynamicResource ToolTipBackground}" BorderBrush="{DynamicResource ToolTipBorderBrush}" BorderThickness="1" Padding="8,5" HorizontalAlignment="Left">
+            <TextBlock FontSize="12" Text="Tooltip · Filter by name, folder, album or edit version (Ctrl+F)" />
+          </Border>
+          <Border Classes="statusbar" Width="420" HorizontalAlignment="Left">
+            <StackPanel Orientation="Horizontal" Spacing="20"><TextBlock Text="146 captures · 3 selected" /><TextBlock Text="Cache 9.8 GB · 14 at full detail" /></StackPanel>
+          </Border>
+          <Border Classes="dialog" Width="420" HorizontalAlignment="Left">
+            <StackPanel>
+              <Border Padding="20,12" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,0,0,1"><TextBlock Classes="dialogtitle" Text="Dialog" /></Border>
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="20,12"><Button Content="Cancel" /><Button Classes="primary" Content="OK" /></StackPanel>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </StackPanel>
+    </Grid>
+  </ScrollViewer>
+</UserControl>

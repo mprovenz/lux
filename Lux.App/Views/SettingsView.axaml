@@ -1,0 +1,286 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             x:Class="Lux.App.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+  <!-- Settings: library, folders, what Lux keeps, storage, background work (rendered from the library's limit descriptors), export.
+       Every change applies at once. -->
+  <UserControl.Styles>
+    <Style Selector="TextBox.limit">
+      <Setter Property="Width" Value="96" />
+      <Setter Property="MinHeight" Value="36" />
+      <Setter Property="HorizontalContentAlignment" Value="Right" />
+      <Setter Property="FontFamily" Value="{DynamicResource LuxMonoFont}" />
+    </Style>
+  </UserControl.Styles>
+  <ScrollViewer x:Name="Scroll" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel x:Name="Sections" Margin="24" Spacing="16" MaxWidth="900" HorizontalAlignment="Center">
+      <StackPanel Spacing="4">
+        <TextBlock Classes="title" Text="Settings" />
+        <TextBlock Classes="secondary" Text="Changes apply at once." />
+      </StackPanel>
+
+      <!-- Library -->
+      <Border Classes="section">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="large" Text="Library" />
+          <Grid ColumnDefinitions="200,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="8">
+            <TextBlock Text="Library file" VerticalAlignment="Center" />
+            <SelectableTextBlock Grid.Column="1" Classes="mono" Text="{Binding LibraryFile}" VerticalAlignment="Center" TextWrapping="Wrap" />
+            <Button Grid.Column="2" Content="Move…" Command="{Binding ChooseLibraryLocationCommand}" ToolTip.Tip="Choose where the library file is kept from the next start" />
+            <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Classes="secondary wrap" Text="{Binding LibraryNote}"
+                       IsVisible="{Binding LibraryNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          </Grid>
+          <TextBlock Classes="secondary small wrap"
+                     Text="The library file lists your folders, albums and thumbnails. Ratings, edits and working copies are saved with each photo, in a LuxImageContext folder beside it." />
+          <TextBlock Classes="secondary small" Text="{Binding AppDataFolder, StringFormat='App data: {0}'}" />
+        </StackPanel>
+      </Border>
+
+      <!-- Folders -->
+      <Border Classes="section">
+        <StackPanel Spacing="12">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Classes="large" Text="Folders" VerticalAlignment="Center" />
+            <Button Grid.Column="1" Content="Add folder…" Command="{Binding AddFolderCommand}" />
+          </Grid>
+          <TextBlock IsVisible="{Binding !HasFolders}" Classes="secondary" Text="No folders yet." />
+          <ItemsControl ItemsSource="{Binding Folders}" AutomationProperties.Name="Folders">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:FolderSettingViewModel">
+                <Border BorderBrush="{DynamicResource LuxLineMid}" BorderThickness="0,1,0,0" Padding="0,8">
+                  <Grid ColumnDefinitions="*,220,Auto,Auto" ColumnSpacing="8">
+                    <StackPanel VerticalAlignment="Center" Spacing="2">
+                      <TextBlock Classes="mono trim" Text="{Binding Path}" ToolTip.Tip="{Binding Path}" />
+                      <TextBlock Classes="secondary small" Text="{Binding CountText}" />
+                    </StackPanel>
+                    <ComboBox Grid.Column="1" ItemsSource="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).FolderChoices}"
+                              SelectedItem="{Binding Level}" AutomationProperties.Name="Cache level for this folder" ToolTip.Tip="What Lux keeps for the captures of this folder" />
+                    <Button Grid.Column="2" Content="Rescan" Command="{Binding RescanCommand}" />
+                    <Button Grid.Column="3" Content="Remove…" Command="{Binding RemoveCommand}" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <!-- What Lux keeps -->
+      <Border Classes="section">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="large" Text="What Lux keeps for each photo" />
+          <Grid ColumnDefinitions="200,*" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="4">
+            <TextBlock Text="Default" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" ItemsSource="{Binding AppChoices}" SelectedItem="{Binding DefaultLevel}" AutomationProperties.Name="Default cache level" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Classes="secondary small wrap"
+                       Text="Full detail makes full-size exports and close-up views start at once, at about four times the space. You can change single photos from the library at any time, and give a folder its own default above." />
+          </Grid>
+          <CheckBox IsChecked="{Binding AnalyseNew}">
+            <StackPanel>
+              <TextBlock Text="Analyse new captures automatically" />
+              <TextBlock Classes="secondary small" Text="About a minute and 70 MB of disk per capture, in the background." />
+            </StackPanel>
+          </CheckBox>
+          <CheckBox IsChecked="{Binding WatchFolders}">
+            <StackPanel>
+              <TextBlock Text="Watch folders for new and changed captures" />
+              <TextBlock Classes="secondary small" Text="Otherwise use Rescan." />
+            </StackPanel>
+          </CheckBox>
+          <CheckBox IsChecked="{Binding ShowAsHeld}">
+            <StackPanel>
+              <TextBlock Text="Show photos the way the camera was held" />
+              <TextBlock Classes="secondary small wrap" Text="On by default: portrait photos stand upright in the library and previews. Turn it off to see them as Lumen shows them, sideways until rotated. Exports follow what is shown (see Export below)." />
+            </StackPanel>
+          </CheckBox>
+        </StackPanel>
+      </Border>
+
+      <!-- Viewer: how a changed picture is swapped in -->
+      <Border x:Name="ViewerSection" Classes="section">
+        <StackPanel Spacing="10">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Classes="large" Text="Viewer" />
+            <Button Grid.Column="1" Classes="link small" Content="Reset" Command="{Binding ResetSwapCommand}" ToolTip.Tip="Back to the defaults (on, 300 ms, 120 ms)" />
+          </Grid>
+          <CheckBox IsChecked="{Binding SwapWhole}">
+            <StackPanel>
+              <TextBlock Text="Show a changed picture all at once" />
+              <TextBlock Classes="secondary small wrap" Text="After a slider or a depth edit the new picture replaces the old one as a whole, not tile by tile. If it takes longer than the wait below, it comes in from the centre of the view outwards, each part fading in." />
+            </StackPanel>
+          </CheckBox>
+          <Grid ColumnDefinitions="260,90,*" RowDefinitions="Auto,Auto" RowSpacing="8" IsEnabled="{Binding SwapWhole}">
+            <TextBlock Text="Wait for the whole picture up to" VerticalAlignment="Center" />
+            <TextBox Grid.Column="1" Classes="mono" Text="{Binding SwapWindowText}" KeyDown="OnSwapKeyDown" LostFocus="OnSwapLostFocus" AutomationProperties.Name="Wait for the whole picture, milliseconds" />
+            <TextBlock Grid.Column="2" Classes="secondary" Text="ms" VerticalAlignment="Center" Margin="8,0,0,0" />
+            <TextBlock Grid.Row="1" Text="Fade each part in over" VerticalAlignment="Center" />
+            <TextBox Grid.Row="1" Grid.Column="1" Classes="mono" Text="{Binding SwapFadeText}" KeyDown="OnSwapKeyDown" LostFocus="OnSwapLostFocus" AutomationProperties.Name="Fade, milliseconds" />
+            <TextBlock Grid.Row="1" Grid.Column="2" Classes="secondary" Text="ms" VerticalAlignment="Center" Margin="8,0,0,0" />
+          </Grid>
+          <TextBlock Classes="warning small wrap" Text="{Binding SwapError}" IsVisible="{Binding SwapError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+      </Border>
+
+      <!-- Storage -->
+      <Border x:Name="StorageSection" Classes="section">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="large" Text="Storage" />
+          <StackPanel Spacing="4">
+            <TextBlock Classes="strong" Text="Where Lux keeps a photo's data when its own folder cannot be written" />
+            <TextBlock Classes="secondary small wrap"
+                       Text="Ratings, edits and working copies normally go next to the photo. For photos on a read-only drive or a shared folder they are kept here instead, and move next to the photo as soon as its folder can be written." />
+          </StackPanel>
+          <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="4">
+            <SelectableTextBlock Classes="mono" Text="{Binding LocalFolder}" VerticalAlignment="Center" TextWrapping="Wrap" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+              <Button Classes="link" Content="Use the default" Command="{Binding UseDefaultLocalFolderCommand}" IsVisible="{Binding !LocalIsDefault}" />
+              <Button Content="Choose…" Command="{Binding ChooseLocalFolderCommand}" IsEnabled="{Binding !IsMoving}"
+                      ToolTip.Tip="Lux moves what is there to the new folder, as a job in the Queue" />
+            </StackPanel>
+            <TextBlock Grid.Row="1" Classes="secondary small" Text="{Binding LocalDefaultText}" />
+            <TextBlock Grid.Row="2" Classes="secondary small" Text="{Binding LocalCountText}" />
+          </Grid>
+          <Border Classes="job running" IsVisible="{Binding IsMoving}">
+            <StackPanel Spacing="4">
+              <TextBlock Text="{Binding MoveJob.What, FallbackValue=''}" />
+              <ProgressBar Value="{Binding MoveJob.Progress, FallbackValue=0}" />
+              <TextBlock Classes="secondary small" Text="{Binding MoveJob.StatusText, FallbackValue=''}" />
+            </StackPanel>
+          </Border>
+          <TextBlock Classes="warning wrap" Text="{Binding LocalError}" IsVisible="{Binding LocalError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <!-- Copies set aside after a conflict (its own view model: SetAsideCopiesViewModel) -->
+          <StackPanel x:Name="SetAsideBlock" DataContext="{Binding SetAside}" x:DataType="vm:SetAsideCopiesViewModel" Spacing="6" Margin="0,8,0,0">
+            <TextBlock Classes="strong" Text="Copies set aside" />
+            <TextBlock Classes="secondary small wrap"
+                       Text="When a photo's data moves next to the photo and a different copy is already there, Lux uses the copy next to the photo and sets the other one aside here. Nothing is deleted unless you remove it." />
+            <TextBlock Classes="secondary small" Text="{Binding Summary}" />
+            <ItemsControl ItemsSource="{Binding Copies}" AutomationProperties.Name="Copies set aside">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:SetAsideCopyRowViewModel">
+                  <Border BorderBrush="{DynamicResource LuxLineMid}" BorderThickness="0,1,0,0" Padding="0,8">
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                      <StackPanel VerticalAlignment="Center" Spacing="2">
+                        <TextBlock Classes="mono trim" Text="{Binding Name}" />
+                        <TextBlock Classes="secondary small" Text="{Binding Detail}" />
+                      </StackPanel>
+                      <Button Grid.Column="1" Content="Restore this copy" Command="{Binding RestoreCommand}" IsEnabled="{Binding CanRestore}"
+                              ToolTip.Tip="{Binding RestoreTip}" ToolTip.ShowOnDisabled="True" />
+                      <Button Grid.Column="2" Content="Remove…" Command="{Binding RemoveCommand}" ToolTip.Tip="Send this copy to the trash (asks first)" />
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="warning wrap" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          </StackPanel>
+          <CheckBox IsChecked="{Binding AskExtraStorage}">
+            <StackPanel>
+              <TextBlock Text="Ask before keeping a larger copy of a photo" />
+              <TextBlock Classes="secondary small wrap" Text="Shows the extra disk space before a photo is kept at 13 MP or full detail. Turn it back on here after “Don't ask again”." />
+            </StackPanel>
+          </CheckBox>
+        </StackPanel>
+      </Border>
+
+      <!-- Export -->
+      <Border Classes="section">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="large" Text="Export" />
+          <Grid ColumnDefinitions="200,*,Auto" ColumnSpacing="12">
+            <TextBlock Text="Default folder" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Classes="mono" Text="{Binding ExportFolder}" VerticalAlignment="Center" />
+            <Button Grid.Column="2" Content="Choose…" Command="{Binding ChooseExportFolderCommand}" />
+          </Grid>
+          <Grid ColumnDefinitions="200,*" ColumnSpacing="12" RowDefinitions="Auto,Auto" RowSpacing="4">
+            <TextBlock Text="When a file already exists" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" ItemsSource="{Binding CollisionChoices}" SelectedItem="{Binding Collision}" MinWidth="320" HorizontalAlignment="Left"
+                      AutomationProperties.Name="When a file already exists" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Classes="secondary small wrap"
+                       Text="Lux never replaces a file without being told to: by default the new file gets -2, -3 … added to its name." />
+          </Grid>
+          <Grid ColumnDefinitions="200,*" ColumnSpacing="12" RowDefinitions="Auto,Auto" RowSpacing="4">
+            <TextBlock Text="Orientation" VerticalAlignment="Center" />
+            <CheckBox Grid.Column="1" x:Name="ExportUnturnedBox" IsChecked="{Binding ExportUnturned}" Content="Export photos unturned, as Lumen does"
+                      AutomationProperties.Name="Export photos unturned, as Lumen does" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Classes="secondary small wrap"
+                       Text="Off: a photo shown the way the camera was held is exported that way (turned upright with Lumen's own rotate). On: it is written as the camera recorded it, as Lumen does. Each export can still choose." />
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- Updates: the version of this copy and the app's own update -->
+      <Border x:Name="UpdatesSection" Classes="section" DataContext="{Binding Updates}" x:DataType="vm:UpdatesViewModel">
+        <StackPanel Spacing="10">
+          <TextBlock Classes="large" Text="Updates" />
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <StackPanel Spacing="2" VerticalAlignment="Center">
+              <TextBlock Classes="mono" Text="{Binding VersionText}" />
+              <TextBlock Classes="secondary small wrap" Text="{Binding StateText}" />
+            </StackPanel>
+            <Button Grid.Column="1" Content="Check now" Command="{Binding CheckNowCommand}" IsEnabled="{Binding CanCheck}" IsVisible="{Binding IsAvailable}" />
+            <Button Grid.Column="2" Classes="accent" Content="Restart to update" Command="{Binding RestartCommand}" IsVisible="{Binding CanRestart}" />
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- Background work: every limit of the job queue -->
+      <Border x:Name="LimitsSection" Classes="section">
+        <StackPanel Spacing="14">
+          <Grid ColumnDefinitions="*,Auto">
+            <StackPanel Spacing="2">
+              <TextBlock Classes="large" Text="Background work" />
+              <TextBlock Classes="secondary small" Text="How much of the computer Lux uses for analysis, working copies, thumbnails and exports." />
+            </StackPanel>
+            <Button Grid.Column="1" Content="Reset all to defaults" Command="{Binding ResetAllLimitsCommand}" VerticalAlignment="Top" />
+          </Grid>
+          <TextBlock IsVisible="{Binding !HasLimits}" Classes="secondary" Text="This library has no adjustable limits." />
+          <ItemsControl ItemsSource="{Binding LimitGroups}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:LimitGroupViewModel">
+                <StackPanel Spacing="2" Margin="0,0,0,14">
+                  <Border Classes="groupline" Margin="0,0,0,4">
+                    <StackPanel Spacing="2">
+                      <TextBlock Classes="strong" Text="{Binding Title}" />
+                      <TextBlock Classes="secondary small wrap" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
+                    </StackPanel>
+                  </Border>
+                  <ItemsControl ItemsSource="{Binding Rows}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:LimitRowViewModel">
+                        <Grid ColumnDefinitions="*,Auto,72" RowDefinitions="Auto,Auto" ColumnSpacing="12" Margin="0,4">
+                          <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Classes="medium" Text="{Binding Name}" />
+                            <TextBlock Classes="secondary small wrap" Text="{Binding Description}" LineHeight="17" />
+                          </StackPanel>
+                          <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center" HorizontalAlignment="Right">
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" IsVisible="{Binding IsNumber}">
+                              <TextBox Classes="limit" Text="{Binding Text}" AutomationProperties.Name="{Binding Name}" LostFocus="OnLimitLostFocus">
+                                <TextBox.KeyBindings>
+                                  <KeyBinding Gesture="Enter" Command="{Binding CommitCommand}" />
+                                </TextBox.KeyBindings>
+                              </TextBox>
+                              <TextBlock Classes="secondary" Text="{Binding Unit}" VerticalAlignment="Center" MinWidth="44" />
+                            </StackPanel>
+                            <CheckBox IsVisible="{Binding IsToggle}" IsChecked="{Binding IsOn}" MinHeight="36" HorizontalAlignment="Right"
+                                      Content="On" AutomationProperties.Name="{Binding Name}" />
+                            <TextBlock Classes="secondary small" Text="{Binding RangeText}" HorizontalAlignment="Right" />
+                          </StackPanel>
+                          <Button Grid.Column="2" Classes="link small" Content="Reset" Command="{Binding ResetCommand}" IsVisible="{Binding !IsDefault}"
+                                  VerticalAlignment="Center" ToolTip.Tip="Back to the default" />
+                          <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Classes="warning small wrap" Text="{Binding Error}"
+                                     IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

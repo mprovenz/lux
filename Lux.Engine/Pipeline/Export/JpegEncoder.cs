@@ -3,8 +3,8 @@ using System.Text;
 namespace Lux.Engine.Pipeline.Export;
 
 /// <summary>
-/// The JPEG encoder cp.dll links statically: **libjpeg-turbo**, driven by `FUN_1800fd680` (`a-display-isp.md` §12.3)
-/// with the literal option struct `{ quality = 98, subsamplingId = 2 }` (`movabs rax, 0x200000062` at `0x1805295de`).
+/// The JPEG encoder that Lumen links statically: **libjpeg-turbo**, driven by Lumen's encoder wrapper
+/// with the literal option struct `{ quality = 98, subsamplingId = 2 }`.
 /// Everything that is not listed below stays at `jpeg_set_defaults`, so the stream is a **baseline sequential** JPEG
 /// with the standard Annex-K Huffman tables (`optimize_coding = FALSE`), no restart interval, no smoothing, no
 /// progression, no Adobe marker and **no ICC profile**.
@@ -15,13 +15,13 @@ namespace Lux.Engine.Pipeline.Export;
 ///   → `jpeg_add_quant_table`: `q = clamp((basic·4 + 50)/100, 1, 255)` over the two Table-K.1/K.2 bases.</item>
 /// <item>`jccolor.c` — `rgb_ycc_start` / `rgb_ycc_convert`: the 8×256 `JLONG` fixed-point table with
 ///   `FIX(x) = (long)(x·65536 + 0.5)`, `ONE_HALF`, `CBCR_OFFSET`, and the `>> 16` arithmetic shift.
-///   `in_color_space = JCS_EXT_RGBX` (`0x1800fd6f6`) → red/green/blue at byte 0/1/2 of a 4-byte pixel, alpha ignored.</item>
+///   `in_color_space = JCS_EXT_RGBX` → red/green/blue at byte 0/1/2 of a 4-byte pixel, alpha ignored.</item>
 /// <item>`jcsample.c` — `fullsize_downsample` (Y) and `h2v2_downsample` (Cb/Cr, subsampling map key 2 = 4:2:0) with the
 ///   alternating `bias = 1,2` rounding and `expand_right_edge`; `jcprepct.c`'s `expand_bottom_edge`.</item>
-/// <item>`jfdctint.c` — `jpeg_fdct_islow` (JDCT_ISLOW, `cinfo+0x108 = 0` at `0x1800fd727`), then `jcdctmgr.c`'s
+/// <item>`jfdctint.c` — `jpeg_fdct_islow` (JDCT_ISLOW), then `jcdctmgr.c`'s
 ///   `quantize` with `divisors[i] = quantval[i] << 3` and round-half-up-of-magnitude division.</item>
 /// <item>`jchuff.c` — `encode_one_block` + `emit_bits` with `0xFF → 0xFF 0x00` stuffing and the 1-padded final byte.</item>
-/// <item>`jcmarker.c` — SOI, APP0(JFIF 1.1, `density_unit`/`X_density`/`Y_density` = 1/72/72 from `0x1800fd731`),
+/// <item>`jcmarker.c` — SOI, APP0(JFIF 1.1, `density_unit`/`X_density`/`Y_density` = 1/72/72),
 ///   then the application markers (COM, APP1…) written between `jpeg_start_compress` and the first
 ///   `jpeg_write_scanlines`, then DQT×n, SOF0, DHT×n, SOS.</item>
 /// </list>
@@ -31,18 +31,21 @@ namespace Lux.Engine.Pipeline.Export;
 /// </summary>
 public sealed class JpegEncoder
 {
-    /// <summary>`opts.quality` — the literal 0x62 at `0x1805295de`. Passed to `jpeg_set_quality(…, force_baseline = TRUE)`.</summary>
+    /// <summary>`opts.quality` — the literal 98 (0x62). Passed to `jpeg_set_quality(…, force_baseline = TRUE)`.</summary>
     public int Quality = 98;
-    /// <summary>`opts.subsamplingId` — the literal 2 = 4:2:0 (`std::map` at `0x180831918`, key 2 → `2,2 / 1,1 / 1,1`).
-    /// 0 = 4:4:4, 1 = 4:2:2. Ignored for grayscale (`0x1800fd75a` is inside the `fmt > 8` branch).</summary>
+    /// <summary>`opts.subsamplingId` — the literal 2 = 4:2:0 (the subsampling map: key 2 → `2,2 / 1,1 / 1,1`).
+    /// 0 = 4:4:4, 1 = 4:2:2. Ignored for grayscale (Lumen reads the map only in the colour branch).</summary>
     public int SubsamplingId = 2;
-    /// <summary>`jpeg_write_marker(0xFE, …)` at `0x1800fd98b` — `"Created with LibCP " + CIAPI::GetVersion()`. Empty → not written.</summary>
+    /// <summary>`jpeg_write_marker(0xFE, …)` — the COM marker text (Lumen writes its library name and `CIAPI::GetVersion()`). Empty → not written.</summary>
     public string? Comment;
-    /// <summary>`jpeg_write_marker(0xE1, …)` at `0x1800fd9b6` — the whole APP1 payload, i.e. `"Exif\0\0"` + the TIFF block.</summary>
+    /// <summary>`jpeg_write_marker(0xE1, …)` — the whole APP1 payload, i.e. `"Exif\0\0"` + the TIFF block.</summary>
     public byte[]? ExifApp1;
-    /// <summary>The APP1 deque drained at `0x1800fd9fe` — the GDepth XMP standard packet and its extension chunks, in FIFO order.</summary>
+    /// <summary>The APP1 deque — the GDepth XMP standard packet and its extension chunks, in FIFO order.</summary>
     public List<byte[]> ExtraApp1 = new();
-    public int DensityUnit = 1, XDensity = 72, YDensity = 72;   // 0x1800fd731 / 0x1800fd738
+    /// <summary>An ICC profile to embed as APP2 <c>ICC_PROFILE</c> segments after the APP1 blocks. Null writes no profile, as Lumen does.
+    /// With null, the file does not change in any other way.</summary>
+    public byte[]? IccProfile;
+    public int DensityUnit = 1, XDensity = 72, YDensity = 72;
     /// <summary>Progress: (rows done, rows total) after each iMCU row — reporting only, the bytes are the same.</summary>
     public Action<int, int>? RowProgress;
 
@@ -301,7 +304,7 @@ public sealed class JpegEncoder
     Stream _s = Stream.Null;
     int _bitBuffer, _bitCount;
 
-    /// <summary>An option set (the `{ quality, subsamplingId }` struct plus the markers cp.dll adds around it).</summary>
+    /// <summary>An option set (the `{ quality, subsamplingId }` struct plus the markers Lumen adds around it).</summary>
     public JpegEncoder() { }
     JpegEncoder(Stream s) { _s = s; }
 
@@ -331,7 +334,7 @@ public sealed class JpegEncoder
 
     /// <summary>
     /// Encode one image. <paramref name="pixels"/> is either RGBX/RGBA (4 bytes per pixel, alpha ignored — the
-    /// `JCS_EXT_RGBX` fast path at `0x1800fda2b` points libjpeg's `JSAMPARRAY` straight at the rows) or 8-bit
+    /// `JCS_EXT_RGBX` fast path points libjpeg's `JSAMPARRAY` straight at the rows) or 8-bit
     /// grayscale (1 byte per pixel — `fmt &lt; 9` → `JCS_GRAYSCALE`, `input_components = 1`).
     /// </summary>
     public static void Encode(Stream stream, byte[] pixels, int width, int height, int strideBytes, bool grayscale,
@@ -341,7 +344,7 @@ public sealed class JpegEncoder
         var e = new JpegEncoder(stream)
         {
             Quality = options.Quality, SubsamplingId = options.SubsamplingId, Comment = options.Comment,
-            ExifApp1 = options.ExifApp1, ExtraApp1 = options.ExtraApp1,
+            ExifApp1 = options.ExifApp1, ExtraApp1 = options.ExtraApp1, IccProfile = options.IccProfile,
             DensityUnit = options.DensityUnit, XDensity = options.XDensity, YDensity = options.YDensity, RowProgress = options.RowProgress,
         };
         e.Run(pixels, width, height, strideBytes, grayscale);
@@ -349,7 +352,7 @@ public sealed class JpegEncoder
 
     void Run(byte[] pixels, int width, int height, int strideBytes, bool grayscale)
     {
-        // ---- jpeg_set_colorspace + the subsampling map (`0x1800fd75a–944`)
+        // ---- jpeg_set_colorspace + the subsampling map
         var comps = new List<Component>();
         if (grayscale) comps.Add(new Component { Id = 1, H = 1, V = 1, QuantTbl = 0, DcTbl = 0, AcTbl = 0 });
         else
@@ -398,7 +401,7 @@ public sealed class JpegEncoder
         Byte(DensityUnit); Word(XDensity); Word(YDensity);
         Byte(0); Byte(0);                                        // no thumbnail
 
-        // ---- the application markers, in cp.dll's order: COM, APP1(Exif), APP1(XMP)…
+        // ---- the application markers, in Lumen's order: COM, APP1(Exif), APP1(XMP)…
         if (!string.IsNullOrEmpty(Comment))
         {
             var b = Encoding.ASCII.GetBytes(Comment);
@@ -406,6 +409,19 @@ public sealed class JpegEncoder
         }
         if (ExifApp1 is { Length: > 0 }) { Marker(0xE1); Word(ExifApp1.Length + 2); _s.Write(ExifApp1); }
         foreach (var app1 in ExtraApp1) { Marker(0xE1); Word(app1.Length + 2); _s.Write(app1); }
+        if (IccProfile is { Length: > 0 } icc)
+        {
+            // ICC.1 Annex B: each segment holds "ICC_PROFILE\0", the chunk number (from 1), the chunk count, then up to 65519 profile bytes
+            const int Max = 65533 - 14;
+            int count = (icc.Length + Max - 1) / Max;
+            for (int k = 0; k < count; k++)
+            {
+                int off = k * Max, n = Math.Min(Max, icc.Length - off);
+                Marker(0xE2); Word(2 + 14 + n);
+                _s.Write("ICC_PROFILE\0"u8); Byte(k + 1); Byte(count);
+                _s.Write(icc, off, n);
+            }
+        }
 
         // ---- write_frame_header (deferred to the first jpeg_write_scanlines)
         var sentQ = new bool[4];

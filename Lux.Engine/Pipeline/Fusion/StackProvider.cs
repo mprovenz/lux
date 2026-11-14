@@ -4,16 +4,16 @@ using Lux.Engine.Lri;
 namespace Lux.Engine.Pipeline.BayerFusion;
 
 /// <summary>
-/// The stream's per-module `lt::StackFusion` results — what `FUN_18020a6d0` (the stacked float Bayer) and `FUN_18020b870` (the uint8 gain map)
-/// return for a stacked capture, from the map `stream+0x20` keyed by camera id that `FUN_18020b0b0` fills lazily on first use. One shared, lazily
-/// computed fusion per module, so the reference cache (`ReferenceImageCache::processLevel`), the level-1 colour fusion (`FUN_1801f7a90`), the mono
+/// The stream's per-module `lt::StackFusion` results — the stacked float Bayer and the uint8 gain map that Lumen
+/// returns for a stacked capture, from a map keyed by camera id that the stream fills lazily on first use. One shared, lazily
+/// computed fusion per module, so the reference cache (`ReferenceImageCache::processLevel`), the level-1 colour fusion, the mono
 /// fusion (`MonoFusion::initialize`), the fusion render's STD plane (`FusionCacheBayer::render`) and the telephoto level-0 caches
 /// (`SourceImageCache::lambda`) all consume the same frame, as in Lumen where the stream owns it.
-/// <para><b>Frame 0's black</b> (`CapturedImage+0xb4`) follows the load order: `FUN_18020b0b0` estimates the black of every frame IT decodes
-/// (`FUN_180125d10(frame, neutral, 42.0, 1.2, 40)`), but a frame decoded earlier by another path keeps the sensor DB black. The reference module's
+/// <para><b>Frame 0's black</b> follows the load order: the stack driver estimates the black of every frame IT decodes
+/// (neutral, 42.0, 1.2, 40), but a frame decoded earlier by another path keeps the sensor DB black. The reference module's
 /// frame 0 is always loaded through the estimating stream loader; a non-reference module's frame 0 is decoded without an estimate by the registration /
-/// tele decoder (`FUN_1804d3d00` → `FUN_180126010`) in the level-0 (ResAmp) flow, and by nobody before the fusion in a level-1 render — the same rule
-/// as <see cref="PackedBayerFusion.SourceFrameBlackEstimate"/> (`a-monofusion.md` §9 item 9). Frames 1..N−1 are only ever decoded by `FUN_18020b0b0`,
+/// tele decoder in the level-0 (ResAmp) flow, and by nobody before the fusion in a level-1 render — the same rule
+/// as <see cref="PackedBayerFusion.SourceFrameBlackEstimate"/>. Frames 1..N−1 are only ever decoded by the stack driver,
 /// so they always carry the estimate.</para>
 /// </summary>
 public sealed class StackProvider
@@ -27,19 +27,23 @@ public sealed class StackProvider
     public bool SourceFrameBlackEstimate { get; }
     public bool IsStacked => _lri.StackFrames >= 2;
 
-    public StackProvider(LriFile lri, float cct, float tint, Action<string>? log, bool sourceFrameBlackEstimate, string? referenceModule = null)
+    /// <summary>Modules whose frame 0 carries the estimate whatever <see cref="SourceFrameBlackEstimate"/> says (a session render's
+    /// reference-group sources, <see cref="Session.BuildOptions.SessionRender"/>); null = none.</summary>
+    public IReadOnlySet<string>? EstimateModules { get; }
+
+    public StackProvider(LriFile lri, float cct, float tint, Action<string>? log, bool sourceFrameBlackEstimate, string? referenceModule = null, IReadOnlySet<string>? estimateModules = null)
     {
-        _lri = lri; _cct = cct; _tint = tint; _log = log;
+        _lri = lri; _cct = cct; _tint = tint; _log = log; EstimateModules = estimateModules;
         ReferenceModule = referenceModule ?? lri.ReferenceModule;
         SourceFrameBlackEstimate = Environment.GetEnvironmentVariable("LUX_FUSION_SRC_BLACK") switch { "db" => false, "estimate" => true, _ => sourceFrameBlackEstimate };
     }
 
-    /// <summary>`FUN_18020a6d0(stream, camId)` on a stacked capture: the module's fusion, computed once (thread-safe).</summary>
+    /// <summary>The module's fusion on a stacked capture, computed once (thread-safe).</summary>
     public StackFusion Get(string moduleName)
         => _map.GetOrAdd(moduleName, n => new Lazy<StackFusion>(
-               () => new StackFusion(_lri, n, _cct, _tint, _log, 0, refFrameBlackEstimate: n == ReferenceModule || SourceFrameBlackEstimate),
+               () => new StackFusion(_lri, n, _cct, _tint, _log, 0, refFrameBlackEstimate: n == ReferenceModule || SourceFrameBlackEstimate || (EstimateModules?.Contains(n) ?? false)),
                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
 
-    /// <summary>Null for a single-frame capture (`FUN_18020a6d0` returns null unless `FUN_180112250(hdr) > 1`).</summary>
+    /// <summary>Null for a single-frame capture (Lumen returns null unless the stack has more than one frame).</summary>
     public StackFusion? GetIfStacked(string moduleName) => IsStacked ? Get(moduleName) : null;
 }

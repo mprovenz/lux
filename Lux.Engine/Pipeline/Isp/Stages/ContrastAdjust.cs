@@ -1,10 +1,10 @@
 namespace Lux.Engine.Pipeline.Isp.Stages;
 
 /// <summary>
-/// `ContrastAdjust:default` — slot 14 (`setContrastAdjust` `18040c120` case 1 → lambda_66 `18041b7d0`, meta 1/1/1).
-/// `a = contrast_adjust.value` (pipeline+0x1b78); `|a| &lt; 1e-6` (compared as a **double**) leaves the image untouched,
-/// otherwise `AdjustContrast&lt;vec4x32f&gt;` `18038d970` maps `out = 0.217·(x/0.217)^g` with `g = (float)exp2((double)a·0.3)`
-/// through the fast log2/exp2 pair, alpha copied from the source. Spec `a-display-isp.md` §10.
+/// `ContrastAdjust:default` — slot 14 (`setContrastAdjust` case 1, meta 1/1/1).
+/// `a = contrast_adjust.value`; `|a| &lt; 1e-6` (compared as a **double**) leaves the image untouched,
+/// otherwise `AdjustContrast&lt;vec4x32f&gt;` maps `out = 0.217·(x/0.217)^g` with `g = (float)exp2((double)a·0.3)`
+/// through the fast log2/exp2 pair, alpha copied from the source.
 /// </summary>
 public sealed class ContrastAdjustStage : IStage
 {
@@ -17,7 +17,7 @@ public sealed class ContrastAdjustStage : IStage
         var img = p.Rgb ?? throw new InvalidOperationException("ContrastAdjust needs the RGB working image");
         float a = 0f;
         try { a = (float)p.Context.Tuning.Num("contrast_adjust.value"); } catch (KeyNotFoundException) { }
-        if ((double)MathF.Abs(a) < 1e-6) return;                       // DAT_1806b5b80 = 1e-6 (double), ucomisd/jb
+        if ((double)MathF.Abs(a) < 1e-6) return;                       // 1e-6 as a double; a NaN does not return
         var abs = p.ToAbsolute(p.IntRect).Intersect(img.Rect);
         if (abs.IsEmpty) throw new InvalidOperationException("empty image data!");
         var src = img.View(abs);
@@ -26,11 +26,11 @@ public sealed class ContrastAdjustStage : IStage
         p.Rgb = dst;
     }
 
-    public static readonly float Anchor = BitConverter.Int32BitsToSingle(0x3e5e353f);   // DAT_1806d7648 = 0.217f
-    static readonly float Eps = BitConverter.Int32BitsToSingle(0x358637bd);             // _DAT_1806cac10 = 1e-6f
+    public static readonly float Anchor = BitConverter.Int32BitsToSingle(0x3e5e353f);   // 0.217f
+    static readonly float Eps = BitConverter.Int32BitsToSingle(0x358637bd);             // 1e-6f
 
-    /// <summary>`AdjustContrast&lt;vec4x32f&gt;` `18038d970` + tile kernel `180397300`. `g = (float)exp2((double)a·0.3)`
-    /// (the UCRT **double** `exp2`, IAT 0x18067e4d0), `k = (1 − g)·log2f(anchor)` (UCRT `log2f`, IAT 0x18067e488);
+    /// <summary>`AdjustContrast&lt;vec4x32f&gt;` and its tile kernel. `g = (float)exp2((double)a·0.3)`
+    /// (the UCRT **double** `exp2`), `k = (1 − g)·log2f(anchor)` (UCRT `log2f`);
     /// per pixel `x = maxps(eps, s)` (so a NaN source propagates), `y = g·fastlog2(x) + k`, `out = fastexp2(y)`,
     /// lane 3 blended from the source. Tiling (512×512) cannot change a pointwise kernel.</summary>
     public static void Run(Image<Vec4F> dst, Image<Vec4F> src, float anchor, float a)
@@ -54,8 +54,9 @@ public sealed class ContrastAdjustStage : IStage
         return FastLog2Exp2.Exp2(g * FastLog2Exp2.Log2(x) + k);
     }
 
-    /// <summary>UCRT `exp2` (double). Only reached when `contrast_adjust.value ≠ 0`; the display tuning leaves it 0.</summary>
-    static double Exp2Double(double x) => Math.Pow(2.0, x);
+    /// <summary>UCRT `exp2` (double) — <see cref="WineCrt.Exp2"/>, bit-exact on every float `a` in [−4, 4] (the contrast slider's ±100·0.04).
+    /// Reached when `contrast_adjust.value ≠ 0`, i.e. the contrast setting (ParamFloat 7).</summary>
+    static double Exp2Double(double x) => WineCrt.Exp2(x);
     /// <summary>UCRT `log2f`. `log2f(0.217f)` is a compile-time-constant argument here.</summary>
-    static float Log2f(float x) => MathF.Log2(x);
+    static float Log2f(float x) => WineCrt.Log2f(x);   // CRT log2f; MathF.Log2 equals it on every non-NaN float (it quiets signalling NaNs)
 }

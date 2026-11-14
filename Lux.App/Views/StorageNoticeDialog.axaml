@@ -1,0 +1,25 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             x:Class="Lux.App.Views.StorageNoticeDialog"
+             x:DataType="vm:StorageNoticeViewModel">
+  <!-- The quality selector's notice as a dialog: the selection bar and the context menu (one implementation, QualityChanges). -->
+  <Border Classes="dialog" Width="520">
+    <StackPanel>
+      <Border Padding="20,16" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,0,0,1">
+        <TextBlock Classes="dialogtitle wrap" Text="{Binding Title}" />
+      </Border>
+      <StackPanel Margin="20,16" Spacing="10">
+        <TextBlock Classes="wrap" Text="{Binding Text}" />
+        <CheckBox IsChecked="{Binding DontAskAgain}" IsVisible="{Binding IsUpgrade}" MinHeight="32" Content="Don't ask again"
+                  ToolTip.Tip="Turn the question back on in Settings" />
+      </StackPanel>
+      <Border Padding="20,12" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,1,0,0">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+          <Button Content="Cancel" Padding="16,0" Command="{Binding CancelCommand}" />
+          <Button Classes="primary" Content="{Binding Action}" Command="{Binding ConfirmCommand}" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </Border>
+</UserControl>

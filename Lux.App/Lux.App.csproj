@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Lux.App — the desktop application (Avalonia). The library, the job queue and the settings are reached through the
+    interfaces in Lux.Library (Contracts.cs); this project adds the design system, the shell, the browse views and a
+    fake in-memory library used for design-time, screenshots and tests (`lux-app - -fake`).
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>lux-app</AssemblyName>
+    <RootNamespace>Lux.App</RootNamespace>
+    <!-- The version is set once for all projects in Directory.Build.props. -->
+    <ApplicationIcon>Assets\Icon\lux.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.18" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <!-- installer and in-app updates for the installed builds (Windows Setup.exe, Linux AppImage); inert in the plain archives -->
+    <PackageReference Include="Velopack" Version="1.2.161" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- the design's faces, bundled (SIL Open Font License 1.1): Archivo for text, JetBrains Mono for names and numbers -->
+    <AvaloniaResource Include="Assets\Fonts\*.ttf" />
+    <!-- the app icon (window, taskbar); the .ico above is the Windows executable's icon -->
+    <AvaloniaResource Include="Assets\Icon\lux-256.png" />
+    <!-- their licences ship next to them in the output and the published app, with the notices -->
+    <None Include="Assets\Fonts\*-OFL.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- the library contract (Contracts.cs) and its implementation; the app binds to the interfaces only -->
+    <ProjectReference Include="..\Lux.Library\Lux.Library.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Lux.App.Tests" />
+  </ItemGroup>
+
+</Project>

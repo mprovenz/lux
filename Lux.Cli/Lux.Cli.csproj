@@ -6,8 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>lux-light</AssemblyName>
-    <!-- The build's version: `lux-light version` compares it with the latest GitHub release tag (v<Version>). Bump it with each release. -->
-    <Version>1.2.0</Version>
+    <!-- The version is set once for all projects in Directory.Build.props. -->
     <RootNamespace>Lux.Cli</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- The tile render allocates its scratch per tile on many threads; the workstation collector let ~20 GB of dead
@@ -18,6 +17,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Lux.Engine\Lux.Engine.csproj" />
+    <!-- the per-capture store (LuxImageContext): saved depth edits; carries the SQLite dependency -->
+    <ProjectReference Include="..\Lux.Store\Lux.Store.csproj" />
   </ItemGroup>
 
 </Project>

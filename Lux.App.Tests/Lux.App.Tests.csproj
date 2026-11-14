@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Lux.App.Tests — headless UI tests of the desktop app (Avalonia's headless platform with Skia rendering): every page and state rendered
+    to PNG with the fake library, interaction tests (views, selection, keys, sort, filter, export, queue, Lumen import), and the
+    virtualisation / scroll-timing measurements. Screenshots go to LUX_SHOTS_DIR (default: a UI output folder beside the solution's
+    workspace when it exists, else the test output folder).
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>Lux.App.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.12.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
+    <PackageReference Include="Avalonia.Headless.XUnit" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Skia" Version="11.3.18" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Lux.App\Lux.App.csproj" />
+  </ItemGroup>
+
+</Project>

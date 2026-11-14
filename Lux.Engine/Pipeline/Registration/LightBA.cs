@@ -1,8 +1,8 @@
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// `LightBA` — the sparse bundle adjustment of `FUN_1802dc770` (ctor `FUN_180277810`, `Solve` `FUN_1802784c0`; spec
-/// `a75927dbfc3c9d6b2.md`): cameras {K, angle-axis, t, mask} in double, constant 3-D points, Ceres 1.12 trust-region
+/// `LightBA` — the sparse bundle adjustment of the BA caller (ctor and `Solve`):
+/// cameras {K, angle-axis, t, mask} in double, constant 3-D points, Ceres 1.12 trust-region
 /// Levenberg–Marquardt (SPARSE_SCHUR, nonmonotonic steps, 100 iterations, tolerances 1e-20) on the reprojection cost plus the optional
 /// entrance-pupil and intrinsics priors. Points/cameras are normalised by the robust median scale first and de-normalised after; finally
 /// every pose is re-expressed relative to camera 0. The linear solve is done exactly on the (Jacobi-scaled) normal equations instead of
@@ -46,7 +46,7 @@ public sealed class LightBA
         return r;
     }
 
-    /// <summary>The hand-written Rodrigues of `FUN_18027ca80` / the final point transform (θ ≤ 0 → I).</summary>
+    /// <summary>The hand-written Rodrigues of the final point transform (θ ≤ 0 → I).</summary>
     static double[] HandRodrigues(double[] a)
     {
         double theta = Math.Sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
@@ -85,7 +85,7 @@ public sealed class LightBA
         return new[] { 0.0, 0.0, 0.0 };
     }
 
-    /// <summary>`FUN_180226e60`: OpenCV-style `Rodrigues(mat→vec)` applied to the polar factor `U·Vᵀ` of R (Eigen JacobiSVD in Lumen; here the
+    /// <summary>OpenCV-style `Rodrigues(mat→vec)` applied to the polar factor `U·Vᵀ` of R (Eigen JacobiSVD in Lumen; here the
     /// Newton polar iteration `X ← ½(X + X⁻ᵀ)`, identical to ~1e-15). Row-major input.</summary>
     public static double[] RotationVector(double[] R)
     {
@@ -124,7 +124,7 @@ public sealed class LightBA
 
     static double Median(List<double> v) { var s = v.ToList(); s.Sort(); return s[s.Count / 2]; }   // nth_element at n/2 (upper median)
 
-    /// <summary>`FUN_1802784c0`: normalise, build + solve the Ceres problem, de-normalise, write back, re-express relative to camera 0.</summary>
+    /// <summary>Normalise, build + solve the Ceres problem, de-normalise, write back, re-express relative to camera 0.</summary>
     public void Solve(Action<string>? log = null)
     {
         var recs = Cams.Select(c => new Rec { Key = c.Key, F = c.K[0], Aspect = c.K[4] / c.K[0], Cx = c.K[2], Cy = c.K[5], Aa = (double[])c.Aa.Clone(), T = (double[])c.T.Clone(), Mask = c.Mask }).ToList();
@@ -146,7 +146,7 @@ public sealed class LightBA
             c.K = new[] { r.F, 0, r.Cx, 0, r.Aspect * r.F, r.Cy, 0, 0, 1.0 }; c.Aa = (double[])r.Aa.Clone(); c.T = (double[])r.T.Clone();
         }
         for (int i = 0; i < Observations.Count; i++) for (int c = 0; c < 3; c++) Observations[i].X[c] = (float)pts[i][c];
-        // FUN_18027b7a0: relative to camera 0
+        // relative to camera 0
         if (Cams.Count == 0) throw new InvalidOperationException("Empty camera map.");
         if (Cams[0].Key != 0) throw new ArgumentOutOfRangeException("invalid map<K, T> key");
         var aaR = (double[])Cams[0].Aa.Clone(); var tR = (double[])Cams[0].T.Clone();
@@ -156,7 +156,7 @@ public sealed class LightBA
             var Rcam = HandRodrigues(c.Aa);
             var M = new double[9];
             for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) M[3 * i + j] = (Rref[3 * j] * Rcam[3 * i] + Rref[3 * j + 1] * Rcam[3 * i + 1]) + Rref[3 * j + 2] * Rcam[3 * i + 2];   // R_cam·R_refᵀ
-            c.Aa = RotationVector(M);   // FUN_180226e60 (polar + OpenCV Rodrigues)
+            c.Aa = RotationVector(M);   // polar + OpenCV Rodrigues
             var t = new double[3];
             for (int i = 0; i < 3; i++) t[i] = c.T[i] - ((M[3 * i + 2] * tR[2] + M[3 * i] * tR[0]) + M[3 * i + 1] * tR[1]);
             c.T = t;

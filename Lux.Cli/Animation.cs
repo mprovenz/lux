@@ -6,15 +6,11 @@ using Lux.Engine.Pipeline.Parallax;
 namespace Lux.Cli;
 
 /// <summary>
-/// Animation encoding for the `parallax-*` formats, delegated to <c>ffmpeg</c>.
+/// The ffmpeg path of the `parallax-*` animations: AVIF always, and every container with `--parallax-encoder ffmpeg`.
+/// GIF, APNG and WebP (lossless) are written by Lux's own encoders by default (<see cref="AnimationEncoder"/>, engine
+/// `Pipeline/Export`), so ffmpeg is needed only for AVIF, this recipe and video (`animate`, <see cref="VideoEncoder"/>).
 ///
-/// GIF, animated WebP and AVIF are VP8/AV1-class containers that cannot be hand-written the way this project's JPEG
-/// and DNG writers were, and ffmpeg is the one tool that covers all of them. The frames handed to it are produced
-/// entirely by Lux. ffmpeg is therefore a hard requirement of every animated format: `convert` checks for it before
-/// any rendering starts and stops with exit 2 if it is missing (<see cref="ConvertCmd.TryPlan"/>).
-///
-/// The recipes are not ffmpeg's defaults, and the differences were measured on this material by the session that
-/// built the wigglegram (spec `a-wigglegram.md`):
+/// The recipes are not ffmpeg's defaults, and the differences were measured on this material:
 /// * GIF gets **one global palette** (`palettegen=stats_mode=full` over the whole sequence). Per-frame palettes shift
 ///   the colours between frames, which on a short loop reads as flicker rather than as parallax.
 /// * GIF gets **Bayer dithering**, not error diffusion. Error diffusion is dithered per frame, so its pattern crawls:

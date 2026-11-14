@@ -1,7 +1,7 @@
 # Lux — .NET solution
 #
-# Only this directory is published; everything else in the project (oracle dumps, captures, the Wine prefix,
-# vendor binaries, Ghidra projects) lives outside it and is backed up locally instead.
+# Only this directory is published; everything else in the project (test data, captures, vendor binaries, tool
+# files) lives outside it and is backed up locally instead.
 
 # ---- build output -------------------------------------------------------------------------------------------
 bin/
@@ -9,6 +9,7 @@ obj/
 [Bb]uild/
 [Oo]ut/
 artifacts/
+dist/
 *.binlog
 
 # NuGet

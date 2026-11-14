@@ -1,7 +1,7 @@
 namespace Lux.Engine.Imaging;
 
-/// <summary>Lumen's software Float16 conversions (`FUN_1800e8150` float→half, `FUN_1800e86c0` half→float; spec `ab6d047c4aab9a904.md`
-/// §1.2): **round-toward-zero** to half (finite overflow clamps to 65504, subnormals truncated), exact half→float.</summary>
+/// <summary>Lumen's software Float16 conversions: **round-toward-zero** to half (finite overflow clamps to 65504, subnormals
+/// truncated), exact half→float.</summary>
 public static class Half16
 {
     public static ushort FromFloat(float f)
@@ -18,7 +18,14 @@ public static class Half16
         return (ushort)(sign | (((ap + 0x08000000u) >> 13) & 0xffffu));
     }
 
-    public static float ToFloat(ushort h)
+    /// <summary>Half → float by table: the 65 536 results of <see cref="ToFloatCompute"/>, so the same bits.</summary>
+    public static float ToFloat(ushort h) => Table[h];
+
+    static readonly float[] Table = BuildTable();
+    static float[] BuildTable() { var t = new float[65536]; for (int i = 0; i < 65536; i++) t[i] = ToFloatCompute((ushort)i); return t; }
+
+    /// <summary>Exact half → float.</summary>
+    public static float ToFloatCompute(ushort h)
     {
         uint a = (uint)h & 0x7fffu, sign = ((uint)h << 16) & 0x80000000u;
         uint bits;

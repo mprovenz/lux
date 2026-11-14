@@ -1,10 +1,11 @@
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 using static Lux.Engine.Pipeline.ResAmp.SseOps;
 
 namespace Lux.Engine.Pipeline.ResAmp;
 
-/// <summary>`lt::ImageResolutionAmp` (cp.dll 180439e90) + its `lambda_0` (18043abc0): Lumen 2.3's level-0 super-resolution merge of the
-/// wide reference with the tele modules, ported op-for-op from spec `a-resamp.md` (port notes: `a-resamp-port.md`).
+/// <summary>`lt::ImageResolutionAmp` + its `lambda_0`: Lumen 2.3's level-0 super-resolution merge of the
+/// wide reference with the tele modules.
 /// The result is the √-domain canvas tile; `PipelineCache::processLevel0` squares it (<see cref="Square"/>) and multiplies by the neutral.</summary>
 public sealed class ImageResolutionAmp
 {
@@ -17,7 +18,7 @@ public sealed class ImageResolutionAmp
     /// <summary>Diagnostics: (record index, gcol, grow) coarse grid points to print ModuleMerge inputs/outputs for.</summary>
     public HashSet<(int, int, int)>? DebugPoints;
 
-    /// <summary>The driver preamble (§2): Hann window of length N = trunc(16·scale), its rsqrt/rcp inverse, the 16-phase Catmull-Rom table.</summary>
+    /// <summary>The driver preamble: Hann window of length N = trunc(16·scale), its rsqrt/rcp inverse, the 16-phase Catmull-Rom table.</summary>
     public ImageResolutionAmp(ImageGenerator refGen, ImageGenerator l1Gen, IReadOnlyList<ResAmpModule> modules, float scale)
     {
         RefGen = refGen; L1Gen = l1Gen; Modules = modules; Scale = scale;
@@ -31,7 +32,7 @@ public sealed class ImageResolutionAmp
         for (int i = 0; i < N; i++)
         {
             float v = ((float)i + 0.5f) * c;
-            float w = Lux.Engine.Pipeline.Registration.MuslMath.Cosf(v);   // the CRT cosf Lumen runs (musl); glibc's differs by an ulp on some N (34 on a 75 mm capture)
+            float w = WineCrt.Cosf(v);   // the CRT cosf (glibc's differs by an ulp on N = 34, musl's on 11 lengths the L16 never reaches)
             Window[i] = 0.5f - w * 0.5f;
         }
         for (int i = 0; i < N; i++)
@@ -56,7 +57,7 @@ public sealed class ImageResolutionAmp
         return outp;
     }
 
-    /// <summary>`FUN_1800fb0b0`: the caller's √ decode — every lane squared (alpha too).</summary>
+    /// <summary>The caller's √ decode — every lane squared (alpha too).</summary>
     public static void Square(ResImage img)
     {
         for (int y = 0; y < img.H; y++) { int b = img.Idx(0, y); for (int i = 0; i < img.W * 4; i++) img.Data[b + i] = img.Data[b + i] * img.Data[b + i]; }
@@ -66,7 +67,7 @@ public sealed class ImageResolutionAmp
     void Lambda0(RectI r, ResImage outp)
     {
         float invS = InvScale, s = Scale;
-        // §2.3 geometry in wide-reference coordinates
+        // geometry in wide-reference coordinates
         TileGeometry(r, invS, out int x0c, out int y0c, out int x1c, out int y1c);
         int w = x1c - x0c, h = y1c - y0c;
         var accAlloc = new ResImage(w + 15, h + 15);
@@ -76,7 +77,7 @@ public sealed class ImageResolutionAmp
         for (int j = 0; j < gh; j++) for (int i = 0; i < gw; i++) { grid[(j * gw + i) * 2] = x0c + 8 * i; grid[(j * gw + i) * 2 + 1] = y0c + 8 * j; }
         int refW = RefGen.W, refH = RefGen.H;
 
-        // §3 reference preparation
+        // reference preparation
         var refImg = ResAmpKernels.RenderGen(RefGen, x0c - 24, y0c - 24, x1c + 24, y1c + 24);
         Trace?.Emit("ref", refImg);
         refImg = refImg.Crop(16, 16, w + 32, h + 32);                         // (w+16)×(h+16), rect (−16,−16,w+32,h+32)
@@ -96,7 +97,7 @@ public sealed class ImageResolutionAmp
         var L1img = l1.Crop(8, 8, w + 8, h + 8);
         float[] hann16 = Hann16;
 
-        // §4 per-module preparation
+        // per-module preparation
         var records = new List<ModuleRecord>();
         for (int m = 0; m < Modules.Count; m++)
         {
@@ -107,8 +108,8 @@ public sealed class ImageResolutionAmp
             records.Add(ModulePrep.Build(mod.Gen, s, weights, proj, gw, gh, minx, miny, maxx, maxy, m, Trace));
         }
 
-        // (not in the spec text; disasm 18043b439–18043b4b3 + 18043d007–18043d206) after the module loop the L1 view is expanded back to
-        // its whole allocation, colour-decorrelated IN PLACE (M·p, alpha kept, same op as §4.3) over all (w+16)×(h+16) px, then cropped
+        // After the module loop the L1 view is expanded back to its whole allocation, colour-decorrelated IN PLACE (M·p, alpha
+        // kept, the same operation as in the module preparation) over all (w+16)×(h+16) px, then cropped
         // again to (8,8,w+8,h+8). The 8-px halo the ImageResample<2> taps read is therefore transformed too.
         {
             var Mr = ModulePrep.Mrow; var d = l1.Data;
@@ -121,7 +122,8 @@ public sealed class ImageResolutionAmp
             }
         }
 
-        // §5 coarse per-grid-point alignment + wavelet merge
+        // coarse per-grid-point alignment + wavelet merge
+        bool prof = Diagnostics.PhaseLog.On; long tRef = 0, tAlign = 0, tMerge = 0, tInv = 0, tStart = System.Diagnostics.Stopwatch.GetTimestamp();
         var ws = new float[0x26e0 / 4];
         WriteSlotTable(ws);
         var patch = new byte[256]; var blk = new float[1024];
@@ -131,12 +133,17 @@ public sealed class ImageResolutionAmp
                 int idx = grow * gw + gcol;
                 int gx_l = grid[idx * 2] - x0c, gy_l = grid[idx * 2 + 1] - y0c;
                 for (int rr = 0; rr < 16; rr++) Array.Copy(mask.Data, mask.Idx(gx_l - 8, gy_l - 8 + rr), patch, rr * 16, 16);
+                long tr0 = prof ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                 RefAnalysis.Run(ws, L1img, gx_l, gy_l);
+                if (prof) tRef += System.Diagnostics.Stopwatch.GetTimestamp() - tr0;
                 foreach (var rec in records)
                 {
                     int gmx = rec.Grid[idx * 2], gmy = rec.Grid[idx * 2 + 1];
                     if (gmx == int.MinValue) continue;
-                    if (!CoarseAlign.Align(rec, gmx, gmy, invS, s, patch, blk, out float fx, out float fy))
+                    long ta0 = prof ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+                    bool aligned = CoarseAlign.Align(rec, gmx, gmy, invS, s, patch, blk, out float fx, out float fy);
+                    if (prof) tAlign += System.Diagnostics.Stopwatch.GetTimestamp() - ta0;
+                    if (!aligned)
                     { rec.Grid[idx * 2] = int.MinValue; rec.Grid[idx * 2 + 1] = int.MinValue; continue; }
                     float X = fx * s;
                     if (DebugPoints is not null && DebugPoints.Contains((records.IndexOf(rec), gcol, grow)))
@@ -144,13 +151,20 @@ public sealed class ImageResolutionAmp
                         float amin = float.MaxValue, amax = float.MinValue; for (int p = 3; p < 1024; p += 4) { amin = Math.Min(amin, blk[p]); amax = Math.Max(amax, blk[p]); }
                         Console.WriteLine($"[dbg] r{records.IndexOf(rec)} gp ({gcol},{grow}) gm ({gmx},{gmy}) fx {fx:R} fy {fy:R} blk alpha [{amin:R},{amax:R}] blk[0] ({blk[0]:R},{blk[1]:R},{blk[2]:R},{blk[3]:R}) sumAbsRef {ws[0x26d0 / 4]:R} e_ref {ws[0x1540 / 4]:R} {ws[0x1550 / 4]:R} {ws[0x1560 / 4]:R} {ws[0x1570 / 4]:R}");
                     }
-                    ModuleMerge.Dbg = DebugPoints is not null && DebugPoints.Contains((records.IndexOf(rec), gcol, grow)) ? m => Console.WriteLine("[dbg]   " + m) : null;
+                    // The shared static is written only when debugging is (or was) active: a write per block from every tile thread
+                    // keeps its cache line bouncing between cores
+                    if (DebugPoints is not null || ModuleMerge.Dbg is not null)
+                        ModuleMerge.Dbg = DebugPoints is not null && DebugPoints.Contains((records.IndexOf(rec), gcol, grow)) ? m => Console.WriteLine("[dbg]   " + m) : null;
+                    long tm0 = prof ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                     float conf = ModuleMerge.Run(ws, blk);
+                    if (prof) tMerge += System.Diagnostics.Stopwatch.GetTimestamp() - tm0;
                     if (DebugPoints is not null && DebugPoints.Contains((records.IndexOf(rec), gcol, grow))) Console.WriteLine($"[dbg]   conf {conf:R} ({BitConverter.SingleToUInt32Bits(conf):x8})");
                     float Y = fy * s;
                     rec.Res[idx * 3] = X; rec.Res[idx * 3 + 1] = Y; rec.Res[idx * 3 + 2] = conf;
                 }
+                long ti0 = prof ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                 int o = InverseMerge.Run(ws);
+                if (prof) tInv += System.Diagnostics.Stopwatch.GetTimestamp() - ti0;
                 for (int j = 0; j < 16; j++)
                 {
                     int ab = acc.Idx(gx_l - 8, gy_l - 8 + j);
@@ -162,10 +176,17 @@ public sealed class ImageResolutionAmp
                     }
                 }
             }
+        if (prof)
+        {
+            double f = 1000.0 / System.Diagnostics.Stopwatch.Frequency, now = Diagnostics.PhaseLog.Now;
+            Diagnostics.PhaseLog.Add("ra.ref", now, tRef * f); Diagnostics.PhaseLog.Add("ra.align", now, tAlign * f); Diagnostics.PhaseLog.Add("ra.merge", now, tMerge * f);
+            Diagnostics.PhaseLog.Add("ra.inverse", now, tInv * f); Diagnostics.PhaseLog.Add("ra.grid-loop", now, (System.Diagnostics.Stopwatch.GetTimestamp() - tStart) * f);
+        }
+        using var phRest = Diagnostics.PhaseLog.Time("ra.upsample+rest");
         Trace?.Emit("coarse", acc);
         foreach (var rec in records) { Trace?.Emit($"r{records.IndexOf(rec)}_grid_post", (rec.Grid, gw, gh)); Trace?.Emit($"r{records.IndexOf(rec)}_res", (rec.Res, gw, gh)); }
 
-        // §6.1 border mirror
+        // border mirror
         int dxm = x1c - refW, dym = y1c - refH;
         if (dxm > 0 || dym > 0)
         {
@@ -173,7 +194,7 @@ public sealed class ImageResolutionAmp
             ResAmpKernels.Mirror(acc, 0, 0, rw_, rh_, 2);
             ResAmpKernels.Mirror(L1img, 0, 0, rw_, rh_, 2);
         }
-        // §6.2 upsample the coarse results to canvas resolution
+        // upsample the coarse results to canvas resolution
         int rw = r.Width, rh = r.Height;
         var outCrop = outp;
         double offX = (double)((float)r.X0 * invS - (float)x0c), offY = (double)((float)r.Y0 * invS - (float)y0c);
@@ -184,7 +205,7 @@ public sealed class ImageResolutionAmp
         ResAmpKernels.Resample(L1up, L1img, offX, offY, (double)invS, (double)invS, bspline: false);
         Trace?.Emit("U", L1up);
 
-        // §6.3 full-resolution accumulator
+        // full-resolution accumulator
         int half = N >> 1;
         int X0 = FloorI((float)x0c * s), Y0 = FloorI((float)y0c * s);
         int Wg = FloorI((float)x1c * s) - X0, Hg = FloorI((float)y1c * s) - Y0;
@@ -192,7 +213,7 @@ public sealed class ImageResolutionAmp
         var accF = accFAlloc.Crop(Math.Max(0, half), Math.Max(0, half), Math.Min(Wg + half, accFAlloc.W), Math.Min(Hg + half, accFAlloc.H));
         var fpatch = new float[N * N * 4]; var render = new float[N * N * 4];
 
-        // §6.4 per-grid-point merge
+        // per-grid-point merge
         Span<uint> S = stackalloc uint[4];
         uint seed = (uint)(r.Y0 << 16 | r.X0);
         S[0] = seed ^ 0xb36534e5u; S[1] = seed ^ 0x93fc4795u; S[2] = seed ^ 0xa511e9b3u; S[3] = seed ^ 0xdf6e307fu;
@@ -203,15 +224,18 @@ public sealed class ImageResolutionAmp
                 int idx = j * gw + i;
                 float fx = (float)grid[idx * 2] * s, fy = (float)grid[idx * 2 + 1] * s;
                 int gx = FloorI(fx), gy = FloorI(fy);
+                // the four xorshift states advanced as one Vector128<uint> (the same integer steps per lane)
+                var sv = Vector128.Create(S[0], S[1], S[2], S[3]);
                 for (int y = 0; y < N; y++)
                     for (int x = 0; x < N; x++)
                     {
-                        for (int l = 0; l < 4; l++) { uint t = S[l]; t ^= t << 13; t ^= t >> 17; t ^= t << 5; S[l] = t; }
-                        float u = BitConverter.UInt32BitsToSingle((S[0] >> 9) | 0x40000000u) + -3.0f;
+                        sv ^= sv << 13; sv ^= sv >>> 17; sv ^= sv << 5;
+                        float u = BitConverter.UInt32BitsToSingle((sv.GetElement(0) >> 9) | 0x40000000u) + -3.0f;
                         float t1 = Winv[y] * c006; float t2 = Winv[x] * u; float vv = t2 * t1;
                         int po = (y * N + x) * 4;
                         fpatch[po] = vv; fpatch[po + 1] = 0f; fpatch[po + 2] = 0f; fpatch[po + 3] = 0f;
                     }
+                S[0] = sv.GetElement(0); S[1] = sv.GetElement(1); S[2] = sv.GetElement(2); S[3] = sv.GetElement(3);
                 float W = c02;
                 foreach (var rec in records)
                 {
@@ -223,13 +247,11 @@ public sealed class ImageResolutionAmp
                     if (N > 0)
                     {
                         float m = Max(conf + -0.5f, 0f); float wv0 = (m + m) + conf;
+                        var wv = Vector128.Create(wv0, conf, conf, conf);   // a pixel's four lanes at once (lane 0 by wv0, the rest by conf)
                         for (int p = 0; p < N * N; p++)
                         {
                             int po = p * 4;
-                            fpatch[po] = render[po] * wv0 + fpatch[po];
-                            fpatch[po + 1] = render[po + 1] * conf + fpatch[po + 1];
-                            fpatch[po + 2] = render[po + 2] * conf + fpatch[po + 2];
-                            fpatch[po + 3] = render[po + 3] * conf + fpatch[po + 3];
+                            (Vector128.Create((ReadOnlySpan<float>)render.AsSpan(po, 4)) * wv + Vector128.Create((ReadOnlySpan<float>)fpatch.AsSpan(po, 4))).CopyTo(fpatch.AsSpan(po, 4));
                         }
                     }
                     W = W + conf;
@@ -247,17 +269,16 @@ public sealed class ImageResolutionAmp
                         {
                             int po = (y * N + x) * 4, ao = ab + x * 4;
                             float wgt = Window[x] * Window[y];
-                            accF.Data[ao] = wgt * fpatch[po] + accF.Data[ao];
-                            accF.Data[ao + 1] = wgt * fpatch[po + 1] + accF.Data[ao + 1];
-                            accF.Data[ao + 2] = wgt * fpatch[po + 2] + accF.Data[ao + 2];
-                            accF.Data[ao + 3] = wgt * a + accF.Data[ao + 3];
+                            // the four lanes at once (lane 3 takes a in place of the patch value)
+                            var fp = Vector128.Create((ReadOnlySpan<float>)fpatch.AsSpan(po, 4)).WithElement(3, a);
+                            (Vector128.Create(wgt) * fp + Vector128.Create((ReadOnlySpan<float>)accF.Data.AsSpan(ao, 4))).CopyTo(accF.Data.AsSpan(ao, 4));
                         }
                     }
                 }
             }
         Trace?.Emit("fullacc", accF);
 
-        // §6.5 detail term
+        // detail term
         {
             int cx0 = Math.Max(r.X0 - X0, accF.RX0), cy0 = Math.Max(r.Y0 - Y0, accF.RY0);
             int cx1 = Math.Min(r.X0 - X0 + rw, accF.RX1), cy1 = Math.Min(r.Y0 - Y0 + rh, accF.RY1);
@@ -280,7 +301,7 @@ public sealed class ImageResolutionAmp
             }
         }
         Trace?.Emit("out65", outCrop);
-        // §6.6 decorrelation inverse (Mᵀ) + alpha 1
+        // decorrelation inverse (Mᵀ) + alpha 1
         var M = ModulePrep.Mrow;
         for (int y = 0; y < rh; y++)
         {
@@ -300,7 +321,7 @@ public sealed class ImageResolutionAmp
         Trace?.Emit("amp_out", outCrop);
     }
 
-    /// <summary>§2.3: tile rect (canvas) → 8-aligned wide-reference region with ≥ 2 px margin.</summary>
+    /// <summary>Tile rect (canvas) → 8-aligned wide-reference region with ≥ 2 px margin.</summary>
     public static void TileGeometry(RectI r, float invS, out int x0c, out int y0c, out int x1c, out int y1c)
     {
         int xs0 = Cvtt((float)r.X0 * invS), ys0 = Cvtt((float)r.Y0 * invS), xs1 = Cvtt((float)r.X1 * invS), ys1 = Cvtt((float)r.Y1 * invS);
@@ -320,7 +341,7 @@ public sealed class ImageResolutionAmp
             throw new InvalidOperationException($"ResAmp: N×N footprint ({ix - 1}..{ix + N + 1}, {iy - 1}..{iy + N + 1}) leaves the module halo rect ({img.RX0},{img.RY0},{img.RX1},{img.RY1}) of record {rec.ModuleIndex}");
     }
 
-    /// <summary>§5.2: the 256-B slot table at ws+0x25d0, `slot(r,c)`.</summary>
+    /// <summary>The 256-B slot table at ws+0x25d0, `slot(r,c)`.</summary>
     static void WriteSlotTable(float[] ws)
     {
         var bytes = MemoryMarshal.AsBytes(ws.AsSpan(0x25d0 / 4, 64));
@@ -332,7 +353,7 @@ public sealed class ImageResolutionAmp
             }
     }
 
-    /// <summary>`_DAT_1806de9f0`: the 16-tap Hann window used by the coarse overlap-add (copied bit-exactly).</summary>
+    /// <summary>The 16-tap Hann window used by the coarse overlap-add (Lumen's exact values).</summary>
     public static readonly float[] Hann16 =
     {
         F(0x3c1d6840), F(0x3dac933c), F(0x3e638c4e), F(0x3ece0e91), F(0x3f18f8b8), F(0x3f471cee), F(0x3f6a6d99), F(0x3f7d8a60),

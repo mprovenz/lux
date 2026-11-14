@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Lux.Store — persistent per-capture data (the `LuxImageContext` folder next to the captures).
+
+    This project carries the SQLite dependency so that Lux.Engine stays dependency-free. It holds the depth-edit
+    store: one database per edited capture with the edited tiles, the operation log and the depth the edits were
+    made on. Shared by `lux-light` (exports honour saved edits) and the desktop app.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Lux.Store</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Lux.Engine\Lux.Engine.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0" />
+  </ItemGroup>
+
+</Project>

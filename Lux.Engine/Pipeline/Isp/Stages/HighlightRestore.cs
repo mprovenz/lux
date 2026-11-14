@@ -5,23 +5,23 @@ using System.Runtime.Intrinsics.X86;
 namespace Lux.Engine.Pipeline.Isp.Stages;
 
 /// <summary>
-/// `lt::RestoreHighlightsBayer` (dispatcher `1803c9b60`; phase kernels `1803c9e90/…cc0b0/…ce320/…d05a0` for the four
-/// red positions; source row cache `FUN_1803d2910`, 3×3-max row `FUN_1803d2d20`) = `HighlightRestore:default` on the
+/// Lumen's `lt::RestoreHighlightsBayer` (dispatcher; one phase kernel for each of the four
+/// red positions; source row cache, 3×3-max row) = `HighlightRestore:default` on the
 /// Bayer-ushort domain. Per pixel: copied unless the 3×3 max ≥ (ushort)(int)(white·0.985); otherwise the missing
 /// channels are estimated from the neighbourhood (green-guided Laplacian interpolation in 10.10 fixed point, weighted
 /// by 1/(|ΔG|/(white−black) + 1/1024)), the white-balanced normalised triple is pulled toward the mean of the
 /// unclipped channels by the per-channel clip weight ((v·n − 0.85)·6.667), toward grey by (Σw − 1)·(alignment with
-/// the chroma direction) and toward the max channel by (Σw − 2); the site's channel is written back. Transcribed from
-/// the assembly of kernel 0 (all SSE approximations — rcpps/rcpss/rsqrtps/rsqrtss — kept).
+/// the chroma direction) and toward the max channel by (Σw − 2); the site's channel is written back. The port follows
+/// Lumen's phase kernel 0 operation by operation (all SSE approximations — rcpps/rcpss/rsqrtps/rsqrtss — kept).
 /// </summary>
 public static class HighlightRestoreKernel
 {
-    public const int Pad = 9, Align = 2;   // live slot meta (cp.dll's live ISP-stage listing: slot 2 docall 4168d0 pad 9 align 2); the kernel itself is pointwise, the pad only sets the runner geometry
+    public const int Pad = 9, Align = 2;   // the slot meta of Lumen's live pipeline: pad 9, align 2; the kernel itself is pointwise, the pad only sets the runner geometry
 
     static float RcpNr(float x) { var r = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar(); return ((1f - x * r) * r + r) * 1f; }
     static float Rcp(float x) => IntelApprox.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar();
     static float Rsqrt(float x) => IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar();
-    static float MaxSs(float a, float b) => a > b ? a : b;   // maxss dst,src → dst > src ? dst : src
+    static float MaxSs(float a, float b) => a > b ? a : b;   // MAXSS semantics: NaN gives b
     static float MinSs(float a, float b) => a < b ? a : b;
 
     sealed class Frame
@@ -210,7 +210,7 @@ public sealed class HighlightRestoreStage : IStage
         int srcOffset = src.Offset + (abs.Y0 - src.Rect.Y0) * src.Stride + (abs.X0 - src.Rect.X0);
         var srcRect = new RectI(src.Rect.X0 - abs.X0, src.Rect.Y0 - abs.Y0, src.Rect.X1 - abs.X0, src.Rect.Y1 - abs.Y0);
         var dst = new Image<ushort>(abs);
-        HighlightRestoreKernel.Run(src.Data, src.Stride, srcOffset, srcRect, dst.Data, dst.Stride, 0, new RectI(0, 0, abs.Width, abs.Height), red.X, red.Y, p.Stats.Neutral, float.IsNaN(p.Frame.FrameBlack) ? noise.Black : p.Frame.FrameBlack, noise.White);   // setHighlightRestore::lambda_31 L65-67: frame black/white floats (Stats+0x198 → +4/+8)
+        HighlightRestoreKernel.Run(src.Data, src.Stride, srcOffset, srcRect, dst.Data, dst.Stride, 0, new RectI(0, 0, abs.Width, abs.Height), red.X, red.Y, p.Stats.Neutral, float.IsNaN(p.Frame.FrameBlack) ? noise.Black : p.Frame.FrameBlack, noise.White);   // the frame black/white floats of the Stats sensor
         p.Raw = dst;
     }
 }

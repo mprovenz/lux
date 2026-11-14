@@ -1,6 +1,6 @@
 namespace Lux.Engine.Pipeline.ResAmp;
 
-/// <summary>`lt::WarpField` (spec §1.4, 0x50 B): column-major 4×4 `M` (M[4c+r]), the 4160×3120 metric depth image and the sx/sy scale
+/// <summary>`lt::WarpField`: column-major 4×4 `M` (M[4c+r]), the 4160×3120 metric depth image and the sx/sy scale
 /// applied to the wide-reference grid coordinates before the depth lookup (1.0 on the L16 after initResAmp step 8).</summary>
 public sealed class WarpField
 {
@@ -35,20 +35,20 @@ public sealed class U8Image
     }
 }
 
-/// <summary>The per-module record pushed by §4.10 (0x280 B `Rec`).</summary>
+/// <summary>The per-module record pushed by the module preparation.</summary>
 public sealed class ModuleRecord
 {
-    public int MinX, MinY, MaxX, MaxY;               // +0x00..0x0c inclusive bbox of the projected grid points (module px)
-    public int[] Grid = Array.Empty<int>();           // +0x10 Image<Vec2i> gw×gh (x,y pairs), 0x80000000 = invalid; updated by §5
+    public int MinX, MinY, MaxX, MaxY;               // inclusive bbox of the projected grid points (module px)
+    public int[] Grid = Array.Empty<int>();           // Image<Vec2i> gw×gh (x,y pairs), 0x80000000 = invalid; updated by the coarse alignment
     public int Gw, Gh;
-    public float[] Res = Array.Empty<float>();        // +0x40 Image<Vec3f> (X = fx·scale, Y = fy·scale, conf)
-    public ResImage Hp = null!;                       // +0x70 high-pass module image (bw×bh @ (minx,miny), (hh+Nm+4) halo)
-    public ResImage Blur = null!;                     // +0xa0 Lanczos-blurred matrixed render (halo hh+Nm)
-    public U8Image[] Ph = new U8Image[9];             // +0xd0 + 0x30·k, k = px + 3·py, 1/3-px phase maps (16-px halo)
+    public float[] Res = Array.Empty<float>();        // Image<Vec3f> (X = fx·scale, Y = fy·scale, conf)
+    public ResImage Hp = null!;                       // high-pass module image (bw×bh @ (minx,miny), (hh+Nm+4) halo)
+    public ResImage Blur = null!;                     // Lanczos-blurred matrixed render (halo hh+Nm)
+    public U8Image[] Ph = new U8Image[9];             // k = px + 3·py, 1/3-px phase maps (16-px halo)
     public int ModuleIndex;                           // loop index m (diagnostics)
 }
 
-/// <summary>Optional per-tile intermediate capture for comparison against the cp.dll reference.</summary>
+/// <summary>Optional per-tile intermediate capture for comparison against Lumen.</summary>
 public sealed class ResAmpTrace
 {
     public Action<string, object>? OnImage;   // tag → ResImage / U8Image / byte[] / float[] ...

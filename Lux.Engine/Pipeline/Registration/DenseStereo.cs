@@ -5,11 +5,11 @@ using System.Runtime.Intrinsics.X86;
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// Dense stereo of the StereoAsyncAPI (`StereoLayer&lt;0&gt;` `1803124a0`/`180315ee0`, spec `aafb79e583bc2256a.md`):
+/// Dense stereo of the StereoAsyncAPI (`StereoLayer&lt;0&gt;`):
 /// plane-sweep truncated-SAD matching cost in YUVA over 3×3 box-filtered 8-bit images, 8-path SGM (two wavefront passes with
-/// persistent line buffers), WTA. This file holds the layer parameters, the plane list (`FUN_18033d960/de60`), the box prefilter
-/// (`ImageBoxFilter&lt;vec4x8ui&gt;` `1800eb250`), the guidance image, the per-camera warps (`FUN_180301040`) and the matching cost
-/// (`FUN_18031cd60`) — all op-exact per the disassembly notes in the spec.
+/// persistent line buffers), WTA. This file holds the layer parameters, the plane list, the box prefilter
+/// (`ImageBoxFilter&lt;vec4x8ui&gt;`), the guidance image, the per-camera warps and the matching cost — each with Lumen's exact
+/// operation order.
 /// </summary>
 public sealed class StereoParams
 {
@@ -19,7 +19,7 @@ public sealed class StereoParams
     public float[] Guidance = { BitConverter.Int32BitsToSingle(0x3ef6384f) / 6f, BitConverter.Int32BitsToSingle(0x3ef6384f) / 16f, BitConverter.Int32BitsToSingle(0x3ef6384f) / 16f, 0f };
     public int Median = 0; public int Tile = 4; public bool Confidence = false, PostFilter = false;
 
-    /// <summary>The six layers of `FUN_1804eb200` (scale 32…1, tiles 4…64, skip mode 2 on the last two; plane density `DAT_1806eb2f0[iVar13==0]` = 2.0 for the L16 (all-A captures would get 4.0)).</summary>
+    /// <summary>The six layers of the dense stereo (scale 32…1, tiles 4…64, skip mode 2 on the last two; plane density 2.0 for the L16 (all-A captures would get 4.0)).</summary>
     public static StereoParams[] L16Pyramid(bool moduleTypeNonZero = false)
     {
         int[] scales = { 32, 16, 8, 4, 2, 1 }, tiles = { 4, 8, 16, 32, 64, 64 };
@@ -31,12 +31,12 @@ public sealed class StereoParams
 
 public static class DenseStereo
 {
-    public const float Near = 200f, Far = 640000f;   // DAT_1806eb2f8/300 [module type 0]
+    public const float Near = 200f, Far = 640000f;   // module type 0
 
     static float RcpNr(float a) { float x0 = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(a)).ToScalar(); return x0 + x0 * (1.0f - a * x0); }
     static Vector128<float> RcpNr4(Vector128<float> a) { var x0 = IntelApprox.Reciprocal(a); return x0 + x0 * (Vector128.Create(1.0f) - a * x0); }
 
-    /// <summary>`FUN_18033d960` + `FUN_18033de60`: the metric plane depths (plane 0 = far … n−1 = near), n a multiple of align, ≤ 4096.</summary>
+    /// <summary>The metric plane depths (plane 0 = far … n−1 = near), n a multiple of align, ≤ 4096.</summary>
     public static float[] Planes(float near, float far, IReadOnlyList<CalibData> calibs, float density, int align)
     {
         if (!(near < far)) throw new InvalidOperationException("The near end has to be smaller than the fard end!");
@@ -53,7 +53,7 @@ public static class DenseStereo
             float dx = C[0][0] - C[k][0], dy = C[0][1] - C[k][1], dz = C[0][2] - C[k][2];
             float d2 = dz * dz + (dx * dx + dy * dy);
             float d = Homography.Sqrt(d2);
-            if (!(d <= B)) B = d;   // maxss
+            if (!(d <= B)) B = d;   // MAXSS order: NaN gives d
         }
         var x1 = RcpNr4(Vector128.Create(near, far, 0f, 0f));
         float inv = x1.GetElement(0) - x1.GetElement(1);
@@ -86,8 +86,8 @@ public static class DenseStereo
         return planes;
     }
 
-    /// <summary>`ImageBoxFilter&lt;vec4x8ui&gt;` 3×3 (`1800eb250`, lambda `1800ef9c0`): per channel `trunc(float(Σ)·(1/(cols·rows)))` over the
-    /// in-image window, `cvtps2dq` round-to-nearest-even, saturated to a byte (the spec's trunc reading was wrong: verified RNE on the live images).</summary>
+    /// <summary>`ImageBoxFilter&lt;vec4x8ui&gt;` 3×3: per channel `float(Σ)·(1/(cols·rows))` over the in-image window,
+    /// `cvtps2dq` round-to-nearest-even, saturated to a byte.</summary>
     public static Rgba8Image BoxFilter3(Rgba8Image src)
     {
         int W = src.W, H = src.H; var dst = new Rgba8Image(new byte[W * H * 4], W, H, W);
@@ -103,7 +103,7 @@ public static class DenseStereo
                     int sum = 0;
                     for (int yy = y0; yy <= y1; yy++) for (int xx = x0; xx <= x1; xx++) sum += src.Data[(yy * W + xx) * 4 + c];
                     float v = (float)sum * inv;
-                    int r = (int)MathF.Round(v, MidpointRounding.ToEven);   // cvtps2dq (RNE) — verified 100 % on Lumen's filtered images
+                    int r = (int)MathF.Round(v, MidpointRounding.ToEven);   // cvtps2dq (RNE)
                     dst.Data[(y * W + x) * 4 + c] = (byte)Math.Clamp(r, 0, 255);
                 }
             }
@@ -111,7 +111,7 @@ public static class DenseStereo
         return dst;
     }
 
-    /// <summary>`FUN_180314160`: the guidance image — the (box-filtered) reference itself at scale 1, else the subsample
+    /// <summary>The guidance image — the (box-filtered) reference itself at scale 1, else the subsample
     /// `img0[min(scale·x + scale/2, W−1), min(scale·y + scale/2, H−1)]`.</summary>
     public static Rgba8Image Guidance(Rgba8Image img0, int w, int h, int scale)
     {
@@ -129,7 +129,7 @@ public static class DenseStereo
         return g;
     }
 
-    /// <summary>`FUN_180301040`: the reference→camera projective map `M = P_k·P_0⁻¹` as float columns (W0..W3).</summary>
+    /// <summary>The reference→camera projective map `M = P_k·P_0⁻¹` as float columns (W0..W3).</summary>
     public static float[] Warp(CalibData refCam, CalibData cam) => Mat4D.FlowMatrix(refCam, cam);   // column-major float
 
     /// <summary>The cost context of one layer: filtered images, warps, the valid rects `img.rect + {1,1,−2,−2}` and the packed weights.</summary>
@@ -153,12 +153,12 @@ public static class DenseStereo
 
     static byte Avg(byte a, byte b) => (byte)((a + b + 1) >> 1);   // pavgb
 
-    /// <summary>`FUN_18031cd60`: the per-plane matching cost of the reference pixel (x,y) (image coordinates of the half-res reference)
+    /// <summary>The per-plane matching cost of the reference pixel (x,y) (image coordinates of the half-res reference)
     /// for planes `[start, start+count)` of the range; returns u16 costs (wrapping sum over the other cameras).</summary>
     public static void MatchingCost(CostContext ctx, int x, int y, int start, int count, ushort[] cost)
     {
         Array.Clear(cost, 0, count);
-        // reference 3×3 block (FUN_18030ee50), rows/cols clamped to the image
+        // reference 3×3 block, rows/cols clamped to the image
         var R = ctx.Ref; int W = R.W, H = R.H;
         Span<byte> refBlock = stackalloc byte[3 * 12];
         for (int r = -1; r <= 1; r++)
@@ -235,7 +235,7 @@ public static class DenseStereo
         }
     }
 
-    /// <summary>§6.5: `raw[d] = trunc(float(cost[d]) · (1/27f / nOthers))`; planes in [count, cap) = 255.</summary>
+    /// <summary>`raw[d] = trunc(float(cost[d]) · (1/27f / nOthers))`; planes in [count, cap) = 255.</summary>
     public static void Normalise(ushort[] cost, int count, int cap, int nOthers, byte[] raw)
     {
         float f = BitConverter.Int32BitsToSingle(0x3d17b426) / (float)nOthers;

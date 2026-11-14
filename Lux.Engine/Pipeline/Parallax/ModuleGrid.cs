@@ -5,7 +5,7 @@ using Lux.Engine.Pipeline.Registration;
 namespace Lux.Engine.Pipeline.Parallax;
 
 /// <summary>The affine part of a module's registration onto the export grid: <c>v ↦ v + C(v)</c>. Identity in
-/// production; the harness's `parallax-calibrate` fits one to show that it *is* identity.</summary>
+/// production.</summary>
 public readonly record struct Affine(double B11, double B12, double T1, double B21, double B22, double T2)
 {
     public static readonly Affine Identity = new(0, 0, 0, 0, 0, 0);
@@ -21,15 +21,15 @@ public readonly record struct Affine(double B11, double B12, double T1, double B
 /// camera magnified by the group focal ratio (10432/4160) and cropped by the header's view preferences, and every
 /// module has its own factory rotation, principal point and distortion on top. The mapping is therefore taken from the
 /// pipeline itself — <see cref="CalibFor"/> builds the same <c>AlignedCalib</c> the reference cache uses, with the
-/// reference's view camera kept for every module. Placing a module frame by scale and crop alone left an 11–21 px
-/// RMS residual that no global affine could absorb (spec `a-parallax-experiments.md` §2.3); going through
+/// reference's view camera kept for every module. Placing a module frame by scale and crop alone leaves an 11–21 px
+/// RMS residual that no global affine can absorb; going through
 /// <see cref="AlignedCalib"/> removes it exactly, because it is the pipeline's own rectification rather than a model
 /// of it.
 /// </summary>
 public static class ModuleGrid
 {
     /// <summary>The registration state, set up but not run: <c>Setup()</c> alone produces the ctor pairs
-    /// <c>api+0x3a8[id]</c> for every reference-group camera (slots, poses and crops — no images, no bundle
+    /// <c>Pairs[id]</c> for every reference-group camera (slots, poses and crops — no images, no bundle
     /// adjustment), which is all the geometry needs and takes well under a second. A level-0 export state already
     /// holds one (the full run leaves the reference-group pairs untouched), so this is only for callers without it.</summary>
     public static StereoAsyncApi SetupApi(LriFile lri, Action<string>? log = null)
@@ -59,7 +59,7 @@ public static class ModuleGrid
     /// The chain is the export renderer's own, read back: the export level-L grid is the canvas halved L times with
     /// the window origin added, and the canvas is the canonical camera magnified by
     /// <c>ExportWindow.CanvasFactor</c> = 70/28 snapped to 10432/4160. <paramref name="corr"/> is an optional residual
-    /// affine; it should be identity and is kept so that the harness can *show* it is.
+    /// affine; it should be identity.
     /// </summary>
     public static Rgba ToExportGrid(Rgba module, ParallaxGeometry g, AlignedCalib calib, Affine corr)
     {

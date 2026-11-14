@@ -3,10 +3,9 @@ using System;
 namespace Lux.Engine.Pipeline.ResAmp;
 
 /// <summary>
-/// cp.dll <c>FUN_180441840(ws, L1img, Vec2i* g)</c> — reference-patch analysis of the super-resolution merge
-/// (spec `a-resamp.md` §5.3). Transcribed 1:1 from the decompilation, with every summation tree and every
-/// compiler-fused level-3/4 expression taken from the disassembly (180441840–180442c3f).
-/// <para><c>ws</c> is the 0x26e0-byte workspace as <c>float[2488]</c> (index = byte offset / 4). Layout (§5.2):
+/// Lumen's reference-patch analysis of the super-resolution merge <c>(ws, L1img, Vec2i* g)</c>, with Lumen's exact
+/// summation trees and compiler-fused level-3/4 expressions.
+/// <para><c>ws</c> is the 0x26e0-byte workspace as <c>float[2488]</c> (index = byte offset / 4). Layout:
 /// 0x0000 reference 16×16 vec4 patch · 0x1000 level-1 LL 8×8 (stride 0x80) · 0x1400 level-2 LL 4×4 (stride 0x40) ·
 /// 0x1500 level-3 LL 2×2 (stride 0x20) · 0x1540/50/60/70 e1..e4_ref · 0x1580 0.2·(4-level transformed patch, in-place
 /// interleaved layout) · 0x2580 five weight sums (init 0.2) · 0x26d0 Σ|patch|.</para>
@@ -15,15 +14,15 @@ internal static class RefAnalysis
 {
     static float F(uint bits) => BitConverter.Int32BitsToSingle(unchecked((int)bits));
 
-    /// <summary>1806cac80: 0.2 (splat ×4).</summary>
+    /// <summary>0.2 (splat ×4).</summary>
     static readonly float Fifth = F(0x3e4ccccd);
-    /// <summary>1806dea70: 1/192 (splat ×4).</summary>
+    /// <summary>1/192 (splat ×4).</summary>
     static readonly float Inv192 = F(0x3baaaaab);
-    /// <summary>1806deac0: 1/96 (splat ×4).</summary>
+    /// <summary>1/96 (splat ×4).</summary>
     static readonly float Inv96 = F(0x3c2aaaab);
-    /// <summary>1806deae0: 1/48 (splat ×4).</summary>
+    /// <summary>1/48 (splat ×4).</summary>
     static readonly float Inv48 = F(0x3caaaaab);
-    /// <summary>1806deaf0: 1/24 (splat ×4).</summary>
+    /// <summary>1/24 (splat ×4).</summary>
     static readonly float Inv24 = F(0x3d2aaaab);
 
     // float indices of the workspace regions (byte offset / 4)
@@ -36,7 +35,7 @@ internal static class RefAnalysis
     const int WsWeights = 0x2580 / 4;
     const int WsSumAbs = 0x26d0 / 4;
 
-    /// <summary>andps 0x7fffffff (180682600).</summary>
+    /// <summary>Clears the sign bit (AND with 0x7fffffff).</summary>
     static float Abs(float x) => BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(x) & 0x7fffffff);
 
     /// <summary>
@@ -48,7 +47,7 @@ internal static class RefAnalysis
         // ---- 1. ws[0x2580..0x25cf] = 0.2 (five vec4) ----
         for (int i = 0; i < 20; i++) ws[WsWeights + i] = Fifth;
 
-        // ---- 2. copy the 16×16 vec4 patch at L1 + (g.x−8) + (g.y−8)·stride into the local P (rsp+0xc0) ----
+        // ---- 2. copy the 16×16 vec4 patch at L1 + (g.x−8) + (g.y−8)·stride into the local P ----
         // P[r][c] lane l is p[r*64 + c*4 + l] (row stride 0x100 B).
         var p = new float[1024];
         float[] src = l1.Data;
@@ -59,7 +58,7 @@ internal static class RefAnalysis
             for (int i = 0; i < 64; i++) p[di + i] = src[si + i];
         }
 
-        // ---- 3. ws+0x26d0 = Σ|P| (andps 180682600), per row:
+        // ---- 3. ws+0x26d0 = Σ|P|, per row:
         //      acc = |x15| + ((|x14| + (|x13| + (|x12| + (|x11| + |x10|)))) + ((|x9| + (|x8| + (|x7| + |x6|)))
         //            + ((|x5| + (|x4| + |x3|)) + ((|x2| + |x1|) + (|x0| + acc)))))
         for (int l = 0; l < 4; l++)
@@ -81,7 +80,7 @@ internal static class RefAnalysis
         // ---- ws+0 ← P (untransformed reference patch) ----
         Array.Copy(p, 0, ws, WsPatch, 1024);
 
-        // ---- 4. level-1 forward 9/7 on the LOCAL copy: FUN_180447730(P) rows, FUN_180447b70(P) columns ----
+        // ---- 4. level-1 forward 9/7 on the LOCAL copy: rows, then columns ----
         Cdf97Kernels.Forward16Rows(p, 0);
         Cdf97Kernels.Forward16Cols(p, 0);
 
@@ -141,7 +140,7 @@ internal static class RefAnalysis
         }
 
         // ---- 9. ws+0x1400 ← level-2 LL (rows/cols 0,4,8,12), packed 4×4 with row stride 0x40.
-        //      (The binary interleaves these stores with the level-3 arithmetic, but each is stored before it is modified.)
+        //      (Lumen interleaves these stores with the level-3 arithmetic, but each is stored before it is modified.)
         for (int r = 0; r < 4; r++)
             for (int c = 0; c < 4; c++)
                 for (int l = 0; l < 4; l++)
@@ -161,7 +160,7 @@ internal static class RefAnalysis
     }
 
     // =====================================================================================================
-    // Level-2 forward on one lane of one even row (decomp 593–700, disasm 180441e00): z_k = P[r][2k], k = 0..7.
+    // Level-2 forward on one lane of one even row: z_k = P[r][2k], k = 0..7.
     // Steps A and B are register-resident; written back at the end.
     // =====================================================================================================
     static void Fwd8Row(float[] p, int b)
@@ -192,7 +191,7 @@ internal static class RefAnalysis
         p[b + 32] = E2v; p[b + 40] = O2; p[b + 48] = E3; p[b + 56] = O3;
     }
 
-    // Level-2 forward, column pass, step A (decomp 701–760, disasm 180441fa0): z_k = P[2k][c], in place.
+    // Level-2 forward, column pass, step A: z_k = P[2k][c], in place.
     static void Fwd8ColA(float[] p, int b)
     {
         const int S = 128; // two rows
@@ -212,7 +211,7 @@ internal static class RefAnalysis
         p[b + 4 * S] = e2; p[b + 5 * S] = o2; p[b + 6 * S] = e3; p[b + 7 * S] = o3;
     }
 
-    // Level-2 forward, column pass, step B (decomp 761–822, disasm 1804420b0): in place on the step-A output.
+    // Level-2 forward, column pass, step B: in place on the step-A output.
     static void Fwd8ColB(float[] p, int b)
     {
         const int S = 128;
@@ -235,8 +234,8 @@ internal static class RefAnalysis
 
     // =====================================================================================================
     // Level 3 (4-sample kernel on rows 0,4,8,12 then on columns 0,4,8,12) — the compiler fused/reordered the two
-    // passes (decomp 872–1229, disasm 1804423f0–180442a20); statements below follow the machine order and
-    // association. Then e3_ref, ws+0x1500 (level-3 LL), level 4 (2-sample kernel, fused; decomp 1258–1326) and
+    // passes; statements below follow Lumen's order and
+    // association. Then e3_ref, ws+0x1500 (level-3 LL), level 4 (2-sample kernel, fused) and
     // e4_ref. One lane; P[R][C] is p[R*64 + C*4 + l].
     // Naming: r{R}o{k}/r{R}e{k} = row pass step A of row R; r{R}O{k}/r{R}E{k} = step B; c{C}… = column pass on column C.
     // =====================================================================================================
@@ -298,7 +297,7 @@ internal static class RefAnalysis
         float r12E0 = r12O0 * E2 + r12e0 * K;
 
         // ---- column passes, step A ----
-        // column 0 (values e0'' of rows 0,4,8,12): o1' computed as (row8·(−2a)) + row12  [mulps dead0 ; addps]
+        // column 0 (values e0'' of rows 0,4,8,12): o1' computed as (row8·(−2a)) + row12
         float c0o1 = r8E0 * NEG2A + r12E0;
         float c0o0 = r4E0 - (r8E0 + r0E0) * A;
         float c0e1 = (c0o1 + c0o0) * B + r8E0;
@@ -365,7 +364,7 @@ internal static class RefAnalysis
         float q8e = q8o * B2 + v80;
         float q8O = q8o * IK - q8e * D;
         float q8E = q8O * E2 + q8e * K;
-        // column 0: o' = (row0·(−2a)) + row8   [mulps dead0 ; addps]
+        // column 0: o' = (row0·(−2a)) + row8
         float k0o = NEG2A * q0E + q8E;
         float k0e = k0o * B2 + q0E;
         // column 8

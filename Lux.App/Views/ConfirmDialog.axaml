@@ -1,0 +1,20 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lux.App.ViewModels"
+             x:Class="Lux.App.Views.ConfirmDialog"
+             x:DataType="vm:ConfirmViewModel">
+  <Border Classes="dialog" Width="520">
+    <StackPanel>
+      <Border Padding="20,16" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,0,0,1">
+        <TextBlock Classes="dialogtitle wrap" Text="{Binding Title}" />
+      </Border>
+      <TextBlock Classes="secondary wrap" Margin="20,16" Text="{Binding Text}" />
+      <Border Padding="20,12" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,1,0,0">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+          <Button Content="Cancel" Padding="16,0" Command="{Binding CancelCommand}" />
+          <Button Classes="primary" Content="{Binding OkLabel}" Command="{Binding OkCommand}" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </Border>
+</UserControl>

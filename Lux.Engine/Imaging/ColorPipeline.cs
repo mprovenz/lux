@@ -2,7 +2,7 @@ namespace Lux.Engine.Imaging;
 
 /// <summary>
 /// The validated Lumen colour pass: camera-RGB-linear → display sRGB.
-/// v = cam/AsShotNeutral · 2^ev ; rgb = (XYZ→sRGB · ForwardMatrix) · v ; TMO_ACR(§7) ; sRGB gamma.
+/// v = cam/AsShotNeutral · 2^ev ; rgb = (XYZ→sRGB · ForwardMatrix) · v ; TMO_ACR ; sRGB gamma.
 /// ForwardMatrix (cam→XYZ D50) comes from the module's factory colour calibration.
 /// </summary>
 public static class ColorPipeline

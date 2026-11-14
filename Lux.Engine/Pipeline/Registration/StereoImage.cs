@@ -7,14 +7,14 @@ using Lux.Engine.Pipeline.Isp;
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// `lt::StereoISP::CreateStereoImage` (180326320), colour-sensor path: the stereo SoftISP (`collapse2`, hot pixels, IR
+/// `lt::StereoISP::CreateStereoImage`, colour-sensor path: the stereo SoftISP (`collapse2`, hot pixels, IR
 /// crosstalk, lens shading; no WB/CC/tone), exposure-gain scaling, rotation+CRA warp into the half-resolution view with a
 /// 6-tap Lanczos-3 resampler (64 phases, fill 0), `ConvertToYUV` with the sensor's luma basis divided by the AsShot neutral
 /// (fast log2/exp2 polynomials, gamma 1/2.2, offsets 128 on U/V) and the 8-bit RGBA store (`cvtps2dq` + saturation, alpha 1).
 /// </summary>
 public static class StereoImage
 {
-    /// <summary>The Bayer tuning `FUN_1804ee960` installs on `StereoAsyncAPI+0xc8` (defaults + stereo overrides).</summary>
+    /// <summary>The Bayer tuning of the stereo images (defaults + stereo overrides).</summary>
     public static Tuning BuildTuning(bool hotPixelLeakage)
     {
         var t = Tuning.LumenDefaults();
@@ -64,8 +64,8 @@ public static class StereoImage
         return outp;
     }
 
-    /// <summary>The mono SoftISP (`FUN_1803dd670` → `FUN_180413290`, domain block +0x14e0: mono linearize `18041f600`, PostProcessingGray no-op,
-    /// float lens shading) run per 256×256 tile of the FULL-resolution frame, then `× g` per tile (`FUN_18032b4b0`). Returns the float image.</summary>
+    /// <summary>The mono SoftISP (mono linearize, PostProcessingGray no-op,
+    /// float lens shading) run per 256×256 tile of the FULL-resolution frame, then `× g` per tile. Returns the float image.</summary>
     public static float[] RunMonoIsp(Lux.Engine.Pipeline.Isp.CapturedFrame frame, float black, float white, float gain, float lensMultiplier = 1f)
     {
         int W = frame.Width, H = frame.Height; var outp = new float[W * H];
@@ -85,7 +85,7 @@ public static class StereoImage
         return outp;
     }
 
-    /// <summary>`FUN_180328ff0` (v,v,v,1) → `FUN_180324c00` re-mosaic → `ImageDemosaickFilter&lt;3&gt;` with red (1,0): the half-res vec4 image of the mono path.</summary>
+    /// <summary>(v,v,v,1) → re-mosaic → `ImageDemosaickFilter&lt;3&gt;` with red (1,0): the half-res vec4 image of the mono path.</summary>
     public static float[] MonoToHalfRgba(float[] mono, int W, int H, out int w, out int h)
     {
         var bayer = new float[W * H];
@@ -101,7 +101,7 @@ public static class StereoImage
         return o;
     }
 
-    /// <summary>lambda_4 `18032c940` + `FUN_1803291a0`: luma `((0 + s·G) + (s·B + s·R))·0.33333`, `sign·255·powf(|Y|, 1/2.2)`, bytes `[b,b,b,1]` with
+    /// <summary>Luma `((0 + s·G) + (s·B + s·R))·0.33333`, `sign·255·powf(|Y|, 1/2.2)`, bytes `[b,b,b,1]` with
     /// `b = clamp(trunc(v + copysign(0.5, v)), 0, 255)`; returns the 8-bit image and the call's return value `sign(s)·255·powf(|s|, 1/2.2)`.</summary>
     public static (byte[] Rgba8, float Ret) MonoToBytes(float[] rgba, int w, int h, int sensorType)
     {
@@ -116,7 +116,7 @@ public static class StereoImage
             float k = sgn * 255.0f;
             float v = MuslMath.Powf(MathF.Abs(Y), gammaE) * k;
             float tq = v + BitConverter.Int32BitsToSingle((int)((BitConverter.SingleToInt32Bits(v) & unchecked((int)0x80000000)) | 0x3f000000));
-            tq = tq > 0f ? tq : 0f; tq = tq < 255f ? tq : 255f;   // maxps/minps (NaN → 0)
+            tq = tq > 0f ? tq : 0f; tq = tq < 255f ? tq : 255f;   // NaN → 0
             byte bb = (byte)((int)tq & 0xff);
             outp[p * 4] = bb; outp[p * 4 + 1] = bb; outp[p * 4 + 2] = bb; outp[p * 4 + 3] = 1;
         }
@@ -124,7 +124,7 @@ public static class StereoImage
         return (outp, (sgnS * 255.0f) * MuslMath.Powf(MathF.Abs(ss), gammaE));
     }
 
-    // sensor luma table PTR_DAT_18068b850[type-2]: AR1335 (types 2,3) and (4,5)
+    // sensor luma table per sensor type: AR1335 (types 2,3) and (4,5)
     static readonly float[] LumaAr1335 = { BitConverter.Int32BitsToSingle(0x3e5cb924), BitConverter.Int32BitsToSingle(0x3edd5758), BitConverter.Int32BitsToSingle(0x3eb44c16), BitConverter.Int32BitsToSingle(0x40145faf) };
     static readonly float[] LumaOther = { BitConverter.Int32BitsToSingle(0x3e9e39b4), BitConverter.Int32BitsToSingle(0x3e95ca4b), BitConverter.Int32BitsToSingle(0x3ecbfc22), BitConverter.Int32BitsToSingle(0x40351eb8) };
 
@@ -135,7 +135,7 @@ public static class StereoImage
         return ((S * rs) + (-3.0f)) * (S * (-0.5f));   // = sqrt-style NR? no: this is the "kv" form: ((S·rs + (−3))·(S·(−0.5)))
     }
 
-    /// <summary>The 4×4 YUV matrix rows (v, u', t') for the sensor type and AsShot neutral (§3.1 of the spec, machine order).</summary>
+    /// <summary>The 4×4 YUV matrix rows (v, u', t') for the sensor type and AsShot neutral (Lumen's operation order).</summary>
     public static float[][] YuvMatrix(int sensorType, float[] neutral)
     {
         var tbl = sensorType is 2 or 3 ? LumaAr1335 : LumaOther;
@@ -168,7 +168,7 @@ public static class StereoImage
         float log2 = ((f * BitConverter.Int32BitsToSingle(0x3e511af3) + BitConverter.Int32BitsToSingle(unchecked((int)0xbfa05375))) * f + BitConverter.Int32BitsToSingle(0x40552f75)) * f + (e + BitConverter.Int32BitsToSingle(unchecked((int)0xc0121769)));
         float l = log2 * BitConverter.Int32BitsToSingle(0x3ee8ba2e);
         l = MathF.Min(MathF.Max(l, -126.0f), 128.0f);
-        int i = (int)l + (BitConverter.SingleToInt32Bits(l) >> 31);   // psrad: −1 for negative l → floor
+        int i = (int)l + (BitConverter.SingleToInt32Bits(l) >> 31);   // −1 when the sign bit is set → floor
         float fr = l - (float)i;
         float p2 = ((fr * BitConverter.Int32BitsToSingle(0x3d9fcb52) + BitConverter.Int32BitsToSingle(0x3e677e26)) * fr + BitConverter.Int32BitsToSingle(0x3f322226)) * fr + BitConverter.Int32BitsToSingle(0x3f7ffb19);
         float pw = BitConverter.Int32BitsToSingle((i << 23) + BitConverter.SingleToInt32Bits(p2));
@@ -222,8 +222,8 @@ public static class StereoImage
                 if (x == 0f) w = 1.0f;
                 else if (MathF.Abs(x) < three)
                 {
-                    // 180295800: s1 = sinf(x·π); t = s1·3; s2 = sinf(x·π/3); w = (s2·t) / ((x·x)·π²)  (Wine's msvcrt sinf = musl)
-                    float s1 = MuslMath.Sinf(x * pi), t = s1 * three, s2 = MuslMath.Sinf(x * pi3);
+                    // s1 = sinf(x·π); t = s1·3; s2 = sinf(x·π/3); w = (s2·t) / ((x·x)·π²)  (CRT sinf)
+                    float s1 = WineCrt.Sinf(x * pi), t = s1 * three, s2 = WineCrt.Sinf(x * pi3);
                     w = (s2 * t) / ((x * x) * pi2);
                 }
                 else w = 0f;
@@ -285,7 +285,7 @@ public static class StereoImage
         return dst;
     }
 
-    /// <summary>Rotation homography `H = (K_B · inv(M)) · inv(K_A)` with `M = R_A·R_Bᵀ` (`FUN_180185030`, product association `(a0·b0 + a1·b1) + a2·b2`).</summary>
+    /// <summary>Rotation homography `H = (K_B · inv(M)) · inv(K_A)` with `M = R_A·R_Bᵀ` (product association `(a0·b0 + a1·b1) + a2·b2`).</summary>
     public static float[] RotationHomography(CameraCalib viewA, CameraCalib modB)
     {
         var M = Mat3F.MulABt(viewA.R, modB.R);

@@ -28,10 +28,9 @@ public sealed class Donor
 ///    the foreground colour into it is the one thing guaranteed to be wrong; that is what produces the halo that
 ///    single-image 3D photos are known for.
 ///
-/// Honest measurement (spec `a-parallax-experiments.md` §5): the donor fill is not demonstrated to beat plain
-/// inpainting — leave-one-out over nine module×capture cases averages −0.5 dB — and over a physical-baseline sweep
-/// the two differ on under one percent of pixels. It stays the default because it puts photographed pixels where
-/// an inpainter would guess; `inpaint` is a defensible choice and is ~12 s faster per capture.
+/// The donor fill does not measurably beat plain inpainting: the two differ on under one percent of pixels. It is the
+/// default because it puts photographed pixels where an inpainter would guess; `inpaint` is a defensible choice and is
+/// ~12 s faster per capture.
 /// </summary>
 public static class Fill
 {
@@ -256,8 +255,7 @@ public static class Fill
         var has = new bool[(long)cw * ch];
         // The per-cell statistic is a MEDIAN, not a mean, and it is clamped. The overlap between the view and the
         // donor also contains genuine *geometric* disagreement at every depth edge, and those differences are large;
-        // a mean lets them set the correction and drags real colour into the patch. (Measured: the mean version cost
-        // A4 2.6 dB where the median version gains.)
+        // a mean lets them set the correction and drags real colour into the patch.
         Parallel.For(0, ch, cy =>
         {
             var buf = new List<float>[3] { new(), new(), new() };

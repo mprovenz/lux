@@ -4,14 +4,14 @@ using System.Runtime.Intrinsics.X86;
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// The image helpers of the coarse `lt::MirrorAngleOptimizer` (spec `a79436a17a0f96822.md` §B): 1/8 Lanczos-3
+/// The image helpers of the coarse `lt::MirrorAngleOptimizer`: 1/8 Lanczos-3
 /// resampler (`ImageResample&lt;5,vec4x8ui&gt;`), 16.16 bilinear resampler (`A::BilinearResample&lt;vec4x8ui&gt;`), nearest depth resize
-/// (`FUN_1801d6120`), float conversions, the tiled running-sum 5×5 box filter (`ImageBoxFilter&lt;vec4x32f&gt;`), the Sobel L1 magnitude
+/// (<c>NearestResize</c>), float conversions, the tiled running-sum 5×5 box filter (`ImageBoxFilter&lt;vec4x32f&gt;`), the Sobel L1 magnitude
 /// (`ImageConvSeparable2D&lt;3,3,float,float&gt;`) and the ×0.125 calibration scale.
 /// </summary>
 public static class CoarseImageHelpers
 {
-    static float Sinf(float x) => MuslMath.Sinf(x);
+    static float Sinf(float x) => WineCrt.Sinf(x);
 
     /// <summary>64-phase × 6-tap Lanczos-3 table (k = −2..3), normalised by the sequential sum (same as the stereo warp table).</summary>
     public static float[] Taps()
@@ -34,7 +34,7 @@ public static class CoarseImageHelpers
         return t;
     }
 
-    /// <summary>`FUN_1802955f0`: reference image → (W8,H8) with the 6-tap table, 16.16 coordinates, replicate borders, RNE + saturate.</summary>
+    /// <summary>Reference image → (W8,H8) with the 6-tap table, 16.16 coordinates, replicate borders, RNE + saturate.</summary>
     public static Rgba8Image Resample5(Rgba8Image src, int W8, int H8)
     {
         if (W8 <= 0 || H8 <= 0) throw new InvalidOperationException("invalid size!");
@@ -76,7 +76,7 @@ public static class CoarseImageHelpers
         return dst;
     }
 
-    /// <summary>`A::BilinearResample&lt;vec4x8ui&gt;` (`1800fb210`): 16.16 fixed point on ×32 int16 values, `pmulhw` lerps, per 256×256 tile.</summary>
+    /// <summary>`A::BilinearResample&lt;vec4x8ui&gt;`: 16.16 fixed point on ×32 int16 values, lerps by the high half of a signed 16-bit multiply, per 256×256 tile.</summary>
     public static Rgba8Image BilinearResample(Rgba8Image src, int W8, int H8)
     {
         if (W8 <= 0 || H8 <= 0) throw new InvalidOperationException("invalid size!");
@@ -129,7 +129,7 @@ public static class CoarseImageHelpers
         return dst;
     }
 
-    /// <summary>`FUN_1801d6120`: nearest resize of a float image, 16.16 steps from double, truncating.</summary>
+    /// <summary>Nearest resize of a float image, 16.16 steps from double, truncating.</summary>
     public static float[] NearestResize(float[] src, int W, int H, int W8, int H8)
     {
         var dst = new float[W8 * H8];
@@ -147,7 +147,7 @@ public static class CoarseImageHelpers
     public static float[] ToFloat4(Rgba8Image img) { var o = new float[img.W * img.H * 4]; for (int y = 0; y < img.H; y++) for (int x = 0; x < img.W; x++) for (int c = 0; c < 4; c++) o[(y * img.W + x) * 4 + c] = img.Data[img.Offset(x, y) + c]; return o; }
     public static float[] Channel0(Rgba8Image img) { var o = new float[img.W * img.H]; for (int y = 0; y < img.H; y++) for (int x = 0; x < img.W; x++) o[y * img.W + x] = img.Data[img.Offset(x, y)]; return o; }
 
-    /// <summary>`ImageBoxFilter&lt;vec4x32f&gt;` 5×5 (`1800eae10`, lambda `1800eedc0`): per 256×256 tile running column sums, in-image count normalisation.</summary>
+    /// <summary>`ImageBoxFilter&lt;vec4x32f&gt;` 5×5: per 256×256 tile running column sums, in-image count normalisation.</summary>
     public static float[] Box5(float[] src, int W, int H)
     {
         const int kw = 5, kh = 5, hw = 2, hh = 2;
@@ -196,7 +196,7 @@ public static class CoarseImageHelpers
 
     public static float[] Sub4(float[] a, float[] b) { var o = new float[a.Length]; for (int i = 0; i < a.Length; i++) o[i] = a[i] - b[i]; return o; }
 
-    /// <summary>`FUN_180292310` + `FUN_180295220`: |Sobel_y| + |Sobel_x| of the float channel-0 image (separable 3-tap, replicate borders).</summary>
+    /// <summary>|Sobel_y| + |Sobel_x| of the float channel-0 image (separable 3-tap, replicate borders).</summary>
     public static float[] SobelL1(float[] S, int W, int H)
     {
         float[] Conv(float[] v, float[] h)
@@ -222,7 +222,7 @@ public static class CoarseImageHelpers
 }
 
 /// <summary>
-/// `lt::MirrorAngleOptimizer::optimize` (`1802929c0`, spec `a4d1c9bd686bab26e.md` §3): the coarse mirror-angle search on the dense depth —
+/// `lt::MirrorAngleOptimizer::optimize`: the coarse mirror-angle search on the dense depth —
 /// 13 θ nodes (±0.6°) × 41 principal-point shifts along the θ-flow (×8 on the 1/8 grid), z-buffered reprojection cost of the 1/8 colour
 /// (high-pass) + gradient images, `sel = cost[centre]·0.95 ≥ cost[best] ? best : centre`.
 /// </summary>
@@ -234,7 +234,7 @@ public static class MirrorAngleOptimizerCoarse
         public CalibDataFull RefCam8 = null!; public float Z; public int FrameW = 4160, FrameH = 3120;
     }
 
-    /// <summary>`FUN_180291c40`: the optimizer's reference-side images from the reference stereo image and the layer-5 depth.</summary>
+    /// <summary>The optimizer's reference-side images from the reference stereo image and the layer-5 depth.</summary>
     public static Context Build(Rgba8Image refImg, float[] depth, int depthW, int depthH, CalibDataFull refCam8, float Z)
     {
         int W8 = (int)((float)refImg.W * 0.125f), H8 = (int)((float)refImg.H * 0.125f);
@@ -243,7 +243,7 @@ public static class MirrorAngleOptimizerCoarse
         var F = CoarseImageHelpers.ToFloat4(c.Ref8);
         c.Colour8 = CoarseImageHelpers.Sub4(F, CoarseImageHelpers.Box5(F, W8, H8));
         c.Scalar8 = CoarseImageHelpers.SobelL1(CoarseImageHelpers.Channel0(c.Ref8), W8, H8);
-        c.RefCam8 = refCam8;   // this+0xc0 = FUN_180308670(refCam, 0.125) — the caller scales
+        c.RefCam8 = refCam8;   // refCam × 0.125 — the caller scales
         c.Depth8 = CoarseImageHelpers.NearestResize(depth, depthW, depthH, W8, H8);
         return c;
     }
@@ -302,7 +302,7 @@ public static class MirrorAngleOptimizerCoarse
         return new Result { Theta = thetas[sel], Cx = cxs[sel], Cy = cys[sel], Sel = sel, Best = best, Cost = cost, Written = MirrorPose.Shift(camSel, cxs[sel], cys[sel]) };
     }
 
-    /// <summary>`FUN_1802946e0`: z-buffered visibility, then the mean absolute colour/gradient difference (N &gt; 100 else FLT_MAX).</summary>
+    /// <summary>Z-buffered visibility, then the mean absolute colour/gradient difference (N &gt; 100 else FLT_MAX).</summary>
     public static float Score(Context ctx, float[] Mm, float[] Mc, float[] colourMod, float[] scalarMod, int Wm8, int Hm8)
     {
         int W8 = ctx.W8, H8 = ctx.H8;

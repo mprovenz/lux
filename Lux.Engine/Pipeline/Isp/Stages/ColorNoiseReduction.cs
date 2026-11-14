@@ -6,16 +6,16 @@ namespace Lux.Engine.Pipeline.Isp.Stages;
 
 /// <summary>
 /// The vec4 Gaussian/Laplacian pyramid of `lt::Internal::ColorNoiseReduction`: `ImageGaussianFilterAndSubSample`
-/// (`1800147f0`, tile lambda `1800170c0`, vertical helper `FUN_180017660`) — 5-tap [0.05,0.25,0.4,0.25,0.05],
+/// — 5-tap [0.05,0.25,0.4,0.25,0.05],
 /// vertical then horizontal, edge-clamped, keeping even rows/columns — and `ImageGaussianUpscaleAndSubtract`
-/// (`180014f60`, odd rows lambda `180018c10`, even rows `FUN_180019080`) — out = upscale(small) − target with the
+/// — out = upscale(small) − target with the
 /// folded 2× weights 0.64/0.08/0.01 (even row, even col), 0.4/0.05 (one odd index) and 0.25 (both odd).
 /// Float association follows the SSE code path per region (edge vs. interior), see the comments.
 /// </summary>
 public static class CnrPyramid
 {
-    const float K0 = 0.05f, K1 = 0.25f, K2 = 0.4f;   // DAT_180681ea0 / eb0 / ec0
-    const float W64 = 0.64000004f, W08 = 0.080000006f, W01 = 0.010000001f;   // DAT_180681f10 / f00 / ef0
+    const float K0 = 0.05f, K1 = 0.25f, K2 = 0.4f;
+    const float W64 = 0.64000004f, W08 = 0.080000006f, W01 = 0.010000001f;
 
     static Vec4F Mul(float k, Vec4F v) => new(k * v.R, k * v.G, k * v.B, k * v.A);
     static Vec4F Add(Vec4F a, Vec4F b) => new(a.R + b.R, a.G + b.G, a.B + b.B, a.A + b.A);
@@ -26,8 +26,8 @@ public static class CnrPyramid
 
     /// <summary>
     /// Down-sample the w×h view at (vx, vy) of an ew×eh extent image (row stride <paramref name="ew"/>). Lumen's tile lambda
-    /// (`1800170c0`) clamps the horizontal taps to `[max(rect.x0, −2), min(rect.x1, w+2))` and the vertical helper
-    /// (`FUN_180017660`) to the parent rect `[rect.y0, rect.y1)`, i.e. real data up to 2 px beyond the view is used when the
+    /// clamps the horizontal taps to `[max(rect.x0, −2), min(rect.x1, w+2))` and the vertical helper
+    /// to the parent rect `[rect.y0, rect.y1)`, i.e. real data up to 2 px beyond the view is used when the
     /// parent image has it; the clamped ("edge") association applies only where the extent actually ends
     /// (`x &lt; xlo+2 || x ≥ xhi−2`, `y &lt; y0+2 || y ≥ y1−2`). The caller passes the extent = parent ∩ (view ± 2).
     /// </summary>
@@ -37,25 +37,39 @@ public static class CnrPyramid
         var dst = new Vec4F[w2 * h2];
         var tmp = new Vec4F[ew];
         int xlo = -vx, xhi = ew - vx, ylo = -vy, yhi = eh - vy;   // extent bounds in view coordinates
+        // the same per-lane operations, a pixel's four lanes as one Vector128 (the vertical pass two pixels per Vector256)
+        var E = System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, float>(ext.AsSpan()); var Tf = System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, float>(tmp.AsSpan());
+        var Tv = System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, Vector128<float>>(tmp.AsSpan()); var Dv = System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, Vector128<float>>(dst.AsSpan());
+        var k0 = Vector128.Create(K0); var k1 = Vector128.Create(K1); var k2 = Vector128.Create(K2);
+        var q0 = Vector256.Create(K0); var q1 = Vector256.Create(K1); var q2 = Vector256.Create(K2);
         for (int oy = 0; oy < h2; oy++)
         {
             int y = oy * 2;
             int r0 = Math.Clamp(y - 2, ylo, yhi - 1) + vy, r1 = Math.Clamp(y - 1, ylo, yhi - 1) + vy, r2 = Math.Clamp(y, ylo, yhi - 1) + vy, r3 = Math.Clamp(y + 1, ylo, yhi - 1) + vy, r4 = Math.Clamp(y + 2, ylo, yhi - 1) + vy;
-            bool vEdge = y < ylo + 2 || y >= yhi - 2;   // FUN_180017660: clamped path when y < y0+2 or y >= y1−2
-            for (int x = 0; x < ew; x++)
+            bool vEdge = y < ylo + 2 || y >= yhi - 2;   // the vertical helper: clamped path when y < y0+2 or y >= y1−2
+            int n = ew * 4, i = 0;
+            int b0 = r0 * ew * 4, b1 = r1 * ew * 4, b2 = r2 * ew * 4, b3 = r3 * ew * 4, b4 = r4 * ew * 4;
+            for (; i + 8 <= n; i += 8)
             {
-                Vec4F s0 = Mul(K0, ext[r0 * ew + x]), s1 = Mul(K1, ext[r1 * ew + x]), s2 = Mul(K2, ext[r2 * ew + x]), s3 = Mul(K1, ext[r3 * ew + x]), s4 = Mul(K0, ext[r4 * ew + x]);
-                // edge rows: k4s4 + ((k0s0 + k1s1) + (k2s2 + k3s3)); interior: (k4s4 + (k0s0 + k1s1)) + (k2s2 + k3s3)  [verified by brute force vs cp.dll]
-                tmp[x] = vEdge ? Add(s4, Add(Add(s0, s1), Add(s2, s3))) : Add(Add(s4, Add(s0, s1)), Add(s2, s3));
+                var s0 = q0 * Vector256.Create(E.Slice(b0 + i, 8)); var s1 = q1 * Vector256.Create(E.Slice(b1 + i, 8)); var s2 = q2 * Vector256.Create(E.Slice(b2 + i, 8));
+                var s3 = q1 * Vector256.Create(E.Slice(b3 + i, 8)); var s4 = q0 * Vector256.Create(E.Slice(b4 + i, 8));
+                // edge rows: k4s4 + ((k0s0 + k1s1) + (k2s2 + k3s3)); interior: (k4s4 + (k0s0 + k1s1)) + (k2s2 + k3s3)
+                (vEdge ? s4 + ((s0 + s1) + (s2 + s3)) : (s4 + (s0 + s1)) + (s2 + s3)).CopyTo(Tf.Slice(i, 8));
+            }
+            for (; i < n; i += 4)
+            {
+                var s0 = k0 * Vector128.Create(E.Slice(b0 + i, 4)); var s1 = k1 * Vector128.Create(E.Slice(b1 + i, 4)); var s2 = k2 * Vector128.Create(E.Slice(b2 + i, 4));
+                var s3 = k1 * Vector128.Create(E.Slice(b3 + i, 4)); var s4 = k0 * Vector128.Create(E.Slice(b4 + i, 4));
+                (vEdge ? s4 + ((s0 + s1) + (s2 + s3)) : (s4 + (s0 + s1)) + (s2 + s3)).CopyTo(Tf.Slice(i, 4));
             }
             for (int ox = 0; ox < w2; ox++)
             {
                 int x = ox * 2;
                 int c0 = Math.Clamp(x - 2, xlo, xhi - 1) + vx, c1 = Math.Clamp(x - 1, xlo, xhi - 1) + vx, c2 = Math.Clamp(x, xlo, xhi - 1) + vx, c3 = Math.Clamp(x + 1, xlo, xhi - 1) + vx, c4 = Math.Clamp(x + 2, xlo, xhi - 1) + vx;
-                Vec4F s0 = Mul(K0, tmp[c0]), s1 = Mul(K1, tmp[c1]), s2 = Mul(K2, tmp[c2]), s3 = Mul(K1, tmp[c3]), s4 = Mul(K0, tmp[c4]);
-                bool hEdge = x < xlo + 2 || x >= xhi - 2;   // lambda 1800170c0 loops 1/3 (clamped) vs the interior loop
+                var s0 = k0 * Tv[c0]; var s1 = k1 * Tv[c1]; var s2 = k2 * Tv[c2]; var s3 = k1 * Tv[c3]; var s4 = k0 * Tv[c4];
+                bool hEdge = x < xlo + 2 || x >= xhi - 2;   // the tile lambda: clamped loops vs the interior loop
                 // edge: k4s4 + ((k0s0 + k1s1) + (k2s2 + k3s3)); interior: (k4s4 + (k0s0 + k2s2)) + (k1s1 + k3s3)
-                dst[oy * w2 + ox] = hEdge ? Add(s4, Add(Add(s0, s1), Add(s2, s3))) : Add(Add(s4, Add(s0, s2)), Add(s1, s3));
+                Dv[oy * w2 + ox] = hEdge ? s4 + ((s0 + s1) + (s2 + s3)) : (s4 + (s0 + s2)) + (s1 + s3);
             }
         }
         return dst;
@@ -65,7 +79,7 @@ public static class CnrPyramid
     public static Vec4F[] UpscaleSubtract(Vec4F[] small, int ws, int hs, Vec4F[] target, int w, int h)
     {
         var dst = new Vec4F[w * h];
-        // interior column range of the pair loop (x0 = 0, x1 = w, small.x0 = 0, small.x1 = ws): lambda L20–45
+        // interior column range of the pair loop (x0 = 0, x1 = w, small.x0 = 0, small.x1 = ws)
         int lo = ((0 + 1) & ~1) + 2 * (0 - Math.Min(((0 + 1) >> 1) - 1, 0));
         int hi = (w & ~1) + 2 * (ws - Math.Max((w >> 1) + 1, ws));
         if (w < lo) lo = w; if (hi < lo) hi = lo;
@@ -121,8 +135,8 @@ public static class CnrPyramid
     static Vec4F Mul(float k, in Vec4F v, int _ = 0) => Mul(k, v);
 }
 
-/// <summary>Eigen 3.3 `JacobiSVD&lt;Matrix3d&gt;(ComputeFullU|ComputeFullV)` as compiled into cp.dll
-/// (`FUN_1803c78b0`, 2×2 kernel `FUN_1803c8410`): scale by the max |coefficient| (multiply by its reciprocal),
+/// <summary>Eigen 3.3 `JacobiSVD&lt;Matrix3d&gt;(ComputeFullU|ComputeFullV)` as compiled into Lumen
+/// (with its 2×2 kernel): scale by the max |coefficient| (multiply by its reciprocal),
 /// one-sided Jacobi sweeps with `precision = 2ε`, `considerAsZero = DBL_MIN` and the running `maxDiagEntry`,
 /// sign fix-up of U for negative diagonals, rescale, then a selection sort (first maximum) of the singular values.</summary>
 public static class JacobiSvd3
@@ -217,8 +231,8 @@ public static class JacobiSvd3
 }
 
 /// <summary>
-/// `lt::Internal::ColorNoiseReduction` (dispatcher `1803c59f0`, tile lambda `1803c6730`) = `ColorNoiseReduction:default`
-/// on the Color domain (`setColorNoiseReduction` lambda_74 `18041c930`: args = the payload view, the STD image (may
+/// Lumen's `lt::Internal::ColorNoiseReduction` (dispatcher, tile lambda) = `ColorNoiseReduction:default`
+/// on the Color domain (set by `setColorNoiseReduction`: args = the payload view, the STD image (may
 /// be absent → alpha 1), the Stats neutral, the sensor noise model for the frame gain (a,b per channel), (int)black,
 /// (int)white, `pipeline.parameter_scale`, `color_noise_reduction.color_denoise_multiplier`).
 ///
@@ -232,14 +246,14 @@ public static class JacobiSvd3
 /// </summary>
 public static class ColorNoiseReductionKernel
 {
-    public const float LevelOffset = 5f;   // DAT_1806d46f0
+    public const float LevelOffset = 5f;
 
     public sealed record Args(float Ratio, float VarScale, float[] Neutral, float[] InvN2, float[] A, float[] B);
 
-    /// <summary>levels = (int)max(0, log2f(parameter_scale) + 5) (asm `1803c5aa4`: the log2f argument is param_8).</summary>
+    /// <summary>levels = (int)max(0, log2f(parameter_scale) + 5).</summary>
     public static int Levels(float paramScale) { float l = MathF.Log2(paramScale) + LevelOffset; if (!(l >= 0f)) l = 0f; return (int)l; }
 
-    /// <summary>The per-level argument block (dispatcher L60–110).</summary>
+    /// <summary>The per-level argument block of the dispatcher.</summary>
     public static Args MakeArgs(int level, int black, int white, float paramScale, float multiplier, ReadOnlySpan<float> neutral, float[] a3, float[] b3)
     {
         float pm = paramScale * multiplier; pm *= pm;
@@ -254,10 +268,10 @@ public static class ColorNoiseReductionKernel
         return new Args((float)black / (float)white, varScale, n, inv, new[] { a3[0], a3[1], a3[2], 0f }, new[] { b3[0], b3[1], b3[2], 0f });
     }
 
-    static float MaxSs(float a, float b) => a > b ? a : b;   // maxss a,b
+    static float MaxSs(float a, float b) => a > b ? a : b;   // MAXSS semantics: NaN gives b
 
-    /// <summary>Tile lambda `1803c6730`: statistics from <paramref name="stats"/> (the Gaussian image of the level:
-    /// the source copy at level 0, else the sub-sampled image — `_Do_call` `1803c66b0`), the 3×3 remap applied to
+    /// <summary>The tile lambda: statistics from <paramref name="stats"/> (the Gaussian image of the level:
+    /// the source copy at level 0, else the sub-sampled image), the 3×3 remap applied to
     /// <paramref name="img"/> (the residual level) in place; both share the tile rect and stride.</summary>
     public static void ProcessTile(Vec4F[] img, int stride, RectI t, Args a) => ProcessTile(img, img, stride, t, a);
     public static void ProcessTile(Vec4F[] img, Vec4F[] stats, int stride, RectI t, Args a)
@@ -337,8 +351,8 @@ public static class ColorNoiseReductionKernel
     public static (List<(Vec4F[] Data, int W, int H)> Levels, (Vec4F[] Data, int W, int H) Top) BuildPyramid(Vec4F[] src, int w, int h, int levels)
     { var (lv, top, _) = BuildPyramidFull(src, w, h, levels); return (lv, top); }
 
-    /// <summary>`FUN_180015440`: residual levels (`local_a8[0..n)`), the coarsest Gaussian (`local_a8[n]`) and the
-    /// Gaussian images of each level (`Gauss[0]` = the source, `Gauss[i]` = `local_c8[i−1]`).</summary>
+    /// <summary>The full pyramid: the residual levels (`[0..n)`), the coarsest Gaussian (`[n]`) and the
+    /// Gaussian images of each level (`Gauss[0]` = the source, `Gauss[i]` = the sub-sampled image of level i−1).</summary>
     public static (List<(Vec4F[] Data, int W, int H)> Levels, (Vec4F[] Data, int W, int H) Top, List<(Vec4F[] Data, int W, int H)> Gauss) BuildPyramidFull(Vec4F[] src, int w, int h, int levels, (Vec4F[] Data, int W, int H, int VX, int VY)? ext = null)
     {
         var list = new List<(Vec4F[], int, int)>(); var gauss = new List<(Vec4F[], int, int)> { (src, w, h) };
@@ -390,7 +404,7 @@ public static class ColorNoiseReductionKernel
     }
 }
 
-/// <summary>Color-domain stage `ColorNoiseReduction:default` (slot pad 1 / align 1, `setColorNoiseReduction` `18040fe90`).</summary>
+/// <summary>Color-domain stage `ColorNoiseReduction:default` (slot pad 1 / align 1).</summary>
 public sealed class ColorNoiseReductionStage : IStage
 {
     public StageName Stage => StageName.ColorNoiseReduction;
@@ -413,10 +427,10 @@ public sealed class ColorNoiseReductionStage : IStage
             for (int y = 0; y < h; y++) sv.Row(y).CopyTo(std.AsSpan(y * w, w));
         }
         // the extent the pyramid may read beyond the region: parent ∩ (region ± 2); alpha = STD² inside the region (the working copy), the image's own alpha outside
-        // A side of the parent is used only when it carries the full 2-px ring (`xlo = max(rect.x0, −2)` in the tile lambda 1800170c0 partitions the
-        // clamped/interior loops on even x; with a single extra pixel the border columns/rows take the clamped path and read nothing beyond the view):
-        // verified on the tele ISP (demosaic output = CNR region + 1 px on every open side) — cp.dll's tele-ISP run t9 with stages 8, 9, 11, 12 skipped is bit-exact only without
-        // that 1-px ring, and cp.dll's CNR stage run in isolation equals the Lux kernel on the bare region (2026-08-27). The ≥2-px case keeps the ±2 reads.
+        // A side of the parent is used only when it carries the full 2-px ring (in Lumen's tile lambda, `xlo = max(rect.x0, −2)` partitions the
+        // clamped/interior loops on even x; with a single extra pixel the border columns/rows take the clamped path and read nothing beyond the view).
+        // Example: on the tele ISP, the demosaic output is the CNR region + 1 px on every open side, and Lumen reads nothing of that 1-px ring.
+        // The ≥2-px case keeps the ±2 reads.
         var er = new RectI(img.Rect.X0 <= abs.X0 - 2 ? abs.X0 - 2 : abs.X0, img.Rect.Y0 <= abs.Y0 - 2 ? abs.Y0 - 2 : abs.Y0,
                            img.Rect.X1 >= abs.X1 + 2 ? abs.X1 + 2 : abs.X1, img.Rect.Y1 >= abs.Y1 + 2 ? abs.Y1 + 2 : abs.Y1);
         (Vec4F[] Data, int W, int H, int VX, int VY)? ext = null;
@@ -437,7 +451,7 @@ public sealed class ColorNoiseReductionStage : IStage
         }
         var neutralUsed = p.Stats.Neutral;
         if (Environment.GetEnvironmentVariable("LUX_CNR_NEUTRAL") is string cn) neutralUsed = cn.Split(',').Select(v => float.Parse(v, System.Globalization.CultureInfo.InvariantCulture)).ToArray();   // diagnostic
-        var outp = ColorNoiseReductionKernel.Run(src, w, h, std, neutralUsed, new[] { model.R.A, model.G.A, model.Bl.A }, new[] { model.R.B, model.G.B, model.Bl.B }, (int)(float.IsNaN(p.Frame.FrameBlack) ? noise.Black : p.Frame.FrameBlack), (int)noise.White, ps, mult, ext);   // lambda_74 18041c930: (int) of the capture's sensor black/white (FUN_180125630(img)+4/+8 = the per-frame black, 43.05 → 43 on L16_00405)
+        var outp = ColorNoiseReductionKernel.Run(src, w, h, std, neutralUsed, new[] { model.R.A, model.G.A, model.Bl.A }, new[] { model.R.B, model.G.B, model.Bl.B }, (int)(float.IsNaN(p.Frame.FrameBlack) ? noise.Black : p.Frame.FrameBlack), (int)noise.White, ps, mult, ext);   // (int) of the capture's sensor black/white (the per-frame black, e.g. 43.05 → 43)
         var dst = new Image<Vec4F>(abs);
         for (int y = 0; y < h; y++) outp.AsSpan(y * w, w).CopyTo(dst.Row(y));
         p.Rgb = dst;

@@ -9,39 +9,39 @@ namespace Lux.Engine.Pipeline.BayerFusion;
 public readonly record struct Vec2S(short X, short Y);
 
 /// <summary>
-/// `PackedBayerFusion` block flow field (spec `a9fcabcdf0d786f37.md`, cp.dll Lumen 2.3): the float→ushort row
-/// converter (`FUN_18001f080(3,7)` → `0x180093eb0`), `Internal::FastCollapse` (`1801d19e0`), the in-place sqrt LUT (`1801d6c80`), the
-/// 7/11-tap separable pyramid (`FUN_1801d1be0`, `ImageConvSeparable2D&lt;7,7&gt;` / `&lt;11,11&gt;`, decimator `FUN_1801d3c70`) and
-/// `ComputeFlowFieldWithOverlap&lt;ushort,16,2,0&gt;` (`1801d9f00`) for the 4-level case: top level `FUN_1801dd090`/`FUN_1801df760` (8×8, ±4,
-/// sub-pixel), two `ComputeFlowField&lt;ushort,16,4,1&gt;` levels (`FUN_1801e1ee0` 3×3 candidate search + `FUN_1801e26b0` ±4 refine +
-/// `FUN_1801d9910` quadratic fit), the level-0 lambda_1 (`1801e35e0`) with the integer ±2 refine `FUN_1801e3900` and the validity
-/// callback (`1801f8d80`). All float arithmetic is float32 in the machine association (no FMA); `(int)` casts are `cvttss2si`.
+/// `PackedBayerFusion` block flow field (Lumen 2.3): the float→ushort row
+/// converter, `Internal::FastCollapse`, the in-place sqrt LUT, the
+/// 7/11-tap separable pyramid (`ImageConvSeparable2D&lt;7,7&gt;` / `&lt;11,11&gt;` and a decimator) and
+/// `ComputeFlowFieldWithOverlap&lt;ushort,16,2,0&gt;` for the 4-level case: top level (8×8, ±4,
+/// sub-pixel), two `ComputeFlowField&lt;ushort,16,4,1&gt;` levels (3×3 candidate search + ±4 refine +
+/// quadratic fit), the level-0 lambda_1 with the integer ±2 refine and the validity
+/// callback. All float arithmetic is float32 in Lumen's association order (no FMA); `(int)` casts truncate (`cvttss2si`).
 /// </summary>
 public static class BlockFlow
 {
     // ---------------------------------------------------------------------------------------------------------------------------------
     // Constants (float32 bit patterns from .rdata)
     // ---------------------------------------------------------------------------------------------------------------------------------
-    static readonly float Half = BitConverter.Int32BitsToSingle(0x3f000000);            // 0x180683140
-    static readonly float Max16 = BitConverter.Int32BitsToSingle(0x477fff00);           // 0x1806831f0 = 65535.0f
-    static readonly float Sixteen = BitConverter.Int32BitsToSingle(0x41800000);         // DAT_1806876b4
-    static readonly float One = BitConverter.Int32BitsToSingle(0x3f800000);             // DAT_180681c78
-    static readonly float Four = BitConverter.Int32BitsToSingle(0x40800000);            // DAT_180682408
-    static readonly float Two = BitConverter.Int32BitsToSingle(0x40000000);             // DAT_180682414
-    static readonly float Eight = BitConverter.Int32BitsToSingle(0x41000000);           // DAT_1806b0c80 lanes
-    static readonly float MinusTwo = BitConverter.Int32BitsToSingle(unchecked((int)0xc0000000));    // DAT_18068240c
-    static readonly float MinusFour = BitConverter.Int32BitsToSingle(unchecked((int)0xc0800000));   // DAT_1806b0c90 lane 1
-    static readonly float MinusSixteen = BitConverter.Int32BitsToSingle(unchecked((int)0xc1800000)); // DAT_180687600
-    static readonly float MinusOne = BitConverter.Int32BitsToSingle(unchecked((int)0xbf800000));    // DAT_180687510
-    static readonly float Reject = BitConverter.Int32BitsToSingle(unchecked((int)0xc9742400));      // DAT_1806b0ca0 = -1e6f
-    static readonly float MinusHalf = BitConverter.Int32BitsToSingle(unchecked((int)0xbf000000));   // 0x180681c7c
-    static readonly float MinusThree = BitConverter.Int32BitsToSingle(unchecked((int)0xc0400000));  // 0x180681c80
-    static readonly float Thr7680 = BitConverter.Int32BitsToSingle(0x45f00000);         // DAT_1806b3568
-    static readonly float ScaleHalf = BitConverter.Int32BitsToSingle(0x3f000000);       // DAT_180682404
+    static readonly float Half = BitConverter.Int32BitsToSingle(0x3f000000);
+    static readonly float Max16 = BitConverter.Int32BitsToSingle(0x477fff00);           // 65535.0f
+    static readonly float Sixteen = BitConverter.Int32BitsToSingle(0x41800000);
+    static readonly float One = BitConverter.Int32BitsToSingle(0x3f800000);
+    static readonly float Four = BitConverter.Int32BitsToSingle(0x40800000);
+    static readonly float Two = BitConverter.Int32BitsToSingle(0x40000000);
+    static readonly float Eight = BitConverter.Int32BitsToSingle(0x41000000);
+    static readonly float MinusTwo = BitConverter.Int32BitsToSingle(unchecked((int)0xc0000000));
+    static readonly float MinusFour = BitConverter.Int32BitsToSingle(unchecked((int)0xc0800000));
+    static readonly float MinusSixteen = BitConverter.Int32BitsToSingle(unchecked((int)0xc1800000));
+    static readonly float MinusOne = BitConverter.Int32BitsToSingle(unchecked((int)0xbf800000));
+    static readonly float Reject = BitConverter.Int32BitsToSingle(unchecked((int)0xc9742400));      // -1e6f
+    static readonly float MinusHalf = BitConverter.Int32BitsToSingle(unchecked((int)0xbf000000));
+    static readonly float MinusThree = BitConverter.Int32BitsToSingle(unchecked((int)0xc0400000));
+    static readonly float Thr7680 = BitConverter.Int32BitsToSingle(0x45f00000);
+    static readonly float ScaleHalf = BitConverter.Int32BitsToSingle(0x3f000000);
 
-    /// <summary>7-tap kernel `DAT_1806ae860` (forward order; reversed on use).</summary>
+    /// <summary>7-tap kernel (forward order; reversed on use).</summary>
     static readonly float[] K7 = Bits(0x3c8fb86f, 0x3e04bdba, 0x3eb46b27, 0x3eb46b27, 0x3e04bdba, 0x3c8fb86f, 0x00000000);
-    /// <summary>11-tap kernel `DAT_1806ae880` (forward order; reversed on use).</summary>
+    /// <summary>11-tap kernel (forward order; reversed on use).</summary>
     static readonly float[] K11 = Bits(0x3c82eb6d, 0x3d31f03d, 0x3dbc58fc, 0x3e1b4430, 0x3e475dae, 0x3e475dae, 0x3e1b4430, 0x3dbc58fc, 0x3d31f03d, 0x3c82eb6d, 0x00000000);
     /// <summary>Per-level downsampling factors `UNK_1806ae7bc` (index = level).</summary>
     static readonly int[] Factors = { 0, 2, 4, 4, 4, 4, 2, 2 };
@@ -66,7 +66,7 @@ public static class BlockFlow
     static float Rsqrt(float v) => IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(v)).ToScalar();
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // 1. Float → ushort row converter FUN_18001f080(3,7) → 0x180093eb0 (called per row by FUN_1801f8380)
+    // 1. Float → ushort row converter (called per row)
     // ---------------------------------------------------------------------------------------------------------------------------------
     /// <summary>`t = v + (sign(v) | 0.5f); t = max(t, 0); t = min(t, 65535); dst = (ushort)cvttps2dq(t)` — round half away from zero, clamp.</summary>
     public static ushort[] ToUshort(float[] src, int w, int h)
@@ -86,11 +86,11 @@ public static class BlockFlow
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // 2. Internal::FastCollapse (1801d19e0, lambda_0 1801d2690): 2×2 → 1, Tiler 256×256 over the output
+    // 2. Internal::FastCollapse: 2×2 → 1, Tiler 256×256 over the output
     // ---------------------------------------------------------------------------------------------------------------------------------
     static short Sat16(int v) => v > short.MaxValue ? short.MaxValue : v < short.MinValue ? short.MinValue : (short)v;
 
-    /// <summary>Output `(w&gt;&gt;1, h&gt;&gt;1)`. SIMD path (8 output lanes, `paddsw`/`phaddsw`/`psrlw`, int16 saturation) for the first
+    /// <summary>Output `(w&gt;&gt;1, h&gt;&gt;1)`. SIMD path (8 output lanes, int16 saturating adds, then a shift) for the first
     /// `(x1−x0) &amp; ~7` columns of each tile row, uint32 scalar tail for the rest.</summary>
     public static ushort[] FastCollapse(ushort[] src, int w, int h, out int w2, out int h2)
     {
@@ -106,7 +106,8 @@ public static class BlockFlow
                 int xEnd = tile.X0 + nSimd;
                 for (int x = tile.X0; x < xEnd; x += 8)
                 {
-                    // a = paddsw(row1[2x..2x+7], row0[2x..2x+7]); b = same for 2x+8..2x+15; s = phaddsw(a, b); out = (ushort)s >> 2
+                    // a = Sat16(row1[2x..2x+7] + row0[2x..2x+7]); b = the same for 2x+8..2x+15; s = Sat16 of the adjacent pairs of (a, b);
+                    // out = (ushort)s >> 2
                     for (int j = 0; j < 8; j++)
                     {
                         int c = 2 * (x + j);
@@ -128,7 +129,7 @@ public static class BlockFlow
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // 3. In-place sqrt LUT FUN_1801d6c80: v = LUT[min(v, 4095)], LUT = DAT_1806aec40
+    // 3. In-place sqrt LUT: v = LUT[min(v, 4095)]
     // ---------------------------------------------------------------------------------------------------------------------------------
     static readonly ushort[] SqrtLut = BuildSqrtLut();
     static ushort[] BuildSqrtLut()
@@ -144,9 +145,9 @@ public static class BlockFlow
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // 4. Pyramid FUN_1801d9e20 → FUN_1801d1be0(levels)
+    // 4. Pyramid
     // ---------------------------------------------------------------------------------------------------------------------------------
-    /// <summary>`level[0] = copy(input)`; level i: factor 2 → 7-tap conv + `FUN_1801d3c70` decimate to `(w&gt;&gt;1, h&gt;&gt;1)`; factor 4 → 11-tap conv,
+    /// <summary>`level[0] = copy(input)`; level i: factor 2 → 7-tap conv + decimate to `(w&gt;&gt;1, h&gt;&gt;1)`; factor 4 → 11-tap conv,
     /// `level[i](x,y) = conv(min(4x+1, w−1), min(4y+1, h−1))` of size `(w&gt;&gt;2, h&gt;&gt;2)`.</summary>
     public static ushort[][] Pyramid(ushort[] level0, int w, int h, int levels, out (int W, int H)[] dims)
     {
@@ -186,7 +187,7 @@ public static class BlockFlow
         return lv;
     }
 
-    /// <summary>`FUN_1801d3c70`: nearest resample in 16.16 fixed point, `out(x,y) = src((x·xstep)&gt;&gt;16, (y·ystep)&gt;&gt;16)`.</summary>
+    /// <summary>Nearest resample in 16.16 fixed point, `out(x,y) = src((x·xstep)&gt;&gt;16, (y·ystep)&gt;&gt;16)`.</summary>
     static ushort[] Decimate(ushort[] src, int sw, int sh, int dw, int dh)
     {
         var o = new ushort[Math.Max(dw, 0) * Math.Max(dh, 0)];
@@ -202,10 +203,10 @@ public static class BlockFlow
         return o;
     }
 
-    /// <summary>`ImageConvSeparable2D&lt;N,N,ushort,float&gt;` with N = 2R+1 (R = 3: `1801d2b60`, R = 5: `1801d3ed0`). The kernel is reversed
-    /// (`kk[i] = K[N−1−i]`, tap i at offset i−R). Vertical pass (`1801d31e0`/`1801d45a0`) into a float row with clamped rows on the
-    /// R border rows, horizontal pass (`1801d3850`/`1801d47b0`) with clamped columns on the R border columns; `ushort(cvttss2si(sum))`.
-    /// Associations per region are the machine ones (spec table).</summary>
+    /// <summary>`ImageConvSeparable2D&lt;N,N,ushort,float&gt;` with N = 2R+1 (R = 3 or 5). The kernel is reversed
+    /// (`kk[i] = K[N−1−i]`, tap i at offset i−R). Vertical pass into a float row with clamped rows on the
+    /// R border rows, horizontal pass with clamped columns on the R border columns; `ushort(cvttss2si(sum))`.
+    /// Associations per region are Lumen's.</summary>
     static ushort[] ConvSeparable(ushort[] src, int W, int H, float[] K, int R)
     {
         int N = 2 * R + 1;
@@ -257,7 +258,7 @@ public static class BlockFlow
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // 5. ComputeFlowFieldWithOverlap<ushort,16,2,0> (1801d9f00), 4-level path
+    // 5. ComputeFlowFieldWithOverlap<ushort,16,2,0>, 4-level path
     // ---------------------------------------------------------------------------------------------------------------------------------
     /// <summary>Flow of `srcCollapsed` (same size as `refPyr[0]`) against the reference pyramid; output `(W/8 − 1, H/8 − 1)` of
     /// `Vec2&lt;short&gt;((short)cvttss2si(x), (short)cvttss2si(y))`. `validity(score, npos)` (true ⇒ block rejected, flow = i2 − 1e6) is only
@@ -269,7 +270,7 @@ public static class BlockFlow
     public static Vec2S[] ComputeFlow(ushort[][] refPyr, (int W, int H)[] dims, ushort[] srcCollapsed, int levels, Func<float, (float X, float Y), bool>? validity, out int fw, out int fh)
         => ComputeFlow(refPyr, dims, srcCollapsed, dims[0].W, dims[0].H, levels, validity, out fw, out fh);
 
-    /// <summary>As above with the source's own size (`srcPyr = FUN_1801d1be0(copy(srcImg), refLevels)` is built from the source image, which
+    /// <summary>As above with the source's own size (the source pyramid is built from the source image, which
     /// differs from the reference by the CFA-phase crop, e.g. 2079×1559 vs 2080×1560); the output grid stays that of the reference.</summary>
     public static Vec2S[] ComputeFlow(ushort[][] refPyr, (int W, int H)[] dims, ushort[] srcCollapsed, int srcW, int srcH, int levels, Func<float, (float X, float Y), bool>? validity, out int fw, out int fh)
     {
@@ -280,13 +281,13 @@ public static class BlockFlow
         if (TracePyramid is not null) for (int i = 0; i < levels; i++) TracePyramid($"L{i}", srcPyr[i], sdims[i].W, sdims[i].H);
         if (levels == 5)
         {
-            // 1801d9f00 L200–300 (levels ≥ 5, spec a-monofusion §2.5): L4 FUN_1801dc7d0 (8-block, ±8 refine FUN_1801dd7e0) → L3 <8,4,1> (1801dcc10) →
-            // L2 <16,8,1> (1801dcd90) → L1 <16,4,1> (1801dcf10) → L0 tile lambda <16,2,0>. Prior scales UNK_1806ae7bc[level].
+            // levels ≥ 5: L4 (8-block, ±8 refine) → L3 <8,4,1> →
+            // L2 <16,8,1> → L1 <16,4,1> → L0 tile lambda <16,2,0>. Prior scales per level.
             var f4 = TopLevelB(8, 8, refPyr[4], dims[4], srcPyr[4], sdims[4], out int w4, out int h4);
             var f3 = LevelFieldB(8, 4, refPyr[3], dims[3], srcPyr[3], sdims[3], f4, w4, h4, Factors[4], out int w3b, out int h3b);
             var f2 = LevelFieldB(16, 8, refPyr[2], dims[2], srcPyr[2], sdims[2], f3, w3b, h3b, Factors[3], out int w2b, out int h2b);
             var f1 = LevelFieldB(16, 4, refPyr[1], dims[1], srcPyr[1], sdims[1], f2, w2b, h2b, Factors[2], out int w1b, out int h1b);
-            var f0 = Level0(refPyr[0], dims[0], srcPyr[0], sdims[0], f1, w1b, h1b, Factors[1], validity, out fw, out fh, radius: 2);   // <16,2,0> lambda_1 1801e35e0 → FUN_1801e3900 (±2)
+            var f0 = Level0(refPyr[0], dims[0], srcPyr[0], sdims[0], f1, w1b, h1b, Factors[1], validity, out fw, out fh, radius: 2);   // <16,2,0> lambda_1 with the ±2 refine
             TraceFlow?.Invoke("flow4", f4, w4, h4); TraceFlow?.Invoke("flow3", f3, w3b, h3b); TraceFlow?.Invoke("flow2", f2, w2b, h2b); TraceFlow?.Invoke("flow1", f1, w1b, h1b); TraceFlow?.Invoke("flow0f", f0, fw, fh);
             var o5 = new Vec2S[fw * fh];
             for (int i = 0; i < o5.Length; i++) o5[i] = new Vec2S(unchecked((short)(int)f0[i].X), unchecked((short)(int)f0[i].Y));
@@ -325,7 +326,7 @@ public static class BlockFlow
         return s;
     }
 
-    /// <summary>`FUN_1801dc7d0` (B = 8, refine `FUN_1801dd7e0` ±8) and the B/R-generalised form of `FUN_1801dd090`: out `(w/B, h/B)`,
+    /// <summary>Top level (B = 8, refine ±8) and the B/R-generalised form of the 8×8 top level: out `(w/B, h/B)`,
     /// per block the ±R refine with sub-pixel fit, no candidate search.</summary>
     static (float X, float Y)[] TopLevelB(int B, int R, ushort[] refImg, (int W, int H) rd, ushort[] src, (int W, int H) sd, out int fw, out int fh)
     {
@@ -343,9 +344,9 @@ public static class BlockFlow
         return o;
     }
 
-    /// <summary>`ComputeFlowField&lt;ushort,B,R,1&gt;` (`1801dca90` &lt;8,8,1&gt;, `1801dcc10` &lt;8,4,1&gt;, `1801dcd90` &lt;16,8,1&gt;, `1801dcf10` &lt;16,4,1&gt;):
+    /// <summary>`ComputeFlowField&lt;ushort,B,R,1&gt;` (&lt;8,8,1&gt;, &lt;8,4,1&gt;, &lt;16,8,1&gt;, &lt;16,4,1&gt;):
     /// out `(w/B, h/B)`; per block the 3×3 candidate search on the prior (B-block SAD, `ipos = trunc(pos·B)`, candidates clamped to `[0, src−B−1]`
-    /// — `FUN_1801deff0` for B = 8, `FUN_1801e1ee0` for 16), then the ±R refine with sub-pixel fit.</summary>
+    /// — for B = 8 or 16), then the ±R refine with sub-pixel fit.</summary>
     static (float X, float Y)[] LevelFieldB(int B, int R, ushort[] refImg, (int W, int H) rd, ushort[] src, (int W, int H) sd, (float X, float Y)[] prev, int pw, int ph, int scale, out int fw, out int fh)
     {
         fw = rd.W / B; fh = rd.H / B;
@@ -365,7 +366,7 @@ public static class BlockFlow
         return o;
     }
 
-    /// <summary>5.1 `FUN_1801dd090`: out `(w/8, h/8)`, per block `FUN_1801df760(view, src, (8bx, 8by), emptyFn)`.</summary>
+    /// <summary>Top level: out `(w/8, h/8)`, per block <c>RefineSub</c>(view, src, (8bx, 8by), emptyFn).</summary>
     static (float X, float Y)[] TopLevel8(ushort[] refImg, (int W, int H) rd, ushort[] src, (int W, int H) sd, out int fw, out int fh)
     {
         fw = rd.W / 8; fh = rd.H / 8;
@@ -382,7 +383,7 @@ public static class BlockFlow
         return o;
     }
 
-    /// <summary>5.2 `ComputeFlowField&lt;ushort,16,4,1&gt;` (`1801dcf10`, lambda `1801e23c0`): out `(w/16, h/16)`; per block the 3×3 candidate
+    /// <summary>`ComputeFlowField&lt;ushort,16,4,1&gt;`: out `(w/16, h/16)`; per block the 3×3 candidate
     /// search on the prior, the ±4 refine with sub-pixel fit, `out = ((float)i2.x + sub.x, (float)i2.y + sub.y)`.</summary>
     static (float X, float Y)[] LevelField16(ushort[] refImg, (int W, int H) rd, ushort[] src, (int W, int H) sd, (float X, float Y)[] prev, int pw, int ph, int scale, out int fw, out int fh)
     {
@@ -403,8 +404,8 @@ public static class BlockFlow
         return o;
     }
 
-    /// <summary>5.6 level-0 lambda_1 (`1801e35e0`): grid `(W/8 − 1, H/8 − 1)`, view `(8bx, 8by, 8bx+16, 8by+16)`, candidate search with
-    /// `pos = (bx·0.5f, by·0.5f)`, then the integer ±2 refine `FUN_1801e3900` with the validity callback.</summary>
+    /// <summary>Level-0 lambda_1: grid `(W/8 − 1, H/8 − 1)`, view `(8bx, 8by, 8bx+16, 8by+16)`, candidate search with
+    /// `pos = (bx·0.5f, by·0.5f)`, then the integer ±2 refine with the validity callback.</summary>
     static (float X, float Y)[] Level0(ushort[] refImg, (int W, int H) rd, ushort[] src, (int W, int H) sd, (float X, float Y)[] prev, int pw, int ph, int scale, Func<float, (float X, float Y), bool>? validity, out int fw, out int fh, int radius = 1)
     {
         fw = rd.W / 8 - 1; fh = rd.H / 8 - 1;
@@ -424,17 +425,17 @@ public static class BlockFlow
         return o;
     }
 
-    /// <summary>5.3 `FUN_1801e1ee0`: 16×16 SAD over the 9 prior cells around `pos/scale` (clamped), candidate `trunc(prev·scale) + ipos`
+    /// <summary>16×16 SAD over the 9 prior cells around `pos/scale` (clamped), candidate `trunc(prev·scale) + ipos`
     /// clamped to `[0, src−17]`; first strict minimum wins; returns the offset relative to `ipos = trunc(pos·16)`.</summary>
     static (int X, int Y) Candidate(ushort[] refImg, int rs, (int X, int Y) rb, (float X, float Y)[] prev, int pw, int ph, (float X, float Y) pos, ushort[] src, int sw, int sh, int scale, int B = 16)
     {
-        float fB = (float)B;   // DAT_1806876b4 = 16.0 (FUN_1801e1ee0) / DAT_180685d4c = 8.0 (FUN_1801deff0)
+        float fB = (float)B;   // 16.0 or 8.0
         int ix = (int)(pos.X * fB), iy = (int)(fB * pos.Y);
         float fscale = (float)scale;
         float inv = One / fscale;
         int refOff = rb.Y * rs + rb.X;
         uint best = uint.MaxValue; (int X, int Y) i2 = (0, 0);
-        int cxMax = sw - B - 1, cyMax = sh - B - 1;   // FUN_1801e1ee0: w − 17; FUN_1801deff0: w − 9
+        int cxMax = sw - B - 1, cyMax = sh - B - 1;   // B = 16: w − 17; B = 8: w − 9
         for (int dy = -1; dy <= 1; dy++)
         {
             int py = Clamp(dy + (int)(pos.Y * inv), 0, ph - 1);
@@ -452,12 +453,12 @@ public static class BlockFlow
         return i2;
     }
 
-    /// <summary>5.1 / 5.4 `FUN_1801df760` (B = 8) and `FUN_1801e26b0` (B = 16): ±4 window search with the 11×11 cost table (−1 outside),
+    /// <summary>±4 window search (B = 8 or 16) with the 11×11 cost table (−1 outside),
     /// strict-&lt; first minimum (initial `bdx = bdy = 4`), optional validity (`fn((float)best, (px/W, py/H))` true ⇒ (−1e6, −1e6)), then the
-    /// 3×3 negative check → integer offset or `+ FUN_1801d9910(c)`.</summary>
+    /// 3×3 negative check → integer offset or `+ SubPixel(c)`.</summary>
     static (float X, float Y) RefineSub(int B, ushort[] refImg, int rs, (int X, int Y) rb, ushort[] src, int sw, int sh, int px, int py, Func<float, (float X, float Y), bool>? fn, int R = 4)
     {
-        // R = 4: 9×9 window, 11×11 cost table (FUN_1801df760 / FUN_1801e26b0); R = 8: 17×17 window, 19×19 table (FUN_1801dd7e0, <16,8,1> lambda 1801e08c0)
+        // R = 4: 9×9 window, 11×11 cost table; R = 8: 17×17 window, 19×19 table (<16,8,1>)
         int T = 2 * R + 3, N = 2 * R + 1;
         var C = new float[T * T];
         for (int i = 0; i < C.Length; i++) C[i] = MinusOne;
@@ -492,11 +493,10 @@ public static class BlockFlow
         return ((float)(bdx - R) + sub.X, (float)(bdy - R) + sub.Y);
     }
 
-    /// <summary>5.6 `FUN_1801e3900`: integer ±2 refine (16×16), `bdx = bdy = 2` initial, then `validity((float)best, (px/W, py/H))`
+    /// <summary>Integer ±2 refine (16×16), `bdx = bdy = 2` initial, then `validity((float)best, (px/W, py/H))`
     /// (true ⇒ (−1e6, −1e6)); no sub-pixel step.</summary>
-    /// <summary>The level-0 integer refine: `FUN_1801e45c0` (±1, the `&lt;16,1,0&gt;` tile lambda `1801e42a0` used by the 4-level colour flow) or `FUN_1801e3900`
-    /// (±2, the `&lt;16,2,0&gt;` lambda `1801e35e0` of the 5-level mono flow — the earlier "two bodies of FUN_1801e3900" reading was these two functions;
-    /// the mono L0 field is bit-exact only with ±2, 2026-08-27).</summary>
+    /// <summary>The level-0 integer refine: ±1 (the `&lt;16,1,0&gt;` tile lambda of the 4-level colour flow) or
+    /// ±2 (the `&lt;16,2,0&gt;` lambda of the 5-level mono flow).</summary>
     static (float X, float Y) Refine2(ushort[] refImg, int rs, (int X, int Y) rb, ushort[] src, int sw, int sh, int px, int py, Func<float, (float X, float Y), bool>? fn, int radius)
     {
         int r = radius, n = 2 * r + 1;
@@ -522,7 +522,7 @@ public static class BlockFlow
         return ((float)(bdx - r), (float)(bdy - r));
     }
 
-    /// <summary>5.5 `FUN_1801d9910`: least-squares quadratic on the 3×3 costs `c0..c8` (row-major, `c4` = best), exact machine order.</summary>
+    /// <summary>Least-squares quadratic on the 3×3 costs `c0..c8` (row-major, `c4` = best), exact machine order.</summary>
     static (float X, float Y) SubPixel(float[] c)
     {
         float c0 = c[0], c1 = c[1], c2 = c[2], c3 = c[3], c4 = c[4], c5 = c[5], c6 = c[6], c7 = c[7], c8 = c[8];
@@ -536,19 +536,19 @@ public static class BlockFlow
         float det = prod - fxy * fxy;
         float fxy2 = (0f < det) ? fxy : 0f;
         float det2 = prod - fxy2 * fxy2;
-        if (det2 == 0f || float.IsNaN(det2)) return (0f, 0f);         // ucomiss/je (ZF on equal or unordered)
+        if (det2 == 0f || float.IsNaN(det2)) return (0f, 0f);
         float t = c6 - c2;
         float G0 = ((t + t) + ((c7 - c1) * Four)) + ((c0 * MinusTwo) + (c8 * Two));
         float G1 = ((c8 * Two) + ((c2 - c6) * Two)) + ((c0 * MinusTwo) + ((c5 - c3) * Four));
         float inv = One / det2;
         float S0 = inv * ((fxy2 * G0) - (P0 * G1));
         float S1 = inv * ((fxy2 * G1) - (P1 * G0));
-        bool ok = !(Abs(S0) >= One) && !(Abs(S1) >= One);              // ucomiss/setb: below or unordered
+        bool ok = !(Abs(S0) >= One) && !(Abs(S1) >= One);              // true when below 1 or NaN
         return ok ? (S0, S1) : (0f, 0f);
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // 6. Validity lambda ColorFusionBayer::initialize lambda_0 (1801f8d80)
+    // 6. Validity lambda (ColorFusionBayer::initialize lambda_0)
     // ---------------------------------------------------------------------------------------------------------------------------------
     /// <summary>`x = clamp(trunc(w8·p.x), 0, w8−1)`, `y = clamp(trunc(h8·p.y), 0, h8−1)`, `v = map[y·stride + x]`; `r = rsqrtss(v)`,
     /// `y1 = v·r`, `k = ((y1·r) + (−3)) · ((−0.5)·y1)` (0 when v == 0); returns `k·7680 &lt; score` (true ⇒ block rejected).</summary>
@@ -567,7 +567,7 @@ public static class BlockFlow
             float t = MinusHalf * y1;
             float k = ((y1 * r) + MinusThree) * t;
             if (v == 0f) k = 0f;
-            return !((k * Thr7680) >= score);                            // ucomiss/setb: below or unordered
+            return !((k * Thr7680) >= score);                            // true when below or when either side is NaN
         };
     }
 }

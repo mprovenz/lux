@@ -5,19 +5,19 @@ using System.Runtime.Intrinsics.X86;
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// The non-reference branch of `StereoISP::CreateStereoImage` (`180326320` L488–535, p13 = useRefCrop): the module's float
+/// The non-reference branch of `StereoISP::CreateStereoImage` (p13 = useRefCrop): the module's float
 /// YUVA work image is colour-matched to a crop of the reference camera's YUVA image with the mean + Cholesky-covariance
-/// linear transfer of the POD object built by `FUN_18044d690` (basis `FUN_18044d760` = identity in this path), statistics
-/// `FUN_18044e150` (Welford over pixels with alpha &gt; 0.95, SSE lane order), solve `FUN_18044d7b0` (double: Σ/N + 0.001·I,
+/// linear transfer of a plain data object (basis = identity in this path): statistics
+/// (Welford over pixels with alpha &gt; 0.95, SSE lane order), solve (double: Σ/N + 0.001·I,
 /// Cholesky with reciprocal off-diagonals, `A = L_ref·L_work⁻¹`, 4×4 chain `Minv·((T_ref·A)·T_work)·M` rounded to float once)
-/// and apply `FUN_18044e4e0` (`o.yuv = p.w·(F·(y,u,v,1))`, `o.a = p.w`). Crop rect: `FUN_180301040/180301b10`.
+/// and apply (`o.yuv = p.w·(F·(y,u,v,1))`, `o.a = p.w`). Crop rect: <c>CropRect</c>.
 /// </summary>
 public static class StereoColorTransfer
 {
-    const float AlphaGate = 0.95f;   // DAT_1806b8900
+    const float AlphaGate = 0.95f;
     const double Tol = 0.001;        // 0x3f50624dd2f1a9fc
 
-    /// <summary>`FUN_1800c2c10`: 3×3 double inverse, exact op list.</summary>
+    /// <summary>3×3 double inverse, exact op list.</summary>
     public static double[] Inv3D(double[] m)
     {
         double a = m[0], b = m[1], c = m[2], d = m[3], e = m[4], f = m[5], g = m[6], h = m[7], i = m[8];
@@ -27,7 +27,7 @@ public static class StereoColorTransfer
         return new[] { c00 * inv, (c * h - b * i) * inv, (b * f - c * e) * inv, -(c10 * inv), (i * a - c * g) * inv, (c * d - f * a) * inv, c20 * inv, (g * b - h * a) * inv, (e * a - d * b) * inv };
     }
 
-    /// <summary>`FUN_180301040` (xf = `(K_A·E_A)·(K_2·E_2)⁻¹`, column-major float) + `FUN_180301b10`: the reference rect mapped by
+    /// <summary>The crop rect (xf = `(K_A·E_A)·(K_2·E_2)⁻¹`, column-major float): the reference rect mapped by
     /// the inverse of the upper-left 3×3 (double), four corners with `rcpps`+Newton, min/max, then C `(int)` truncation.</summary>
     public static RectI CropRect(CalibData calib2, CalibData calibA, RectI refRect)
     {
@@ -52,7 +52,7 @@ public static class StereoColorTransfer
 
     public sealed class Stats { public Vector128<float> Mean, D, O; public float N; }
 
-    /// <summary>`FUN_18044e150` for one image (identity basis): Welford in float over pixels with alpha &gt; 0.95.</summary>
+    /// <summary>Statistics for one image (identity basis): Welford in float over pixels with alpha &gt; 0.95.</summary>
     public static Stats Accumulate(float[] yuva, int w, int h, int stride, int offset, int step = 1)
     {
         var e3 = Vector128.Create(0f, 0f, 0f, 1f);
@@ -68,7 +68,7 @@ public static class StereoColorTransfer
                 var d = ((Vector128.Create(pz) * c2 - mean) + Vector128.Create(pw) * e3) + (Vector128.Create(py) * c1 + Vector128.Create(px) * c0);
                 var rd = r * d; var t = Vector128.Create(n) * rd;
                 mean = rd + mean; D = t * d + D;
-                var ds = Vector128.Create(d.GetElement(1), d.GetElement(2), d.GetElement(0), d.GetElement(3));   // shufps 0xC9
+                var ds = Vector128.Create(d.GetElement(1), d.GetElement(2), d.GetElement(0), d.GetElement(3));   // lanes rotated to (y, z, x, w)
                 O = ds * t + O; n = n1;
             }
         return new Stats { Mean = mean, D = D, O = O, N = n };
@@ -90,7 +90,7 @@ public static class StereoColorTransfer
         return new[] { Dn.GetElement(0), On.GetElement(0), On.GetElement(2), On.GetElement(0), Dn.GetElement(1), On.GetElement(1), On.GetElement(2), On.GetElement(1), Dn.GetElement(2) };
     }
 
-    /// <summary>`FUN_18044d7b0`: the row-major float 4×4 transfer (identity when either image has fewer than 100 gated pixels).</summary>
+    /// <summary>The row-major float 4×4 transfer (identity when either image has fewer than 100 gated pixels).</summary>
     public static float[] Solve(Stats work, Stats reference)
     {
         var F = new float[16]; F[0] = F[5] = F[10] = F[15] = 1f;
@@ -101,14 +101,14 @@ public static class StereoColorTransfer
         for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) A4[4 * i + j] = (Lr[3 * i] * Li[j] + Lr[3 * i + 1] * Li[3 + j]) + Lr[3 * i + 2] * Li[6 + j];
         double[] Tr = Ident(), Tw = Ident();
         for (int k = 0; k < 3; k++) { Tr[4 * k + 3] = reference.Mean.GetElement(k); Tw[4 * k + 3] = -(double)work.Mean.GetElement(k); }
-        double[] M4 = Ident(), Minv4 = Ident(); Minv4[4] = -0.0;   // FUN_1800c2a00(I): −0.0 at (1,0), reaches only the alpha row
+        double[] M4 = Ident(), Minv4 = Ident(); Minv4[4] = -0.0;   // inverse of I: −0.0 at (1,0), reaches only the alpha row
         var X = Mat4D.Mul(Mat4D.Mul(Minv4, Mat4D.Mul(Mat4D.Mul(Tr, A4), Tw)), M4);
         for (int k = 0; k < 16; k++) F[k] = (float)X[k];
         return F;
     }
     static double[] Ident() { var m = new double[16]; m[0] = m[5] = m[10] = m[15] = 1.0; return m; }
 
-    /// <summary>`FUN_18044e4e0`: `o = p.w · ((1·c3 + z·c2) + (y·c1 + x·c0))`, `o.a = p.w` (columns of F).</summary>
+    /// <summary>`o = p.w · ((1·c3 + z·c2) + (y·c1 + x·c0))`, `o.a = p.w` (columns of F).</summary>
     public static float[] Apply(float[] yuva, int w, int h, float[] F)
     {
         var c0 = Vector128.Create(F[0], F[4], F[8], F[12]); var c1 = Vector128.Create(F[1], F[5], F[9], F[13]);
@@ -137,7 +137,7 @@ public static class StereoColorTransfer
         return (Apply(work, w, h, F), new RectI(X0, Y0, X1, Y1), F, sw, sr);
     }
 
-    /// <summary>`FUN_18010fc80`: exposure gain of the module relative to the reference camera —
+    /// <summary>Exposure gain of the module relative to the reference camera —
     /// `((g_ref·(float)e_ref) / (g_mod·(float)e_mod)) · (rb_mod / rb_ref)` when both have a vignetting record and the module is colour.</summary>
     public static float ExposureGain(float gRef, ulong eRef, float? rbRef, float gMod, ulong eMod, float? rbMod, bool modColour)
     {

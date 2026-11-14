@@ -1,6 +1,6 @@
 namespace Lux.Engine.Pipeline.Registration;
 
-/// <summary>`MirrorSystem` doubles as Lumen holds them (`FUN_1802516b0`): `R0` = real camera orientation (row-major), `Cv` =
+/// <summary>`MirrorSystem` doubles as Lumen holds them: `R0` = real camera orientation (row-major), `Cv` =
 /// real camera location, `P0` = point on the rotation axis, `Axis`, `N0` = mirror normal at 0°, `D` = plane distance,
 /// `Flip` = flip_img_around_x.</summary>
 public sealed class MirrorSystem
@@ -10,15 +10,15 @@ public sealed class MirrorSystem
 }
 
 /// <summary>
-/// Movable-mirror pose math of cp.dll, op-exact (spec A.4 §2): `FUN_180226770` (Rodrigues about the normalised axis,
-/// reflection `I − 2nnᵀ`, `P = H·R0`, handedness column flip, reflected centre), `FUN_180226d90` (transpose + `t = −R·C'`),
-/// `FUN_18020e7e0` (`Rz(δ)`), `FUN_18029bac0` (node pose = mirror pose ∘ Rz), `FUN_1803086a0` (principal-point shift).
+/// Movable-mirror pose math of Lumen, with Lumen's exact operation order: <c>Reflect</c> (Rodrigues about the normalised axis,
+/// reflection `I − 2nnᵀ`, `P = H·R0`, handedness column flip, reflected centre), <c>WorldToCamera</c> (transpose + `t = −R·C'`),
+/// <c>Rz</c> (`Rz(δ)`), <c>NodePose</c> (node pose = mirror pose ∘ Rz), <c>Shift</c> (principal-point shift).
 /// </summary>
 public static class MirrorPose
 {
-    const double DegToRad = 0.017453292519943295;   // DAT_1806b6c50 (π/180)
+    const double DegToRad = 0.017453292519943295;   // π/180
 
-    /// <summary>`FUN_180226770`: (C', P') — reflected camera centre and camera→world rotation for mirror angle θ (degrees).</summary>
+    /// <summary>(C', P') — reflected camera centre and camera→world rotation for mirror angle θ (degrees).</summary>
     public static (double[] Centre, double[] Rcw) Reflect(MirrorSystem s, double thetaDeg)
     {
         double ax = s.Axis[0], ay = s.Axis[1], az = s.Axis[2];
@@ -49,15 +49,15 @@ public static class MirrorPose
         return (C, P);
     }
 
-    /// <summary>`FUN_180226d90`: world→camera (R, t) for mirror angle θ: `R = P'ᵀ`, `t = −(R·C')`.</summary>
+    /// <summary>World→camera (R, t) for mirror angle θ: `R = P'ᵀ`, `t = −(R·C')`.</summary>
     public static (double[] R, double[] T) WorldToCamera(MirrorSystem s, double thetaDeg)
     {
         var (C, P) = Reflect(s, thetaDeg);
         var R = new double[9];
         for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) R[3 * i + j] = P[3 * j + i];
-        // FUN_180226d90 transposes P in place and then reads the x-coefficient of the y row AFTER `R[1] = P[3]` was stored:
-        // t_y uses R[1] (= R(0,1)) instead of R(1,0). Verified: reproduces Lumen's calibration slots bit-exactly (a −0.48 mm
-        // t_y difference on B2 otherwise). t_x and t_z use the correct row entries.
+        // Lumen transposes P in place and then reads the x-coefficient of the y row AFTER `R[1] = P[3]` is stored:
+        // t_y uses R[1] (= R(0,1)) instead of R(1,0). Lumen's calibration slots need this (with R(1,0), t_y on B2 differs by −0.48 mm).
+        // t_x and t_z use the correct row entries.
         var t = new double[3];
         t[0] = -((C[2] * R[2] + C[1] * R[1]) + R[0] * C[0]);
         t[1] = -((C[2] * R[5] + C[1] * R[4]) + R[1] * C[0]);
@@ -65,10 +65,10 @@ public static class MirrorPose
         return (R, t);
     }
 
-    /// <summary>`FUN_18020e7e0`: rotation about the optical axis by δ radians (row-major).</summary>
+    /// <summary>Rotation about the optical axis by δ radians (row-major).</summary>
     public static double[] Rz(double delta) { double c = Math.Cos(delta), s = Math.Sin(delta); return new[] { c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0 }; }
 
-    /// <summary>`FUN_18029bac0`: the candidate camera = base calibration with (R, t) from the mirror pose at θ, composed with Rz(δ) when δ ≠ 0.</summary>
+    /// <summary>The candidate camera = base calibration with (R, t) from the mirror pose at θ, composed with Rz(δ) when δ ≠ 0.</summary>
     public static CalibData NodePose(MirrorSystem s, CalibData baseCam, double thetaDeg, double delta)
     {
         var (R, t) = WorldToCamera(s, thetaDeg);
@@ -90,7 +90,7 @@ public static class MirrorPose
         return outc;
     }
 
-    /// <summary>`FUN_1803086a0`: principal point shift (K[2] −= cx, K[5] −= cy; the second matrix and view offset are handled by the caller's CalibData copy).</summary>
+    /// <summary>Principal point shift (K[2] −= cx, K[5] −= cy; the second matrix and view offset are handled by the caller's CalibData copy).</summary>
     public static CalibData Shift(CalibData c, float cx, float cy)
     {
         var o = new CalibData { K = (float[])c.K.Clone(), R = (float[])c.R.Clone(), T = (float[])c.T.Clone() };

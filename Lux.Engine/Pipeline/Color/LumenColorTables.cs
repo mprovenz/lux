@@ -3,13 +3,11 @@ using Ltpb;
 namespace Lux.Engine.Pipeline.Color;
 
 /// <summary>
-/// Constant tables from cp.dll used by the colour-profile fit (SoT §9), dumped bit-exact from `.rdata`
-/// (`scratch/tools/huesat_fit.py` reads the same addresses). All are float32 in the binary.
+/// Constant tables of Lumen that the colour-profile fit uses, bit for bit. All are float32 in Lumen.
 /// </summary>
 public static class LumenColorTables
 {
-    /// <summary>Built-in ColorChecker reference (24 × XYZ, D50-relative, white patch 19 Y = 0.912874); static-init
-    /// source `0x18069fdc0` → `DAT_1808320e0`.</summary>
+    /// <summary>Built-in ColorChecker reference (24 × XYZ, D50-relative, white patch 19 Y = 0.912874).</summary>
     public static readonly float[] ReferenceChartXyz =
     {
         0.118002f, 0.1033662f, 0.05151056f, 0.3941671f, 0.3525108f, 0.193914f, 0.1697489f, 0.1847199f, 0.2604046f,
@@ -22,7 +20,7 @@ public static class LumenColorTables
         0.1831045f, 0.1912013f, 0.1583591f, 0.08549204f, 0.08932398f, 0.07493845f, 0.03083086f, 0.03196162f, 0.0268612f,
     };
 
-    /// <summary>Illuminant chromaticity by Lumen's internal illuminant enum (`FUN_1800ce600`, `DAT_180687bc0`/`c00`):
+    /// <summary>Illuminant chromaticity by Lumen's internal illuminant enum:
     /// 2 A, 3 B, 4 C, 5 D50, 6 D55, 7 D65, 8 D75, 9 E, 10 F2, 11 F7, 12 F11 (0/1 unused).</summary>
     public static readonly float[] IlluminantX =
         { 0f, 0f, 0.44757268f, 0.3484831f, 0.3100605f, 0.34566918f, 0.33242422f, 0.31272662f, 0.2990208f, 0.33333334f, 0.3720698f, 0.31285304f, 0.38054064f };
@@ -31,7 +29,7 @@ public static class LumenColorTables
 
     public const int IllumA = 2, IllumD50 = 5, IllumD65 = 7, IllumD75 = 8, IllumF2 = 10, IllumF7 = 11, IllumF11 = 12;
 
-    /// <summary>`color_calibration.proto` IlluminantType → internal enum (SoT §9.1; TL84 is treated as F11).</summary>
+    /// <summary>`color_calibration.proto` IlluminantType → internal enum (TL84 is treated as F11).</summary>
     public static int InternalIlluminant(ColorCalibration.Types.IlluminantType t) => t switch
     {
         ColorCalibration.Types.IlluminantType.A => IllumA,
@@ -45,19 +43,19 @@ public static class LumenColorTables
         _ => throw new NotSupportedException($"illuminant {t} has no Lumen chromaticity"),
     };
 
-    /// <summary>Internal illuminant enum → EXIF LightSource code written as CalibrationIlluminant1/2 (`DAT_18069f860`).</summary>
+    /// <summary>Internal illuminant enum → EXIF LightSource code written as CalibrationIlluminant1/2.</summary>
     public static int ExifLightSource(int internalIllum) => internalIllum switch
     {
         IllumA => 17, IllumD50 => 23, IllumD65 => 21, IllumD75 => 22, IllumF2 => 14, IllumF7 => 13, IllumF11 => 15,
         _ => 0,
     };
 
-    /// <summary>ProPhoto RGB → XYZ (D50 native), row-major (`DAT_1806879fc`; colour-space type 5 in `FUN_1800cef80`).</summary>
+    /// <summary>ProPhoto RGB → XYZ (D50 native), row-major (colour-space type 5).</summary>
     public static readonly float[] ProPhotoToXyz =
         { 0.7976749f, 0.1351917f, 0.0313534f, 0.2880402f, 0.7118741f, 0.0000857f, 0f, 0f, 0.82521f };
 
-    /// <summary>Robertson isotherm table (DNG-SDK `kTempTable`), rows of (mired, u, v, slope); static-init source
-    /// `0x180687710` → `DAT_1808316e0` (float32 in Lumen).</summary>
+    /// <summary>Robertson isotherm table (DNG-SDK `kTempTable`), rows of (mired, u, v, slope)
+    /// (float32 in Lumen).</summary>
     public static readonly float[] Robertson =
     {
         0f, 0.18006f, 0.26352f, -0.24341f, 10f, 0.18066f, 0.26589f, -0.25479f, 20f, 0.18133f, 0.26846f, -0.26876f,
@@ -73,8 +71,7 @@ public static class LumenColorTables
         600f, 0.33724f, 0.36051f, -116.45f,
     };
 
-    /// <summary>xy → (CCT, tint): DNG-SDK `dng_temperature::Set_xy_coord` (`FUN_1800d0ef0`), tint scale −3000
-    /// (`DAT_180687544`).</summary>
+    /// <summary>xy → (CCT, tint): DNG-SDK `dng_temperature::Set_xy_coord`, tint scale −3000.</summary>
     public static (double Cct, double Tint) XyToCct(double x, double y)
     {
         double den = 1.5 - x + 6.0 * y;

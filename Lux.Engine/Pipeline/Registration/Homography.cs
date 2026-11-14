@@ -6,13 +6,13 @@ namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
 /// The homography machinery of `lt::SparseLNR`, reproduced at the instruction level: Eigen 3.4 float
-/// `ColPivHouseholderQR` (4-point DLT solve, `FUN_1802f8ac0`) and `JacobiSVD` (least-squares, `FUN_1802f91b0`) as
+/// `ColPivHouseholderQR` (4-point DLT solve) and `JacobiSVD` (least-squares) as
 /// compiled by clang with fast-math — `rcpps`/`rsqrtss` + one Newton step stand in for division/sqrt, and the dot-product
-/// reductions follow the auto-vectorised loop shapes. Plus `FUN_1802f9930` (H change) and `FUN_1802ffcf0` (validity).
+/// reductions follow the auto-vectorised loop shapes. Plus the H change and the validity test.
 /// </summary>
 public static class Homography
 {
-    // ---- approximate primitives (machine order) ----
+    // ---- approximate primitives (Lumen's operation order) ----
     public static float Rcp(float x) { float r = IntelApprox.ReciprocalScalar(Vector128.CreateScalar(x)).ToScalar(); return ((1.0f - x * r) * r) + r; }
     public static float Rsqrt(float x) { float r = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar(); float A = x * r, C = A * r, D = C + (-3.0f), E = r * (-0.5f); return E * D; }
     public static float Sqrt(float x) { float r = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar(); float A = x * r, B = A * (-0.5f), C = A * r, D = C + (-3.0f), s = D * B; return x == 0.0f ? 0.0f : s; }
@@ -22,7 +22,7 @@ public static class Homography
     static readonly float Precision = BitConverter.Int32BitsToSingle(0x34800000);     // 2·FLT_EPSILON (Jacobi)
     static readonly float ConsiderAsZero = BitConverter.Int32BitsToSingle(0x00800000);
 
-    /// <summary>Compiled squared-norm reduction of `v[0..n)` (§1b).</summary>
+    /// <summary>Compiled squared-norm reduction of `v[0..n)`.</summary>
     static float SqNorm(float[] v, int off, int n)
     {
         float s = v[off] * v[off];
@@ -54,7 +54,7 @@ public static class Homography
         return 1;
     }
 
-    /// <summary>Dot product `Σ_j lhs[j]·rhs[j]` (depth n) in the accumulation order of the given row-block kind (§1c).</summary>
+    /// <summary>Dot product `Σ_j lhs[j]·rhs[j]` (depth n) in the accumulation order of the given row-block kind.</summary>
     static float GemvDot(Func<int, float> lhs, Func<int, float> rhs, int n, int kind)
     {
         if (kind == 4)
@@ -81,7 +81,7 @@ public static class Homography
         float t = 0f; for (int j = 0; j < n; j++) t = t + lhs(j) * rhs(j); return t;
     }
 
-    /// <summary>Eigen float `ColPivHouseholderQR::computeInPlace` on a column-major R×C matrix (§1a). Returns (qr, hCoeffs, perm, nonzeroPivots).</summary>
+    /// <summary>Eigen float `ColPivHouseholderQR::computeInPlace` on a column-major R×C matrix. Returns (qr, hCoeffs, perm, nonzeroPivots).</summary>
     public static (float[][] Qr, float[] H, int[] Perm, int Nz) ColPivQr(float[][] cols, int R)
     {
         int C = cols.Length, size = Math.Min(R, C);
@@ -152,7 +152,7 @@ public static class Homography
         return (qr, h, perm, nz);
     }
 
-    /// <summary>`_solve_impl` for a square system (§1d): apply Qᵀ, back-substitute, un-permute.</summary>
+    /// <summary>`_solve_impl` for a square system: apply Qᵀ, back-substitute, un-permute.</summary>
     public static float[] QrSolve((float[][] Qr, float[] H, int[] Perm, int Nz) f, float[] b, int R)
     {
         var (qr, h, perm, nz) = f; int C = qr.Length;
@@ -182,7 +182,7 @@ public static class Homography
         return x;
     }
 
-    /// <summary>`FUN_1802f8ac0`: 4-point DLT, H = [x0..x7, 1].</summary>
+    /// <summary>4-point DLT, H = [x0..x7, 1].</summary>
     public static float[] FromFourPairs((float X, float Y)[] src, (float X, float Y)[] dst)
     {
         if (src.Length != 4 || dst.Length != 4) throw new ArgumentException("require 4 point pairs");
@@ -199,7 +199,7 @@ public static class Homography
         return H;
     }
 
-    /// <summary>`FUN_1802f91b0`: least-squares homography for ≥ 5 pairs = last right-singular vector of the 2N×9 system (unit norm, not divided by H[8]).</summary>
+    /// <summary>Least-squares homography for ≥ 5 pairs = last right-singular vector of the 2N×9 system (unit norm, not divided by H[8]).</summary>
     public static float[] LeastSquares((float X, float Y)[] src, (float X, float Y)[] dst)
     {
         int N = src.Length; if (dst.Length != N) throw new ArgumentException("size mistmatch in computehomog"); if (N < 5) throw new ArgumentException("need more than 4 points");
@@ -261,7 +261,7 @@ public static class Homography
         return (V, sv);
     }
 
-    /// <summary>`real_2x2_jacobi_svd` + `makeJacobi` in machine order (§2b). m01 = W(p,q) (row p, col q), m10 = W(q,p).</summary>
+    /// <summary>`real_2x2_jacobi_svd` + `makeJacobi` in Lumen's operation order. m01 = W(p,q) (row p, col q), m10 = W(q,p).</summary>
     static ((float C, float S) Left, (float C, float S) Right) Real2x2(float m00, float m01, float m10, float m11)
     {
         float d = m10 - m01, c1, s1;
@@ -282,7 +282,7 @@ public static class Homography
         return ((s1 * sr + cr * c1, cr * s1 - c1 * sr), (cr, sr));
     }
 
-    /// <summary>`FUN_1802f9930`: max over i &lt; 7 of |Hn[i]·rcp(Hn[8]) − Ho[i]·rcp(Ho[8])| (H[7] is never compared).</summary>
+    /// <summary>Max over i &lt; 7 of |Hn[i]·rcp(Hn[8]) − Ho[i]·rcp(Ho[8])| (H[7] is never compared).</summary>
     public static float Change(float[] Hn, float[] Ho)
     {
         float r0 = Rcp(Hn[8]) * 1.0f, r1 = Rcp(Ho[8]) * 1.0f, m = 0f;
@@ -290,7 +290,7 @@ public static class Homography
         return m;
     }
 
-    /// <summary>`FUN_1802ffcf0`: the mapped unit square must stay convex with each edge within 20° of its axis.</summary>
+    /// <summary>The mapped unit square must stay convex with each edge within 20° of its axis.</summary>
     public static bool IsValid(float[] H)
     {
         float a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], hh = H[7], i = H[8];
@@ -312,10 +312,10 @@ public static class Homography
             return (double)MathF.Acos(cos) * 57.295780490442965;
         }
         double d1 = Deg(E1, E1.Item1, -0.5f), d2 = Deg(E2, E2.Item2, -0.5f), d3 = Deg(E3, E3.Item1, 0.5f), d4 = Deg(E4, E4.Item2, 0.5f);
-        // 180300022–180300044: each `deg < 20.0` is compiled as `ucomisd deg, 20.0; setb` — the UNORDERED result (CF = 1) counts as
+        // Lumen's `deg < 20.0` test (UCOMISD, then SETB) counts an unordered result (NaN) as
         // "less than". An edge that lies exactly on its axis rounds its cosine one ulp above 1.0 (`q·D·comp` with the rsqrt Newton
-        // step), `acosf` returns NaN, and Lumen accepts the homography; C#'s `<` would reject it. Seen on L16_00524 (A5, WIDE level 2)
-        // and L16_00467 (B4, TELE level 2): the view was disabled, the driver aborted, and the camera lost all its observations.
+        // step), `acosf` returns NaN, and Lumen accepts the homography; C#'s `<` would reject it. With `<`, the view is disabled,
+        // the driver aborts, and the camera loses all its observations.
         static bool LtNan(double a, double b) => !(a >= b);
         return LtNan(d4, 20.0) && LtNan(d3, 20.0) && LtNan(d2, 20.0) && LtNan(d1, 20.0);
     }

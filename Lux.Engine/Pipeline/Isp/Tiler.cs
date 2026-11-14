@@ -1,9 +1,9 @@
 namespace Lux.Engine.Pipeline.Isp;
 
-/// <summary>`lt::Tiler::Run(Rectangle, Vec2 tile, fn)` (`180005bc0`, worker lambda_0 `1800067a0`): the ROI is cut into
+/// <summary>Lumen's `lt::Tiler::Run(Rectangle, Vec2 tile, fn)`: the ROI is cut into
 /// nx×ny tiles with n = extent/tile + (tile &lt; 2·(extent % tile) ? 1 : 0) (min 1) per axis; the last tile per axis
 /// absorbs a small remainder (its extent is 2·tile, clipped to the ROI). Matters for stages with per-tile
-/// statistics (ColorNoiseReduction). The 1-D `Tiler::Run(start, end, step, fn)` (`180005e90`) follows the same rule.</summary>
+/// statistics (ColorNoiseReduction). The 1-D `Tiler::Run(start, end, step, fn)` follows the same rule.</summary>
 public static class Tiler
 {
     public static int Count(int extent, int tile) { int n = extent / tile + (tile < (extent % tile) * 2 ? 1 : 0); return n < 1 ? 1 : n; }

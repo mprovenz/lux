@@ -5,22 +5,22 @@ using System.Runtime.Intrinsics.X86;
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// `lt::SparseMirrorAngleOptimizer::optimize` (1802994a0 + lambdas 18029c930/cd80, costs `FUN_18029c560` epipolar /
-/// `FUN_18029c060` reprojection): exhaustive grid over the mirror angle θ (step 0.05°), the in-plane roll δ (step 0.025°,
+/// `lt::SparseMirrorAngleOptimizer::optimize` (with the epipolar and the reprojection cost):
+/// exhaustive grid over the mirror angle θ (step 0.05°), the in-plane roll δ (step 0.025°,
 /// FreeParams &gt; 1) and a principal-point offset sliding along the θ-flow direction (FreeParams ≥ 1); every node = mirror
 /// pose ∘ Rz(δ), principal-point shift, view-transform pipeline; accepted iff the outlier fraction ≤ 0.25, not worse than the
 /// centre node and (FreeParams ≥ 1) cost ≤ 0.8 × centre cost. The accepted (raw) camera is written to the CURRENT slot.
 /// </summary>
 public static class SparseMirrorAngleOptimizer
 {
-    const double ThetaStep = 0.05;                        // DAT_1806b8f58
-    const double DeltaStep = 4.3633230555555557e-4;       // DAT_1806b8f60
+    const double ThetaStep = 0.05;
+    const double DeltaStep = 4.3633230555555557e-4;
     const float EpiClamp = 15.0f, ReproClamp = 8.0f, OutFracMax = 0.25f, CostRatio = 0.8f;
-    static readonly float NormEps = BitConverter.Int32BitsToSingle(0x33d6bf95);   // DAT_18068a51c ≈ 1e-7
+    static readonly float NormEps = BitConverter.Int32BitsToSingle(0x33d6bf95);   // ≈ 1e-7
 
     public sealed class Result { public bool Accepted; public CalibData? Written; public double Theta, Delta; public float Cx, Cy; public float Cost, OutFrac, CentreCost, CentreOutFrac; }
 
-    /// <summary>The θ-flow direction (§4.3): image motion of the on-axis point at depth Z between θ and θ+2°, normalised by its max component.</summary>
+    /// <summary>The θ-flow direction: image motion of the on-axis point at depth Z between θ and θ+2°, normalised by its max component.</summary>
     public static (float Gx, float Gy) Flow(MirrorSystem sys, CalibData baseCam, CalibData refCam, double thetaC, float Z)
     {
         var M1 = Mat4D.FlowMatrix(MirrorPose.NodePose(sys, baseCam, thetaC, 0.0), refCam);
@@ -36,12 +36,12 @@ public static class SparseMirrorAngleOptimizer
         }
         var p1 = Proj(M1); var p2 = Proj(M2);
         float dx = p2.U - p1.U, dy = p2.V - p1.V;
-        float m = MathF.Abs(dy); if (!(MathF.Abs(dx) <= m)) m = MathF.Abs(dx);   // maxss(|dy|, |dx|)
+        float m = MathF.Abs(dy); if (!(MathF.Abs(dx) <= m)) m = MathF.Abs(dx);   // MAXSS order: NaN gives |dx|
         float inv = 1.0f / m;
         return (dx * inv, dy * inv);
     }
 
-    /// <summary>`FUN_18029c060`: mean clamped reprojection distance of the triangulated points into the candidate camera.</summary>
+    /// <summary>Mean clamped reprojection distance of the triangulated points into the candidate camera.</summary>
     public static (float Cost, float OutFrac) ReprojectionCost(CalibData cam, ReadOnlySpan<float> matches, TriPoint[] pts)
     {
         float sum = 0f; int n = 0, outl = 0;
@@ -70,7 +70,7 @@ public static class SparseMirrorAngleOptimizer
         return (invN * sum, outl * invN);
     }
 
-    /// <summary>`FUN_18029c560`: mean clamped epipolar distance of the matches (view-A cost, WIDE side).</summary>
+    /// <summary>Mean clamped epipolar distance of the matches (view-A cost, WIDE side).</summary>
     public static (float Cost, float OutFrac) EpipolarCost(CalibData refCam, CalibData cam, ReadOnlySpan<float> matches, TriPoint[] pts)
     {
         var F = Triangulator.Fundamental(refCam, cam);
@@ -94,15 +94,15 @@ public static class SparseMirrorAngleOptimizer
         return (invN * sum, outl * invN);
     }
 
-    /// <summary>Run the grid search. `baseCam` = the module's CURRENT slot (`FUN_180307b30`) as a full CalibData (K2/off/scale
-    /// pass through the view pipeline), `pose` = the module's view-transform pipeline, `refCam` = this+0x48.</summary>
+    /// <summary>Run the grid search. `baseCam` = the module's CURRENT slot as a full CalibData (K2/off/scale
+    /// pass through the view pipeline), `pose` = the module's view-transform pipeline, `refCam` = the reference camera.</summary>
     public static Result Optimize(MirrorSystem sys, CalibDataFull baseCam, ViewPose pose, CalibData refCam, ReadOnlySpan<float> matches, TriPoint[] pts,
         int freeParams, int costFunction, double seedTheta, (float X, float Y) seedC, float Z, bool wideFlag, ActuatorMapping? map = null, double hall = 0.0)
     {
         int nValid = 0; for (int i = 0; i < matches.Length / 2; i++) if (matches[2 * i] > 0f && matches[2 * i + 1] > 0f) nValid++;
         var res = new Result();
         if (nValid < 8) return res;
-        double thetaC = seedTheta > 0 ? seedTheta : (map ?? throw new ArgumentException("unseeded optimize needs the actuator mapping (θc = FUN_18024daf0(mapping, hall))")).Angle(hall);   // spec §4 step 2
+        double thetaC = seedTheta > 0 ? seedTheta : (map ?? throw new ArgumentException("unseeded optimize needs the actuator mapping (it gives the angle for the hall code)")).Angle(hall);
         var baseBasic = baseCam.Basic();
         var (gx, gy) = Flow(sys, baseBasic, refCam, thetaC, Z);
         int Na = (wideFlag ? 10 : 24) >> (seedTheta > 0 ? 1 : 0);

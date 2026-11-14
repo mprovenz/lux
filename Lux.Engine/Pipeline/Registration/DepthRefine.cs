@@ -1,11 +1,11 @@
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// `Triangulator::refine3dPoints` (180288db0 + lambda_0 18028c150): per point a 1-DOF Ceres 1.12.0 problem (depth `d` along
+/// `Triangulator::refine3dPoints` (with lambda_0): per point a 1-DOF Ceres 1.12.0 problem (depth `d` along
 /// the reference ray, bounds [near, far]) with one `AutoDiffCostFunction&lt;ReProjectionCost,2,1&gt;` + `CauchyLoss(1.0)` per
 /// observing camera, solved with the trust-region Levenberg–Marquardt path of Ceres 1.12.0 (DENSE_QR, jacobi scaling,
 /// nonmonotonic steps, projected Armijo line search for the bounded problem). The solver here is a transcription of that
-/// path with the same arithmetic order; the per-camera 4×4 matrices `D` are `FUN_1803010a0` results rounded through float.
+/// path with the same arithmetic order; the per-camera 4×4 matrices `D` are <c>Mat4D.FlowMatrix</c> results rounded through float.
 /// </summary>
 public static class DepthRefine
 {

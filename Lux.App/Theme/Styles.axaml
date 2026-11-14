@@ -1,0 +1,564 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    Studio styles: typography classes and the surfaces (bars, panels, cards, notes, badges, dialogs).
+
+    TextBlock classes: .secondary .disabled .mono .small .tiny .large .heading .title .dialogtitle .strong .medium
+                       .accent .warning .success
+    Border classes:    .header .toolbar .selectionbar .statusbar .panel .sidepanel .card .note .warningbox
+                       .badge .dialog .rule
+  -->
+
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{DynamicResource LuxGround}" />
+    <Setter Property="Foreground" Value="{DynamicResource LuxText}" />
+    <Setter Property="FontFamily" Value="{DynamicResource LuxTextFont}" />
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSize}" />
+  </Style>
+  <!-- Trimming only where text is width-bound (it costs a second text layout): .trim, list cells, tree rows, cards -->
+  <Style Selector="TextBlock.trim, Border.listrow TextBlock, Button.tree TextBlock, Border.card2 TextBlock">
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="TextBlock.wrap, SelectableTextBlock.wrap">
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="TextTrimming" Value="None" />
+    <Setter Property="LineHeight" Value="20" />
+  </Style>
+  <Style Selector="TextBlock.secondary">
+    <Setter Property="Foreground" Value="{DynamicResource LuxTextSecondary}" />
+  </Style>
+  <Style Selector="TextBlock.disabled">
+    <Setter Property="Foreground" Value="{DynamicResource LuxTextDisabled}" />
+  </Style>
+  <Style Selector="TextBlock.mono, SelectableTextBlock.mono">
+    <Setter Property="FontFamily" Value="{DynamicResource LuxMonoFont}" />
+  </Style>
+  <Style Selector="TextBlock.small">
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSizeSmall}" />
+  </Style>
+  <Style Selector="TextBlock.tiny">
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSizeTiny}" />
+  </Style>
+  <Style Selector="TextBlock.large">
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSizeLarge}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="TextBlock.heading">
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSizeHeading}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="TextBlock.dialogtitle">
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSizeDialogTitle}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="TextBlock.title">
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSizeTitle}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="TextBlock.strong">
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="TextBlock.medium">
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="TextBlock.accent">
+    <Setter Property="Foreground" Value="{DynamicResource LuxAccent}" />
+  </Style>
+  <Style Selector="TextBlock.warning">
+    <Setter Property="Foreground" Value="{DynamicResource LuxWarning}" />
+  </Style>
+  <Style Selector="TextBlock.success">
+    <Setter Property="Foreground" Value="{DynamicResource LuxSuccess}" />
+  </Style>
+  <Style Selector="TextBlock.stars">
+    <Setter Property="LetterSpacing" Value="1" />
+  </Style>
+
+  <!-- Surfaces -->
+  <Style Selector="Border.header">
+    <Setter Property="Background" Value="{DynamicResource LuxBar}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="MinHeight" Value="{DynamicResource LuxControlHeight}" />
+    <Setter Property="Padding" Value="12,0" />
+  </Style>
+  <Style Selector="Border.toolbar">
+    <Setter Property="Background" Value="{DynamicResource LuxPanel}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="MinHeight" Value="{DynamicResource LuxControlHeight}" />
+    <Setter Property="Padding" Value="12,0" />
+  </Style>
+  <Style Selector="Border.chipbar">
+    <Setter Property="Background" Value="{DynamicResource LuxPanel}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="MinHeight" Value="{DynamicResource LuxToolbarHeight}" />
+    <Setter Property="Padding" Value="12,4" />
+  </Style>
+  <Style Selector="Border.selectionbar">
+    <Setter Property="Background" Value="{DynamicResource LuxSelection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="MinHeight" Value="{DynamicResource LuxToolbarHeight}" />
+    <Setter Property="Padding" Value="12,4" />
+  </Style>
+  <Style Selector="Border.statusbar">
+    <Setter Property="Background" Value="{DynamicResource LuxBar}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderThickness" Value="0,1,0,0" />
+    <Setter Property="MinHeight" Value="{DynamicResource LuxStatusHeight}" />
+    <Setter Property="Padding" Value="12,0" />
+  </Style>
+  <Style Selector="Border.statusbar TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource LuxTextSecondary}" />
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSizeSmall}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.panel">
+    <Setter Property="Background" Value="{DynamicResource LuxPanel}" />
+  </Style>
+  <Style Selector="Border.tree">
+    <Setter Property="Background" Value="{DynamicResource LuxPanel}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderThickness" Value="0,0,1,0" />
+  </Style>
+  <Style Selector="Border.sidepanel">
+    <Setter Property="Background" Value="{DynamicResource LuxPanel}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderThickness" Value="1,0,0,0" />
+  </Style>
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{DynamicResource LuxPanel}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineLight}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Padding" Value="16" />
+  </Style>
+  <Style Selector="Border.card.primary">
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxAccent}" />
+  </Style>
+  <Style Selector="Border.note">
+    <Setter Property="Background" Value="{DynamicResource LuxBar}" />
+    <Setter Property="Padding" Value="10" />
+  </Style>
+  <Style Selector="Border.note TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource LuxTextSecondary}" />
+  </Style>
+  <Style Selector="Border.warningbox">
+    <Setter Property="Background" Value="{DynamicResource LuxWarningGround}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxWarning}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Padding" Value="12" />
+  </Style>
+  <Style Selector="Border.badge">
+    <Setter Property="Background" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="Padding" Value="5,0" />
+  </Style>
+  <Style Selector="Border.badge TextBlock">
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSizeTiny}" />
+  </Style>
+  <Style Selector="Border.badge.warn">
+    <Setter Property="Background" Value="{DynamicResource LuxWarningGround}" />
+  </Style>
+  <Style Selector="Border.badge.warn TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource LuxWarning}" />
+  </Style>
+  <Style Selector="Border.dialog">
+    <Setter Property="Background" Value="{DynamicResource LuxPanel}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineLight}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="Border.rule">
+    <Setter Property="Background" Value="{DynamicResource LuxLineMid}" />
+    <Setter Property="Height" Value="1" />
+  </Style>
+  <Style Selector="Border.groupline">
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineMid}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="Padding" Value="0,0,0,6" />
+  </Style>
+
+  <!-- Browse items: grid cell, timeline card, list row (selected / keyboard cursor / hover) -->
+  <Style Selector="Border.cell">
+    <Setter Property="Padding" Value="4" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Border.cell:pointerover">
+    <Setter Property="Background" Value="{DynamicResource LuxHover}" />
+  </Style>
+  <Style Selector="Border.cell.selected">
+    <Setter Property="Background" Value="{DynamicResource LuxSelection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxAccent}" />
+  </Style>
+  <Style Selector="Border.card2">
+    <Setter Property="Background" Value="{DynamicResource LuxBar}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <Style Selector="Border.card2:pointerover">
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineLight}" />
+  </Style>
+  <Style Selector="Border.card2.selected">
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxAccent}" />
+  </Style>
+  <Style Selector="Border.listrow">
+    <Setter Property="BorderThickness" Value="0,1,0,0" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxBar}" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Height" Value="48" />
+  </Style>
+  <Style Selector="Border.listrow:pointerover">
+    <Setter Property="Background" Value="{DynamicResource LuxHover}" />
+  </Style>
+  <Style Selector="Border.listrow.selected">
+    <Setter Property="Background" Value="{DynamicResource LuxSelection}" />
+  </Style>
+  <!-- the keyboard cursor shows while the browse area has keyboard focus -->
+  <Style Selector="UserControl.browse:focus-within Border.cell.cursor, UserControl.browse:focus-within Border.card2.cursor">
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxText}" />
+  </Style>
+  <Style Selector="UserControl.browse:focus-within Border.listrow.cursor">
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxText}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <!-- storage marker: hollow accent = kept on this computer; filled warning = not saved with the photo yet -->
+  <Style Selector="Ellipse.marker">
+    <Setter Property="Width" Value="9" />
+    <Setter Property="Height" Value="9" />
+    <Setter Property="Stroke" Value="{DynamicResource LuxAccent}" />
+    <Setter Property="StrokeThickness" Value="1.5" />
+    <Setter Property="Fill" Value="{DynamicResource LuxLineDark}" />
+  </Style>
+  <Style Selector="Ellipse.marker.notsaved">
+    <Setter Property="Stroke" Value="{DynamicResource LuxWarning}" />
+    <Setter Property="Fill" Value="{DynamicResource LuxWarning}" />
+  </Style>
+  <Style Selector="TextBlock.cachetag">
+    <Setter Property="Foreground" Value="{DynamicResource LuxTextSecondary}" />
+  </Style>
+  <Style Selector="TextBlock.cachetag.full">
+    <Setter Property="Foreground" Value="{DynamicResource LuxAccent}" />
+  </Style>
+  <!-- folder tree levels: the root heaviest, indexed folders medium, sub-folders and group items regular; group headings small caps -->
+  <Style Selector="TextBlock.treelabel.root">
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSizeLarge}" />
+  </Style>
+  <Style Selector="TextBlock.treelabel.folder">
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="TextBlock.treelabel.group">
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSizeSmall}" />
+    <Setter Property="Foreground" Value="{DynamicResource LuxTextSecondary}" />
+    <Setter Property="LetterSpacing" Value="0.6" />
+  </Style>
+  <Style Selector="Button.tree.group">
+    <Setter Property="MinHeight" Value="40" />
+  </Style>
+  <Style Selector="Button.chevron">
+    <Setter Property="Width" Value="20" />
+    <Setter Property="Height" Value="28" />
+    <Setter Property="MinHeight" Value="28" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Path.chevron">
+    <Setter Property="Stroke" Value="{DynamicResource LuxTextSecondary}" />
+    <Setter Property="StrokeThickness" Value="1.5" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="RenderTransform" Value="rotate(0deg)" />
+  </Style>
+  <Style Selector="Path.chevron.expanded">
+    <Setter Property="RenderTransform" Value="rotate(90deg)" />
+  </Style>
+  <Style Selector="Button.chevron:pointerover Path.chevron">
+    <Setter Property="Stroke" Value="{DynamicResource LuxText}" />
+  </Style>
+  <Style Selector="TextBlock.newalbum">
+    <Setter Property="Foreground" Value="{DynamicResource LuxTextSecondary}" />
+  </Style>
+  <Style Selector="Border.job">
+    <Setter Property="Background" Value="{DynamicResource LuxPanel}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineMid}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Padding" Value="8" />
+  </Style>
+  <Style Selector="Border.job.running">
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxAccent}" />
+  </Style>
+  <Style Selector="Border.job.failed">
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxWarning}" />
+  </Style>
+  <!-- a job row: spaced apart; inside a batch group: indented under its heading, closer together -->
+  <Style Selector="Border.job">
+    <Setter Property="Margin" Value="0,0,0,12" />
+  </Style>
+  <Style Selector="Border.job.inbatch">
+    <Setter Property="Margin" Value="32,0,0,6" />
+    <Setter Property="Background" Value="{DynamicResource LuxBar}" />
+  </Style>
+  <Style Selector="Border.section">
+    <Setter Property="Background" Value="{DynamicResource LuxPanel}" />
+    <Setter Property="Padding" Value="16" />
+  </Style>
+
+  <!-- Fields -->
+  <Style Selector="TextBox">
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSize}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBox.tall">
+    <Setter Property="MinHeight" Value="{DynamicResource LuxControlHeight}" />
+  </Style>
+  <Style Selector="TextBox.mono">
+    <Setter Property="FontFamily" Value="{DynamicResource LuxMonoFont}" />
+  </Style>
+  <Style Selector="ComboBox">
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSize}" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+  </Style>
+  <Style Selector="ContextMenu, MenuFlyoutPresenter">
+    <Setter Property="FontFamily" Value="{DynamicResource LuxTextFont}" />
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSize}" />
+  </Style>
+  <Style Selector="ToolTip">
+    <Setter Property="FontFamily" Value="{DynamicResource LuxTextFont}" />
+  </Style>
+  <Style Selector="Slider">
+    <Setter Property="MinHeight" Value="{DynamicResource LuxControlHeight}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="NumericUpDown">
+    <Setter Property="MinHeight" Value="{DynamicResource LuxControlHeight}" />
+  </Style>
+
+  <!-- Develop page -->
+  <Style Selector="Border.devsection">
+    <Setter Property="Padding" Value="12" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+  </Style>
+  <Style Selector="Border.viewerbar">
+    <Setter Property="Background" Value="{DynamicResource LuxGround}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderThickness" Value="0,1,0,0" />
+    <Setter Property="MinHeight" Value="{DynamicResource LuxControlHeight}" />
+    <Setter Property="Padding" Value="12,0" />
+  </Style>
+  <Style Selector="Border.toolbar2">
+    <Setter Property="Background" Value="{DynamicResource LuxGround}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="MinHeight" Value="{DynamicResource LuxToolbarHeight}" />
+    <Setter Property="Padding" Value="12,0" />
+  </Style>
+  <Style Selector="Border.filmstrip">
+    <Setter Property="Background" Value="{DynamicResource LuxPanel}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderThickness" Value="0,1,0,0" />
+  </Style>
+  <Style Selector="Border.stripcell">
+    <Setter Property="Width" Value="72" />
+    <Setter Property="Height" Value="55" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="Background" Value="{DynamicResource LuxPlaceholder}" />
+  </Style>
+  <Style Selector="Border.stripcell:pointerover">
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineLight}" />
+  </Style>
+  <Style Selector="Border.stripcell.current">
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxAccent}" />
+  </Style>
+  <Style Selector="Border.picturebadge">
+    <Setter Property="Background" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="Padding" Value="6,2" />
+  </Style>
+  <Style Selector="Border.picturebadge TextBlock">
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSizeSmall}" />
+  </Style>
+  <Style Selector="Button.toolrow">
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="Padding" Value="10,0" />
+  </Style>
+  <Style Selector="Button.toolrow.active">
+    <Setter Property="Background" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxAccent}" />
+  </Style>
+  <Style Selector="Button.historyrow">
+    <Setter Property="Padding" Value="10,0" />
+    <Setter Property="MinHeight" Value="40" />
+  </Style>
+  <Style Selector="Button.historyrow.current">
+    <Setter Property="Background" Value="{DynamicResource LuxSelection}" />
+  </Style>
+  <Style Selector="Button.historyrow.undone TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource LuxTextDisabled}" />
+  </Style>
+  <Style Selector="Button.sectionhead">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="MinHeight" Value="24" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+  </Style>
+  <Style Selector="Button.iconbutton">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+  </Style>
+  <Style Selector="Path.icon">
+    <Setter Property="Stroke" Value="{DynamicResource LuxText}" />
+    <Setter Property="StrokeThickness" Value="1.6" />
+    <Setter Property="StrokeLineCap" Value="Round" />
+    <Setter Property="StrokeJoin" Value="Round" />
+    <Setter Property="Width" Value="20" />
+    <Setter Property="Height" Value="20" />
+    <Setter Property="Stretch" Value="None" />
+  </Style>
+  <Style Selector="Button:disabled Path.icon">
+    <Setter Property="Stroke" Value="{DynamicResource LuxTextDisabled}" />
+  </Style>
+  <Style Selector="TextBlock.adjlabel">
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="TextBlock.adjlabel.moved">
+    <Setter Property="Foreground" Value="{DynamicResource LuxText}" />
+  </Style>
+  <!-- the value of a slider: plain mono text that becomes a field on hover / focus -->
+  <Style Selector="TextBox.valuefield">
+    <Setter Property="FontFamily" Value="{DynamicResource LuxMonoFont}" />
+    <Setter Property="FontSize" Value="{DynamicResource LuxFontSize}" />
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="Height" Value="26" />
+    <Setter Property="Padding" Value="4,0" />
+    <Setter Property="HorizontalContentAlignment" Value="Right" />
+    <Setter Property="TextAlignment" Value="Right" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="MinWidth" Value="0" />
+  </Style>
+  <Style Selector="TextBox.valuefield /template/ Border#PART_BorderElement">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="MinHeight" Value="26" />
+  </Style>
+  <Style Selector="TextBox.valuefield:pointerover /template/ Border#PART_BorderElement">
+    <Setter Property="Background" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineMid}" />
+  </Style>
+  <Style Selector="TextBox.valuefield:focus /template/ Border#PART_BorderElement">
+    <Setter Property="Background" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxAccent}" />
+  </Style>
+  <Style Selector="TextBox.valuefield.error /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxWarning}" />
+  </Style>
+  <Style Selector="Button.star">
+    <Setter Property="Foreground" Value="{DynamicResource LuxLineLight}" />
+    <Setter Property="FontSize" Value="15" />
+  </Style>
+  <Style Selector="Button.star.on">
+    <Setter Property="Foreground" Value="{DynamicResource LuxAccent}" />
+  </Style>
+  <Style Selector="Button.star:pointerover">
+    <Setter Property="Foreground" Value="{DynamicResource LuxAccentHover}" />
+  </Style>
+  <Style Selector="Button.accent.selected">
+    <Setter Property="Background" Value="{DynamicResource LuxLineDark}" />
+  </Style>
+  <!-- the quality selector's "kept on disk" tick: a drawn check mark, no font needed -->
+  <Style Selector="Path.kepttick">
+    <Setter Property="Data" Value="M0,4 L3,7 L9,0" />
+    <Setter Property="Stroke" Value="{DynamicResource LuxSuccess}" />
+    <Setter Property="StrokeThickness" Value="1.6" />
+    <Setter Property="Width" Value="10" />
+    <Setter Property="Height" Value="8" />
+    <Setter Property="Stretch" Value="None" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.qualitydot">
+    <Setter Property="Width" Value="6" />
+    <Setter Property="Height" Value="6" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Background" Value="{DynamicResource LuxAccent}" />
+  </Style>
+  <!-- depth tools, versions, history marks -->
+  <Style Selector="Button.toolrow.dimmed TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource LuxTextDisabled}" />
+  </Style>
+  <Style Selector="Button.versionrow">
+    <Setter Property="Padding" Value="10,0" />
+  </Style>
+  <Style Selector="Border.toolbar3">
+    <Setter Property="Background" Value="{DynamicResource LuxGround}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="MinHeight" Value="{DynamicResource LuxControlHeight}" />
+    <Setter Property="Padding" Value="12,0" />
+  </Style>
+  <Style Selector="Border.toolline">
+    <Setter Property="Background" Value="{DynamicResource LuxBar}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="MinHeight" Value="32" />
+    <Setter Property="Padding" Value="12,0" />
+  </Style>
+  <Style Selector="Border.rebuild">
+    <Setter Property="Background" Value="{DynamicResource LuxBar}" />
+    <Setter Property="Padding" Value="10,8" />
+  </Style>
+  <Style Selector="Border.historynote">
+    <Setter Property="Padding" Value="10" />
+  </Style>
+  <Style Selector="Border.depthmark">
+    <Setter Property="Width" Value="6" />
+    <Setter Property="Height" Value="6" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Background" Value="{DynamicResource LuxAccent}" />
+  </Style>
+  <!-- a depth step kept from an earlier session: a ring instead of a dot -->
+  <Style Selector="Border.depthmark.saved">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxAccent}" />
+    <Setter Property="BorderThickness" Value="1.5" />
+    <Setter Property="Width" Value="7" />
+    <Setter Property="Height" Value="7" />
+    <Setter Property="CornerRadius" Value="3.5" />
+  </Style>
+  <Style Selector="Button.historyrow.unreachable TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource LuxTextDisabled}" />
+  </Style>
+  <Style Selector="Button.historyrow.unreachable Border.depthmark">
+    <Setter Property="Opacity" Value="0.45" />
+  </Style>
+  <Style Selector="Border.hintbadge">
+    <Setter Property="Background" Value="#E6262626" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxLineLight}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="Padding" Value="12,8" />
+  </Style>
+  <Style Selector="Button.picking">
+    <Setter Property="Background" Value="{DynamicResource LuxLineDark}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxAccent}" />
+  </Style>
+  <Style Selector="TextBox.targetfield">
+    <Setter Property="MinHeight" Value="32" />
+    <Setter Property="Height" Value="32" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBox.targetfield.error /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{DynamicResource LuxWarning}" />
+  </Style>
+</Styles>

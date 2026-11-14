@@ -1,24 +1,24 @@
 namespace Lux.Engine.Pipeline.Isp;
 
 /// <summary>
-/// The display TileCache generator `RendererPrivate::RendererPrivate::lambda_2` `0x18049fb10` (mode 0): grow the
+/// Lumen's display TileCache generator (mode 0): grow the
 /// requested level tile by the per-level halo (**always 64** — `setInputDataStream` pushes the literal `0x40` for
 /// every level, so 32 px left/top and 31 px right/bottom), fetch the fused tile from the PipelineCache at
-/// `level + FUN_18050c640(profile)`, run the output SoftISP **in place** over the whole grown tile, then crop back to
-/// the requested rect. The tile stays `vec4x32f`; the 8-bit conversion happens later (§12).
-/// Spec `a-display-isp.md` §1.1.
+/// `level + profile offset` (<see cref="DisplayIspTuning.L16ProfileOffset"/>), run the output SoftISP **in place** over the whole
+/// grown tile, then crop back to the requested rect. The tile stays `vec4x32f`; the 8-bit conversion happens later
+/// (<see cref="DisplayOutput"/>).
 /// </summary>
 public static class DisplayRender
 {
-    public const int Halo = 64;   // renderer+0x2f8[L], literal 0x40 for every level
+    public const int Halo = 64;   // literal 0x40 for every level
 
     /// <summary>The geometry of one display tile.</summary>
-    /// <param name="Abs">the requested rect in level coordinates with the level origin added (`(ox,oy,ox,oy) + tileRect`, a `paddd`)</param>
+    /// <param name="Abs">the requested rect in level coordinates with the level origin added (`(ox,oy,ox,oy) + tileRect`)</param>
     /// <param name="Grown">`Abs` grown by `gl/gt/gr/gb`</param>
-    /// <param name="Float">`(sx·grown.x0, sy·grown.y0, sx·grown.x1, sy·grown.y1)` with `sx = cacheW/levelW` (a single `divss`)</param>
+    /// <param name="Float">`(sx·grown.x0, sy·grown.y0, sx·grown.x1, sy·grown.y1)` with `sx = cacheW/levelW` (one true float division)</param>
     public readonly record struct TileGeometry(RectI Abs, RectI Grown, int GrowL, int GrowT, int GrowR, int GrowB, RectF Float, int CacheLevel);
 
-    /// <summary>`lambda_2` L1–L20. <paramref name="tileRect"/> is level-local; the level origin is added here.</summary>
+    /// <summary>The geometry step of the tile generator. <paramref name="tileRect"/> is level-local; the level origin is added here.</summary>
     public static TileGeometry Geometry(RectI tileRect, (int W, int H) levelDims, (int X, int Y) levelOrigin,
                                         (int W, int H) cacheDims, int level, int profileOffset = DisplayIspTuning.L16ProfileOffset, int halo = Halo)
     {
@@ -29,22 +29,22 @@ public static class DisplayRender
         int gl = Math.Min(x0, half), gt = Math.Min(y0, half);
         int gr = Math.Min(W - x1, hm), gb = Math.Min(H - y1, hm);
         var grown = new RectI(x0 - gl, y0 - gt, x1 + gr, y1 + gb);
-        float sx = (float)cacheDims.W / (float)W, sy = (float)cacheDims.H / (float)H;   // divss, no reciprocal
+        float sx = (float)cacheDims.W / (float)W, sy = (float)cacheDims.H / (float)H;   // true division, no reciprocal
         var fr = new RectF(sx * grown.X0, sy * grown.Y0, sx * grown.X1, sy * grown.Y1);
         return new TileGeometry(new RectI(x0, y0, x1, y1), grown, gl, gt, gr, gb, fr, level + profileOffset);
     }
 
     /// <summary>
-    /// Run the output ISP on an already-fetched fused tile and crop back, i.e. `FUN_1803dd0e0` + the tail of `lambda_2`.
-    /// <paramref name="tile"/> must cover <see cref="TileGeometry.Grown"/> (`FUN_1804bd710` hands the ISP an image whose
-    /// rect is `(0,0,w,h)` — no halo beyond the grown region), and it is processed **in place** in Lumen; here the stage
-    /// list produces a new image, which is then cropped exactly as `lambda_2` does.
+    /// Run the output ISP on an already-fetched fused tile and crop back, i.e. the output SoftISP run + the tail of the tile generator.
+    /// <paramref name="tile"/> must cover <see cref="TileGeometry.Grown"/> (Lumen hands the ISP an image whose
+    /// rect is `(0,0,w,h)` — no halo beyond the grown region), and Lumen processes it **in place**; here the stage
+    /// list produces a new image, which is then cropped exactly as Lumen's tile generator does.
     /// </summary>
     public static Image<Vec4F> Run(SoftIsp isp, CapturedFrame refFrame, IspStats stats, Image<Vec4F> tile, TileGeometry g,
                                    int level, Action<string>? log = null, Action<int, IStage, IspPayload>? afterStage = null)
     {
         var outImg = isp.ProcessColorFloat(refFrame, stats, tile, null, g.Float, level, log, roi: tile.Rect, afterStage: afterStage);
-        // lambda_2 L21–24: crop the result back to the requested tile inside the grown region
+        // crop the result back to the requested tile inside the grown region
         var r = outImg.Rect;
         int ix0 = Math.Max(r.X0, g.GrowL), iy0 = Math.Max(r.Y0, g.GrowT);
         int ix1 = Math.Min(r.X1, g.Abs.Width + g.GrowL), iy1 = Math.Min(r.Y1, g.Abs.Height + g.GrowT);

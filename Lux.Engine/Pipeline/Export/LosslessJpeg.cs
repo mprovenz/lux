@@ -1,15 +1,15 @@
 namespace Lux.Engine.Pipeline.Export;
 
 /// <summary>
-/// cp.dll's 3-component 16-bit lossless-JPEG tile encoder (`FUN_1800ff6b0` ctor + `FUN_1800ff910` encode, Huffman build
-/// `FUN_180101160`, SOF3 `FUN_180102b60`, DHT `FUN_180102d00`, SOS `FUN_180102f90`): predictor 1 (Ra; the first pixel of a row
+/// Lumen's 3-component 16-bit lossless-JPEG tile encoder (constructor, encode, Huffman build, SOF3, DHT, SOS): predictor 1
+/// (Ra; the first pixel of a row
 /// predicts from Rb, the very first from 32768), per-component per-tile OPTIMAL Huffman tables (JPEG Annex K.2 with the
 /// reserved code point, ties → last index, the K.3 length limit applied to the longest length only), MSB-first bit packing
 /// with 0xFF stuffing and 1-padding of the final byte. Input = `Vec4&lt;u16&gt;` pixels (4 lanes per pixel, 3 encoded).
 /// </summary>
 public static class LosslessJpeg
 {
-    /// <summary>`FUN_1800ff6b0` +0x10: category of |diff| for |diff| &lt; 256 (`cat = tbl[v >> 8] + 8` above).</summary>
+    /// <summary>Category of |diff| for |diff| &lt; 256 (`cat = tbl[v >> 8] + 8` above).</summary>
     static readonly int[] CatTable = BuildCat();
     static int[] BuildCat()
     {
@@ -35,7 +35,7 @@ public static class LosslessJpeg
         public int[] Code = new int[17], Size = new int[17];
     }
 
-    /// <summary>`FUN_180101160(out, freq[17])`.</summary>
+    /// <summary>The optimal Huffman table of one component (freq[17]).</summary>
     public static HuffTable BuildTable(long[] freq)
     {
         var syms = new List<int>(); var f = new List<long>();
@@ -59,7 +59,7 @@ public static class LosslessJpeg
         var bits = new int[max + 1];
         for (int i = 0; i < n; i++) if (codesize[i] != 0) bits[codesize[i]]++;
         if (max >= 16)
-        {   // K.3 on the longest length only (the decomp handles I = max, not the 32..17 walk)
+        {   // K.3 on the longest length only (Lumen handles I = max, not the 32..17 walk)
             while (bits[max] > 0)
             {
                 int j = max - 2;
@@ -137,17 +137,17 @@ public static class LosslessJpeg
         }
         var tables = new HuffTable[3]; for (int c = 0; c < 3; c++) tables[c] = BuildTable(freq[c]);
         s.WriteByte(0xff); s.WriteByte(0xd8);                       // SOI
-        // SOF3 (FUN_180102b60)
+        // SOF3
         s.Write(new byte[] { 0xff, 0xc3, 0, 0x11, 0x10, (byte)(h >> 8), (byte)h, (byte)(w >> 8), (byte)w, 3 });
         for (int c = 0; c < 3; c++) s.Write(new byte[] { (byte)c, 0x11, 0 });
         for (int c = 0; c < 3; c++)
-        {   // DHT (FUN_180102d00)
+        {   // DHT
             var t = tables[c]; int len = t.Vals.Count + 19;
             s.Write(new byte[] { 0xff, 0xc4, (byte)(len >> 8), (byte)len, (byte)(c & 3) });
             s.Write(t.Bits, 0, 16);
             foreach (var v in t.Vals) s.WriteByte(v);
         }
-        // SOS (FUN_180102f90)
+        // SOS
         s.Write(new byte[] { 0xff, 0xda, 0, 0x0c, 3 });
         for (int c = 0; c < 3; c++) s.Write(new byte[] { (byte)c, (byte)((c & 3) << 4) });
         s.Write(new byte[] { 1, 0, 0 });

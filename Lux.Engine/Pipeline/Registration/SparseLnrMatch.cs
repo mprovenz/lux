@@ -26,28 +26,28 @@ public struct MatchedPoint
     public static MatchedPoint Fail(int idx) => new() { RefIdx = idx, Mx = -1f, My = -1f, PredX = -1f, PredY = -1f, NmX = -1f, NmY = -1f, Score = -1f, Ratio = -1f, Status = 1, Octave = 0 };
 }
 
-/// <summary>A 3×3 homography view (`SparseLNR+0x310/+0x370`): id, enabled, row-major H.</summary>
+/// <summary>A 3×3 homography view: id, enabled, row-major H.</summary>
 public sealed class MatchView
 {
     public int Id; public bool Enabled; public float[] H = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
 }
 
 /// <summary>
-/// The per-level SAD matcher of `lt::SparseLNR` (`matchFeaturesPerLevelLowerCams&lt;8&gt;` 1802e98c0 / lambda_1 1802f1700,
-/// core `FUN_1802f01a0`), ported from the decompilation: 8×8 RGBA templates, weighted byte-SAD `Σ_c ⌊w_c·sad_c/256⌋`
+/// The per-level SAD matcher of `lt::SparseLNR` (`matchFeaturesPerLevelLowerCams&lt;8&gt;`, its lambda_1 and the core search):
+/// 8×8 RGBA templates, weighted byte-SAD `Σ_c ⌊w_c·sad_c/256⌋`
 /// (w = (512,128,128,0)), radius search over an axis-aligned rect walked with Lumen's float iterator, strict best/second
 /// update, saturation mask, 9×9 Welford texture gate (`rsqrtss`), Lowe ratio in double, bidirectional check.
 /// </summary>
 public static class SparseLnrMatch
 {
-    public static readonly ushort[] WeightsColour = { 512, 128, 128, 0 };    // packusdw(cvtps2dq((2,0.5,0.5,0)·256)), DAT_180835310
-    public static ushort[] WeightsMono = { 256, 0, 0, 0 };                    // mono sensors (+0x240 != 0) in matchFeaturesPerLevelLowerCams: plain channel-0 SAD, scale 1/64 (verified on the live A2 records)
-    public static ushort[] WeightsMonoInit = { 768, 0, 0, 0 };                // mono in initLowerACamera: DAT_180835300 (3,0,0,0) packed ×256, scale 1/64 (verified)
-    static readonly float Scale192 = BitConverter.Int32BitsToSingle(0x3baaaaab);   // 1/192 (DAT_1806bbad0)
-    static readonly float Scale64 = BitConverter.Int32BitsToSingle(0x3c800000);    // 1/64 (DAT_1806bba80), mono
+    public static readonly ushort[] WeightsColour = { 512, 128, 128, 0 };    // (2, 0.5, 0.5, 0)·256, rounded to nearest even, saturated to uint16
+    public static ushort[] WeightsMono = { 256, 0, 0, 0 };                    // mono sensors in matchFeaturesPerLevelLowerCams: plain channel-0 SAD, scale 1/64
+    public static ushort[] WeightsMonoInit = { 768, 0, 0, 0 };                // mono in initLowerACamera: (3,0,0,0) packed ×256, scale 1/64
+    static readonly float Scale192 = BitConverter.Int32BitsToSingle(0x3baaaaab);   // 1/192
+    static readonly float Scale64 = BitConverter.Int32BitsToSingle(0x3c800000);    // 1/64, mono
     const float Ratio1 = 0.8f, Ratio2 = 0.95f, ScoreMax = 10.0f;
-    const float StdMin = 4.0f;                                              // DAT_180682408
-    const double RatioEps = 1e-7;                                           // DAT_1806b5b98
+    const float StdMin = 4.0f;
+    const double RatioEps = 1e-7;
 
     /// <summary>Weighted SAD of the 8×8 template at (tx−4..tx+3, ty−4..ty+3) of `tmplImg` against the patch at (px, py) of `img`.</summary>
     public static int Sad8(Rgba8Image tmplImg, int tx, int ty, Rgba8Image img, int px, int py, ushort[] weights)
@@ -73,9 +73,9 @@ public static class SparseLnrMatch
         return score;
     }
 
-    /// <summary>`FUN_1802f1440` / the patch-mean prologue of `FUN_1802f1030`: the per-channel mean of the 8×8 block at
-    /// (x−4..x+3, y−4..y+3) as `(Σ_c · 1024) >> 16` (= `Σ >> 6`, `pmulhuw` against DAT_1806bbae0). The u16 lanes are the
-    /// same (even px c0..c3 | odd px c0..c3) split the SAD uses, folded with `pshufd 0x4e; paddusw` before the multiply.</summary>
+    /// <summary>The patch mean of the zero-mean SAD: the per-channel mean of the 8×8 block at
+    /// (x−4..x+3, y−4..y+3) as `(Σ_c · 1024) >> 16` (= `Σ >> 6`, the high half of an unsigned 16-bit multiply by 1024). The u16 lanes are the
+    /// same (even px c0..c3 | odd px c0..c3) split the SAD uses, folded (the two 64-bit halves added with unsigned 16-bit saturation) before the multiply.</summary>
     public static void BlockMean(Rgba8Image img, int x, int y, Span<int> mean)
     {
         Span<int> acc = stackalloc int[8]; acc.Clear();
@@ -94,8 +94,8 @@ public static class SparseLnrMatch
 
     static int Sat16(int v) => v < -32768 ? -32768 : v > 32767 ? 32767 : v;
 
-    /// <summary>Zero-mean weighted SAD (`FUN_1802f1030`, used by `initLowerBCamera` and the HigherCams core): with
-    /// `diff[c] = tmean[c] − pmean[c]` (`psubsw`), accumulate `|(T − P) − diff[c]|` (`psubsw`/`psubsw`/`pabsw`/`paddsw`)
+    /// <summary>Zero-mean weighted SAD (used by `initLowerBCamera` and the HigherCams core): with
+    /// `diff[c] = tmean[c] − pmean[c]` (int16 saturating), accumulate `|(T − P) − diff[c]|` (int16 saturating subtracts and add)
     /// over the 8×8×4 block, fold the even/odd halves and apply the same `Σ_c ⌊w_c·sad_c/256⌋` as the plain core.</summary>
     public static int Zsad8(Rgba8Image tmplImg, int tx, int ty, ReadOnlySpan<int> tmean, Rgba8Image img, int px, int py, ushort[] weights)
     {
@@ -122,7 +122,7 @@ public static class SparseLnrMatch
         return score;
     }
 
-    /// <summary>Search-region iterator of `FUN_1802f87d0`/core loop: `{s, d1, n1, d2, n2}` walked in float exactly like Lumen.</summary>
+    /// <summary>Search-region iterator of the core loop: `{s, d1, n1, d2, n2}` walked in float exactly like Lumen.</summary>
     public struct Region
     {
         public float Sx, Sy, D1x, D1y, D2x, D2y; public int N1, N2;
@@ -141,7 +141,7 @@ public static class SparseLnrMatch
         }
     }
 
-    /// <summary>`FUN_1802f8810`: a band of half-width `hw` along p0→p1 (unit steps in the major axis); end points outside the
+    /// <summary>A band of half-width `hw` along p0→p1 (unit steps in the major axis); end points outside the
     /// rect are walked inwards along the (rsqrtss-normalised) direction; empty region if that fails.</summary>
     public static Region Band((int X0, int Y0, int X1, int Y1) rect, (int X, int Y) p0, (int X, int Y) p1, int hw)
     {
@@ -173,7 +173,7 @@ public static class SparseLnrMatch
         return new Region { Sx = (float)p0.X - d1x * (float)hw, Sy = (float)p0.Y - d1y * (float)hw, D1x = d1x, D1y = d1y, D2x = d2x, D2y = d2y, N1 = hw * 2, N2 = (int)m };
     }
 
-    /// <summary>Generic template search over a region (`FUN_1802f01a0` core loop).</summary>
+    /// <summary>Generic template search over a region (the core loop).</summary>
     public static ((int X, int Y) Pos, int Best, int Second) RegionSearch(Rgba8Image refImg, (int X, int Y) refPt, Rgba8Image tgtImg, Region region, ushort[] weights)
     {
         int best = int.MaxValue, second = int.MaxValue; var pos = (-1, -1);
@@ -185,7 +185,7 @@ public static class SparseLnrMatch
         return (pos, best, second);
     }
 
-    /// <summary>`FUN_1802f1030` driven over a region: the 8×8 zero-mean template from `refImg` at `refPt` scanned over
+    /// <summary><c>Zsad8</c> driven over a region: the 8×8 zero-mean template from `refImg` at `refPt` scanned over
     /// `region` in `tgtImg`, with the same strict best/second update as `RegionSearch`.</summary>
     public static ((int X, int Y) Pos, int Best, int Second) RegionSearchZ(Rgba8Image refImg, (int X, int Y) refPt, Rgba8Image tgtImg, Region region, ushort[] weights)
     {
@@ -214,7 +214,7 @@ public static class SparseLnrMatch
             return ((v[0] * invScale) * w, (v[1] * invScale) * w);
         }
         /// <summary>The same projection without the level scaling (`initLowerBCamera::lambda_1` divides once and applies
-        /// `invScale` later, to the near−far difference and to the stored prediction: disasm 1802f0792–1802f0817).</summary>
+        /// `invScale` later, to the near−far difference and to the stored prediction).</summary>
         public (float X, float Y) ProjectRaw(float fx, float fy, float z)
         {
             float X = (z * Sx) * fx, Y = (z * Sy) * fy;
@@ -225,14 +225,14 @@ public static class SparseLnrMatch
         }
     }
 
-    /// <summary>`initLowerACamera&lt;8&gt;` (1802ef2d0) for the top pyramid level: predictions from the WarpField at depths 100 /
+    /// <summary>`initLowerACamera&lt;8&gt;` for the top pyramid level: predictions from the WarpField at depths 100 /
     /// 100000 (near / far), SAD search along the epipolar band between them (half-width 2). Depth-based octave selection
     /// (view A, near scenes) is not ported yet — only the far-scene / view-B-only path is supported.</summary>
     public static MatchedPoint[] InitLowerA(Rgba8Image A, Rgba8Image B, byte[] mask, int maskStride, (int X, int Y) offs, FeaturePoint[] feats, int level,
         WarpField W, MatchView viewA, MatchView viewB, bool bidir, bool mono = false, CalibData? calibA = null, CalibData? calibB = null, float planeDepth = 1500f)
     {
-        if (viewA.Enabled && (calibA is null || calibB is null)) throw new ArgumentException("initLowerACamera with view A enabled needs calibA/calibB for the two-ray depth (FUN_180302420)");
-        float depthTol = planeDepth * BitConverter.Int32BitsToSingle(0x3e19999a) + 200.0f;   // DAT_1806bba8c = 0.15, DAT_1806bba90 = 200
+        if (viewA.Enabled && (calibA is null || calibB is null)) throw new ArgumentException("initLowerACamera with view A enabled needs calibA/calibB for the two-ray depth");
+        float depthTol = planeDepth * BitConverter.Int32BitsToSingle(0x3e19999a) + 200.0f;   // 0.15 · plane depth + 200
         var weights = mono ? WeightsMonoInit : WeightsColour; float Scale60 = mono ? Scale64 : Scale192;
         int rrx0 = Math.Max(offs.X, 4), rry0 = Math.Max(offs.Y, 4), rrx1 = Math.Min(B.W + offs.X, A.W - 4), rry1 = Math.Min(B.H + offs.Y, A.H - 4);
         var rt = (Math.Max(-offs.X, 4), Math.Max(-offs.Y, 4), Math.Min(A.W - offs.X, B.W - 4), Math.Min(A.H - offs.Y, B.H - 4));
@@ -253,7 +253,7 @@ public static class SparseLnrMatch
             float score = best * Scale60, sec = second * Scale60;
             int octave = 2;
             if (viewA.Enabled)
-            {   // §5 step 5: depth = FUN_180302420(calibA, calibB, fx, fy, pos·scale); view A when within 15 % + 200 of the plane depth (and > 100)
+            {   // depth = RayScale(calibA, calibB, fx, fy, pos·scale); view A when within 15 % + 200 of the plane depth (and > 100)
                 float depth = Triangulator.RayScale(calibA!, calibB!, fx, fy, (float)pos.X * scale, (float)pos.Y * scale);
                 if (Math.Abs(depth - planeDepth) < depthTol) octave = depth > 100.0f ? 1 : 2;
             }
@@ -263,7 +263,7 @@ public static class SparseLnrMatch
             if (bidir)
             {
                 var (rp, rb, rs) = RadiusSearch(B, pos, A, refPt, 3, weights);
-                // FUN_1802f01a0 scales its own float outputs by DAT_1806bbad0 = 1/192 (disasm 1802f04cc), so the reverse
+                // The core search scales its own float outputs by 1/192, so the reverse
                 // gate uses 1/192 even when the forward score used the mono 1/64 — exactly as in initLowerBCamera.
                 float rbf = rb * Scale192, rsf = rs * Scale192;
                 ok &= Ratio(rbf, rsf) < Ratio2 && rbf < ScoreMax && Math.Abs(rp.X - refPt.Item1) < 2 && Math.Abs(rp.Y - refPt.Item2) < 2;
@@ -275,13 +275,13 @@ public static class SparseLnrMatch
     }
 
     /// <summary>
-    /// `initLowerBCamera&lt;8&gt;` (outer 1802e94c0, per-feature `lambda_1` 1802f0610) — the top-level initialiser used when
-    /// `SparseLNR+0x244` (mode) is 1 or 2, i.e. the reference module is **B4 (id 8) or C5 (id 14)** (`1802be477–1802be48d`).
+    /// `initLowerBCamera&lt;8&gt;` (outer loop + per-feature `lambda_1`) — the top-level initialiser used when
+    /// the mode is 1 or 2, i.e. the reference module is **B4 (id 8) or C5 (id 14)**.
     /// Unlike `initLowerACamera` it takes no calibration and no plane depth: the prediction is simply `ref − offs`, and the
     /// search is a band of half-width 5 along the epipolar direction `(near − far)·invScale` through it, extending
-    /// ±`wB/4` px. Scoring is the **zero-mean** SAD core `FUN_1802f1030`; the octave is chosen from the pixel distance
+    /// ±`wB/4` px. Scoring is the **zero-mean** SAD core (<c>Zsad8</c>); the octave is chosen from the pixel distance
     /// `|(offs + match) − ref|` (&lt; 8 → view A). No texture gate, no status 0 — as in `initLowerACamera`.
-    /// The reverse (bidirectional) check always scales by 1/192, never by the mono 1/64 (disasm 1802f0bfa).
+    /// The reverse (bidirectional) check always scales by 1/192, never by the mono 1/64.
     /// </summary>
     public static MatchedPoint[] InitLowerB(Rgba8Image A, Rgba8Image B, byte[] mask, int maskStride, (int X, int Y) offs, FeaturePoint[] feats, int level,
         WarpField W, MatchView viewA, MatchView viewB, bool bidir, bool mono = false)
@@ -291,7 +291,7 @@ public static class SparseLnrMatch
         int rtx0 = Math.Max(-offs.X, 4), rty0 = Math.Max(-offs.Y, 4), rtx1 = Math.Min(A.W - offs.X, B.W - 4), rty1 = Math.Min(A.H - offs.Y, B.H - 4);
         float cBx = (float)B.W * 0.5f, cBy = (float)B.H * 0.5f, sNorm = 2.0f / (float)B.W;
         float scale = (float)Math.ScaleB(1.0, level), invScale = 1.0f / scale;
-        float half = (float)(B.W / 4);                                    // (int) B.w / 4, signed, then cvtsi2ss
+        float half = (float)(B.W / 4);                                    // signed integer division, then to float
         var outp = new MatchedPoint[feats.Length];
         for (int i = 0; i < feats.Length; i++)
         {
@@ -315,7 +315,7 @@ public static class SparseLnrMatch
             float dq = dy * dy + dx * dx;
             float rd = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(dq)).ToScalar(), sd = dq * rd;
             float dist = dq == 0f ? 0f : ((sd * rd) + (-3.0f)) * (-0.5f * sd);
-            int octave = dist < 8.0f ? 1 : 2;                             // ucomiss; sbb: 2 − (dist < 8.0), DAT_180685d4c
+            int octave = dist < 8.0f ? 1 : 2;                             // 2 − (dist < 8.0)
             float nmx = ((float)pos.X - cBx) * sNorm, nmy = ((float)pos.Y - cBy) * sNorm;
             float ratio = Ratio(score, sec);
             bool ok = ratio < Ratio1 && score < ScoreMax;
@@ -324,7 +324,7 @@ public static class SparseLnrMatch
             {
                 int bx0 = Math.Max(rx - 3, 4), by0 = Math.Max(ry - 3, 4), bx1 = Math.Min(A.W - 4, rx + 4), by1 = Math.Min(A.H - 4, ry + 4);
                 var (rp, rb, rs) = RegionSearchZ(B, pos, A, Region.Rect(bx0, by0, bx1, by1), weights);
-                float rbf = rb * Scale192, rsf = (float)rs * Scale192;    // DAT_1806bbad0 regardless of the mono scale
+                float rbf = rb * Scale192, rsf = (float)rs * Scale192;    // 1/192 regardless of the mono scale
                 ok &= Ratio(rbf, rsf) < Ratio2 && rbf < ScoreMax && Math.Abs(rp.X - rx) < 2 && Math.Abs(rp.Y - ry) < 2;
             }
             outp[i] = new MatchedPoint { RefIdx = i, Mx = pos.X, My = pos.Y, PredX = predX, PredY = predY, NmX = nmx, NmY = nmy, Score = score, Ratio = ratio, Status = ok ? 4 : 3, Octave = octave };
@@ -333,7 +333,7 @@ public static class SparseLnrMatch
         return outp;
     }
 
-    /// <summary>`FUN_1802f01a0`: template from `refImg` at `refPt`, radius-r search in `tgtImg` around `pred` (margin 4).</summary>
+    /// <summary>Template from `refImg` at `refPt`, radius-r search in `tgtImg` around `pred` (margin 4).</summary>
     public static ((int X, int Y) Pos, int Best, int Second) RadiusSearch(Rgba8Image refImg, (int X, int Y) refPt, Rgba8Image tgtImg, (int X, int Y) pred, int r, ushort[] weights)
     {
         int x0 = pred.X - r; if (x0 <= 3) x0 = 4;
@@ -348,7 +348,7 @@ public static class SparseLnrMatch
         return (pos, best, second);
     }
 
-    /// <summary>`FUN_1802ffc70`: `H·(x,y,1)` with a reciprocal multiply.</summary>
+    /// <summary>`H·(x,y,1)` with a reciprocal multiply.</summary>
     public static (float X, float Y) Project(float[] H, float x, float y)
     {
         float nx = (H[1] * y + H[0] * x) + H[2], ny = (H[4] * y + H[3] * x) + H[5], d = (H[7] * y + H[6] * x) + H[8];
@@ -435,7 +435,7 @@ public static class SparseLnrMatch
         return outp;
     }
 
-    /// <summary>`FUN_1802e7200`: per enabled view, if ≤ 7 good matches promote every weak one.</summary>
+    /// <summary>Per enabled view, if ≤ 7 good matches promote every weak one.</summary>
     public static void PostPass(MatchedPoint[] m, MatchView viewA, MatchView viewB)
     {
         foreach (var v in new[] { viewA, viewB })

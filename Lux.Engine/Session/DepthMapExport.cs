@@ -1,10 +1,10 @@
 using Lux.Engine.Pipeline;
 using Lux.Engine.Pipeline.Export;
 
-namespace Lux.Cli;
+namespace Lux.Engine.Session;
 
 /// <summary>
-/// `convert --formats depth` — the capture's own stereo depth map, on the ported registration chain.
+/// The `depth` export — the capture's own stereo depth map, on the ported registration chain.
 ///
 /// The depth is the one the pipeline itself uses: <see cref="ExportBuild.Build(string,int,Action{string})"/> at level 0 runs
 /// `StereoAsyncApi` (features → matching → bundle adjust → dense stereo → `DenseUpsampleLayer`) and leaves the
@@ -17,14 +17,17 @@ namespace Lux.Cli;
 /// Values are **metric millimetres** (`InverseDepth` → `DepthImageCache`, far clipped at 100 000 mm), so a sample
 /// is a real distance and two captures are directly comparable.
 /// </summary>
-public static class DepthCmd
+public static class DepthMapExport
 {
     public sealed record Result(string F32Path, string PreviewPath, int Width, int Height, float NearMm, float FarMm);
 
     /// <summary>Resample a full-frame depth onto the export grid (<see cref="ExportSession.DepthOnGrid"/>).</summary>
     public static float[] Warp(float[] depth, int dw, int dh, ExportLevels win, ExportTransform tr, (int W, int H) size)
+        => Warp(DepthImageCache.FromFullDepth(depth, dw, dh, win), win, tr, size);
+
+    /// <summary>The same from a depth cache (the edited one when saved depth edits are in use).</summary>
+    public static float[] Warp(DepthImageCache cache, ExportLevels win, ExportTransform tr, (int W, int H) size)
     {
-        var cache = DepthImageCache.FromFullDepth(depth, dw, dh, win);
         // The same TransformOutput the export writers resolve (`GetExportTransformOutput`), so the depth lands on
         // exactly the exported image's grid.
         var dto = ExportTransformOutput.Compute(tr, size, new RectI(0, 0, size.W, size.H), win.ExportDims, false);

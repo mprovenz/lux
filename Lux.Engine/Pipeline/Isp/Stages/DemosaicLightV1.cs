@@ -5,18 +5,18 @@ using System.Runtime.Intrinsics.X86;
 namespace Lux.Engine.Pipeline.Isp.Stages;
 
 /// <summary>
-/// `lt::Internal::A::DemosaickLightV1&lt;rx,ry&gt;` (dispatcher `1803a2400`, tile lambda `1803a57f0` for &lt;1,0&gt;,
-/// row functions `FUN_1803a3d50` (source rows × per-site neutral), `FUN_1803a34d0` (guide planes) and
-/// `FUN_1803a5250` (colour-difference plane)). Halide-style pipeline, ported plane by plane with the binary's
+/// Lumen's `lt::Internal::A::DemosaickLightV1&lt;rx,ry&gt;` (dispatcher, tile lambda for &lt;1,0&gt;,
+/// row functions for the source rows × per-site neutral, for the guide planes and for
+/// the colour-difference plane). Halide-style pipeline, ported plane by plane with Lumen's
 /// float operation order and SSE `rcpss/rcpps` approximations (`IntelApprox.Reciprocal*`, the reference CPU's table — Lumen's
 /// own output is CPU-dependent at that level):
-///   S(x,y)  = src(clamp-by-parity) · neutral[site]                       (FUN_1803a3d50)
-///   C       = 5×5 filter of S at G sites (weights 56, 6, −4, −2, 1; /64)   (FUN_1803a34d0 inner)
+///   S(x,y)  = src(clamp-by-parity) · neutral[site]                       (source row function)
+///   C       = 5×5 filter of S at G sites (weights 56, 6, −4, −2, 1; /64)   (guide row function, inner)
 ///   B       = C at G sites; at R/B sites the gradient-inverse blend of C±1 minus the S mid-points, eps₂
 ///   A       = B at R/B sites; at G sites the refined blend of (B − S) differences, eps₂
-///   D       = raw − A (raw un-scaled; replicated by parity outside the source) (FUN_1803a5250)
+///   D       = raw − A (raw un-scaled; replicated by parity outside the source) (colour-difference row function)
 ///   out     = A + directional gradient-inverse blend of D (eps₁), alpha 1  (tile lambda)
-/// eps₁ = 0.009765625·max(neutral) (`DAT_1806d4f60`), eps₂ = 0.0009765625·max(neutral) (`DAT_1806d4f58`).
+/// eps₁ = 0.009765625·max(neutral), eps₂ = 0.0009765625·max(neutral).
 /// </summary>
 public static class DemosaicLightV1
 {
@@ -66,7 +66,7 @@ public static class DemosaicLightV1
                 float diag = ((S(x + 1, y - 1) + S(x - 1, y - 1)) + S(x - 1, y + 1)) + S(x + 1, y + 1);
                 float axial = ((S(x, y + 1) + S(x, y - 1)) + S(x - 1, y)) + S(x + 1, y);
                 float far = ((S(x - 2, y) + S(x + 2, y)) + S(x, y - 2)) + S(x, y + 2);
-                float v = ((diag * Km4 + (axial * K6 + c * K56)) + S(x - 1, y - 2)) - (far + far);   // asm 1803a3740–37d9 order
+                float v = ((diag * Km4 + (axial * K6 + c * K56)) + S(x - 1, y - 2)) - (far + far);   // Lumen's operation order
                 v = ((((((v + S(x + 1, y - 2)) + S(x - 2, y - 1)) + S(x + 2, y - 1)) + S(x - 2, y + 1)) + S(x + 2, y + 1)) + S(x - 1, y + 2)) + S(x + 1, y + 2);
                 C[(y - ey0) * ew + (x - ex0)] = v * K1_64;
             }
@@ -79,7 +79,7 @@ public static class DemosaicLightV1
                 float cl = Cg(x - 1, y), cr = Cg(x + 1, y), cu = Cg(x, y - 1), cd = Cg(x, y + 1);
                 float sl = S(x - 2, y), sr = S(x + 2, y), su = S(x, y - 2), sd = S(x, y + 2);
                 float gh = Abs(cl - cr), gv = Abs(cu - cd);
-                // asm 1803a3990–3a3d: den = |ΔC| + (|S_d − S| + eps); hsum = (l3 + l1) + (l2 + l0)
+                // den = |ΔC| + (|S_d − S| + eps); hsum = (l3 + l1) + (l2 + l0)
                 var wv = Rcp4(Vector128.Create(gh + (Abs(sl - s) + eps2), gh + (Abs(sr - s) + eps2), gv + (Abs(su - s) + eps2), gv + (Abs(sd - s) + eps2)));
                 float w0 = wv[0], w1 = wv[1], w2 = wv[2], w3 = wv[3];
                 float norm = Rcp((w3 + w1) + (w2 + w0));
@@ -90,12 +90,12 @@ public static class DemosaicLightV1
         for (int y = ey0 + 5; y < ey0 + eh - 5; y++)
             for (int x = ex0 + 5; x < ex0 + ew - 5; x++)
             {
-                if (((x + y) & 1) != gSum) { A[(y - ey0) * ew + (x - ex0)] = Bg(x, y); continue; }   // R/B sites keep B; G sites are refined (verified against cp.dll's plane)
+                if (((x + y) & 1) != gSum) { A[(y - ey0) * ew + (x - ex0)] = Bg(x, y); continue; }   // R/B sites keep B; G sites are refined
                 float s = S(x, y), b = Bg(x, y);
                 float sl = S(x - 2, y), sr = S(x + 2, y), su = S(x, y - 2), sd = S(x, y + 2);
                 float bl2 = Bg(x - 2, y), br2 = Bg(x + 2, y), bu2 = Bg(x, y - 2), bd2 = Bg(x, y + 2);
                 float bl = Bg(x - 1, y), br = Bg(x + 1, y), bu = Bg(x, y - 1), bd = Bg(x, y + 1);
-                // asm 1803a3bf0–3cc2: den = |B_near − B| + (|S_far − S| + eps); t = (w·0.5)·(d + (B_far − S_far)); hsum = (t3 + t1) + (t2 + t0)
+                // den = |B_near − B| + (|S_far − S| + eps); t = (w·0.5)·(d + (B_far − S_far)); hsum = (t3 + t1) + (t2 + t0)
                 var wv = Rcp4(Vector128.Create(Abs(bl - b) + (Abs(sl - s) + eps2), Abs(br - b) + (Abs(sr - s) + eps2), Abs(bu - b) + (Abs(su - s) + eps2), Abs(bd - b) + (Abs(sd - s) + eps2)));
                 float w0 = wv[0], w1 = wv[1], w2 = wv[2], w3 = wv[3];
                 float norm = Rcp((w3 + w1) + (w2 + w0));
@@ -104,10 +104,10 @@ public static class DemosaicLightV1
                 A[(y - ey0) * ew + (x - ex0)] = ((t3 + t1) + (t2 + t0)) * norm + s;
             }
         // ---- D = S − A with parity replication outside the source ----
-        // FUN_1803a5250: D = raw source (row/col clamped by parity, NOT neutral-scaled) − A at the requested row
+        // D = raw source (row/col clamped by parity, NOT neutral-scaled) − A at the requested row
         float Dg(int x, int y)
         {
-            // left margin (1 px) replicates D[0] (the pair fill at 1803a5250 L1803a54xx writes D[0],D[1] at x=−1,0); right by parity
+            // left margin (1 px) replicates D[0] (Lumen's pair fill writes D[0],D[1] at x=−1,0); right by parity
             int cx = x < 0 ? 0 : x >= W ? W - 2 + (x & 1) : x;
             int cy = y < 0 ? (y & 1) : y >= H ? H - 2 + (y & 1) : y;
             return src[cy * W + cx] - Ag(cx, y);
@@ -143,7 +143,7 @@ public static class DemosaicLightV1
                     // axial 4 taps: (x−1,y), (x+1,y), (x,y−1), (x,y+1)
                     var wa = Rcp4(Vector128.Create(Abs(Ag(x - 1, y) - a) + eps1, Abs(Ag(x + 1, y) - a) + eps1, Abs(Ag(x, y - 1) - a) + eps1, Abs(Ag(x, y + 1) - a) + eps1));
                     float t0 = Dg(x - 1, y) * wa[0], t1 = Dg(x + 1, y) * wa[1], t2 = Dg(x, y - 1) * wa[2], t3 = Dg(x, y + 1) * wa[3];
-                    float na = Rcp((wa[3] + wa[1]) + (wa[2] + wa[0]));   // shufpd/shufps horizontal sum
+                    float na = Rcp((wa[3] + wa[1]) + (wa[2] + wa[0]));
                     float gv = ((t3 + t1) + (t2 + t0)) * na + a;
                     // diagonal 4 taps: (x−1,y−1), (x+1,y−1), (x−1,y+1), (x+1,y+1)
                     var wd4 = Rcp4(Vector128.Create(Abs(Ag(x - 1, y - 1) - a) + eps1, Abs(Ag(x + 1, y - 1) - a) + eps1, Abs(Ag(x - 1, y + 1) - a) + eps1, Abs(Ag(x + 1, y + 1) - a) + eps1));

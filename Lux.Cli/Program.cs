@@ -26,10 +26,20 @@ namespace Lux.Cli
 
             if (!CommandSets.IsProduction(command)) return UnknownCommand(command);
 
+            // a photo's saved data lives next to it, or — when its folder cannot be written — in the desktop app's local context store;
+            // read it from there too (LUX_CONTEXT_STORE, else the app's setting, else <app data>/contexts; LUX_APP_DATA moves <app data>)
+            try { Lux.Store.LocalContextStore.Current ??= Lux.Store.LocalContextStore.FromEnvironment(); }
+            catch (InvalidOperationException e) { Console.Error.WriteLine($"error: {e.Message}"); return 2; }
+
             // the device and version commands take no input files
             if (command == "version") return VersionCmd.Run(opts);
             if (command == "devices") return RunDevices();
             if (command == "pull") return RunPull(opts);
+            if (command == "import-lumen-edits")
+            {
+                if (positionals.Count == 0) { Console.Error.WriteLine("error: no .lris file or folder given."); return 2; }
+                return EditsCmd.ImportLumen(positionals);
+            }
             Lux.Engine.Pipeline.Color.LumenComponents.EnsureRegistered();
 
             if (positionals.Count == 0)
@@ -46,6 +56,9 @@ namespace Lux.Cli
             return command switch
             {
                 "convert" => RunConvert(files, opts),
+                "edits-info" => EditsCmd.Info(files, opts),
+                "cache" => CacheCmd.Run(files, opts),
+                "animate" => AnimateCmd.Run(files, opts),
                 "inspect" => RunInspect(files),
                 "profile" => RunProfile(files),
                 "isp" => RunIsp(files, opts),
@@ -54,34 +67,62 @@ namespace Lux.Cli
             };
         }
 
+        /// <summary>The message for a camera that is on the bus but cannot be opened.</summary>
+        private static string OpenFailure(MtpException e) => e.Kind switch
+        {
+            MtpErrorKind.Busy => "the camera is in use by another program (often the desktop's file manager has opened it): close it there or unmount the camera, then try again.",
+            MtpErrorKind.NotFound or MtpErrorKind.Disconnected => "the camera went away while it was being opened; check the cable and try again.",
+            _ => "the camera could not be opened (" + e.Message + ").",
+        };
+
+        /// <summary>Open the first camera on the bus; null (after printing why) when there is none or none opens.</summary>
+        private static IMtpDevice? OpenFirst(IMtpBackend backend, string noneMessage)
+        {
+            var found = backend.Autodetect();
+            if (found.Count == 0) { Console.Error.WriteLine(noneMessage); return null; }
+            MtpException? last = null;
+            foreach (var c in found)
+            {
+                try { return backend.Open(c); }
+                catch (MtpException e) { last = e; }
+            }
+            Console.Error.WriteLine("error: " + OpenFailure(last!));
+            return null;
+        }
+
         private static int RunDevices()
         {
             var backend = MtpFactory.Backend;
             Console.WriteLine($"MTP backend: {backend.Name} (available: {backend.IsAvailable})");
             if (!backend.IsAvailable) { Console.Error.WriteLine("no usable MTP backend on this platform."); return 1; }
-            var devices = backend.Detect();
-            if (devices.Count == 0) { Console.WriteLine("no MTP devices detected (is the camera connected and in file-transfer mode?)"); return 1; }
-            foreach (var d in devices)
+            var found = backend.Autodetect();
+            if (found.Count == 0) { Console.WriteLine("no MTP devices detected (is the camera connected and in file-transfer mode?)"); return 1; }
+            int opened = 0;
+            foreach (var c in found)
             {
+                IMtpDevice d;
+                try { d = backend.Open(c); }
+                catch (MtpException e) { Console.WriteLine($"  {c.Model}  @ {c.Port}  — {OpenFailure(e)}"); continue; }
                 using (d)
                 {
+                    opened++;
                     Console.WriteLine($"  {d.Name}  @ {d.Port}");
+                    var info = d.Info;
+                    if (info.Serial.Length > 0 || info.BatteryPercent is not null)
+                        Console.WriteLine($"    {info.DisplayName}" + (info.Serial.Length > 0 ? $", serial {info.Serial}" : "") + (info.BatteryPercent is int b ? $", battery {b} %" : ""));
                     foreach (var s in d.Storages)
                         Console.WriteLine($"    {s.Path}  ({s.Description})");
                 }
             }
-            return 0;
+            return opened > 0 ? 0 : 1;
         }
 
         private static int RunPull(Options o)
         {
             var backend = MtpFactory.Backend;
             if (!backend.IsAvailable) { Console.Error.WriteLine($"MTP backend '{backend.Name}' not available on this platform."); return 1; }
-            var devices = backend.Detect();
-            if (devices.Count == 0) { Console.Error.WriteLine("no MTP device detected (connect the camera in file-transfer mode)."); return 1; }
-
-            using var dev = devices[0];
-            for (int i = 1; i < devices.Count; i++) devices[i].Dispose();
+            using var dev = OpenFirst(backend, "no MTP device detected (connect the camera in file-transfer mode).");
+            if (dev is null) return 1;
 
             var filter = new PullFilter
             {
@@ -102,9 +143,13 @@ namespace Lux.Cli
             }
             if (matches.Count == 0) return 0;
 
+            // the bytes still to copy must fit on the destination drive (files already there at the same size are skipped)
+            long toCopy = matches.Where(m => o.Overwrite || !MtpPuller.IsComplete(m, Path.Combine(outDir, m.Name))).Sum(m => Math.Max(0, m.Size));
+            if (MtpPuller.CheckFreeSpace(outDir, toCopy) is { } space) { Console.Error.WriteLine("error: " + space); return 1; }
+
             Console.WriteLine($"pulling -> {outDir}");
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            var result = MtpPuller.Pull(dev, filter, outDir, o.Overwrite,
+            var result = MtpPuller.Pull(dev, matches, outDir, o.Overwrite,
                 onFile: (item, n, total, skipped) =>
                 {
                     string suffix = skipped ? "(exists, skipped)"
@@ -155,7 +200,12 @@ namespace Lux.Cli
                     var req = o.OutFile is string one
                         ? request with { OutFile = one, RenderThreads = renderThreads, Progress = onProgress }
                         : request with { OutDirectory = outDir, Stem = stem, RenderThreads = renderThreads, Progress = onProgress };
+                    var sctx = new Lux.Store.StoreCaptureContext(path);
+                    req = req with { Context = sctx };
+                    string? uprightNote = null;
+                    if (o.Upright) (req, uprightNote) = ConvertCmd.Upright(path, req, sctx);
                     var res = Exporter.Run(path, req, flog);
+                    if (uprightNote is not null) res = res with { Notes = new[] { uprightNote }.Concat(res.Notes).ToList() };
                     board.Completed(fp);   // a full conversion: its phase timings become the estimates' baseline
                     board.Finish(fp);
                     int n = Interlocked.Increment(ref done);
@@ -166,6 +216,7 @@ namespace Lux.Cli
                         .Concat(lens.Count > 0 ? new[] { $"{lens.Count} lens JPG" } : Array.Empty<string>()));
                     string size = res.Width > 0 ? $"{res.Width}x{res.Height} " : "";
                     Progress.Line(n, total, $"{stem}  ({size}{what}, {sw.Elapsed.TotalSeconds:F0}s)");
+                    foreach (var note in res.Notes) Progress.Line(n, total, $"{stem}  {note}");
                     if (res.Refusals.Count > 0)
                     {
                         // a requested output this capture legitimately cannot produce — the other formats are on disk
@@ -187,7 +238,7 @@ namespace Lux.Cli
             return failed == 0 && refused == 0 ? 0 : 1;
         }
 
-        /// <summary>Print the load-time state Lumen derives from a capture (SoT §3): neutral, exposure ratio/ev,
+        /// <summary>Print the load-time state Lumen derives from a capture: neutral, exposure ratio/ev,
         /// histogram site means, lens-shading multiplier, tone-curve selection inputs.</summary>
         private static int RunInspect(List<string> files)
         {
@@ -207,7 +258,7 @@ namespace Lux.Cli
             return 0;
         }
 
-        /// <summary>Compute Lumen's colour profile (SoT §9: CCT ordering, ΔE2000 matrix fit, ForwardMatrix, HueSatMap)
+        /// <summary>Compute Lumen's colour profile (CCT ordering, ΔE2000 matrix fit, ForwardMatrix, HueSatMap)
         /// and print it.</summary>
         private static int RunProfile(List<string> files)
         {
@@ -234,7 +285,7 @@ namespace Lux.Cli
             static float Max(float[] a, int c) { float m = float.MinValue; for (int i = c; i < a.Length; i += 3) m = Math.Max(m, a[i]); return m; }
         }
 
-        /// <summary>Print the module-ISP configuration Lumen builds for the reference module (SoT §4.2): the tuning
+        /// <summary>Print the module-ISP configuration Lumen builds for the reference module: the tuning
         /// values that differ from the defaults per config level, the stage list the runner would execute (with the
         /// implementations still missing), and the white-balance state (AsShot neutral → xy → CCT/tint → ISP neutral).</summary>
         private static int RunIsp(List<string> files, Options opts)
@@ -330,17 +381,42 @@ namespace Lux.Cli
                   devices                     List connected MTP cameras
                   pull [options]              Pull matching files off the camera
                   version [--offline]         Print this build's version and check GitHub for a newer release
+                  edits-info <input...>       Show a capture's saved depth edits: the variants, which one is active,
+                                              how much is stored, and whether everything stored is intact.
+                                              --set-active <variant|none> chooses the variant `convert` uses
+                  import-lumen-edits <lris file or folder...>
+                                              Bring Lumen session files (.lris) into Lux: the depth map and depth
+                                              edits, the depth effect, tone and colour settings, crop / rotation
+                                              and rating Lumen saved for each photo; convert then renders the photo
+                                              as Lumen does. Each session's capture (.lri of the same name) must
+                                              sit beside it
+                  animate <input...> --anim-effect <effect>
+                                              An animation of each capture, as the desktop app makes them:
+                                              rack-focus and aperture-sweep (Lumen's depth effect, each frame
+                                              exactly the still convert writes with --f-number/--focus-depth),
+                                              wigglegram (the wide lenses' own pictures), parallax (a small camera
+                                              move drawn from the photo and its depth), lens-tour (every lens in
+                                              turn). GIF, APNG and WebP are written by Lux itself; MP4 and WebM
+                                              need ffmpeg
+                  cache <input...> [--level none|geometry|13mp|full]
+                                              Show a capture's analysis cache, or raise / lower it to a level:
+                                              geometry = the camera geometry and the depth map (later exports skip
+                                              that analysis, about half of a full-size export); 13mp = also the
+                                              13 MP image and the previews; full = also the full-size image (a
+                                              full-size export then only runs the output stage). Kept in
+                                              LuxImageContext/cache/ next to the capture; exports from the cache
+                                              are byte-identical to exports computed from scratch
 
                 INPUT:
-                  convert, inspect, mod-info, profile, isp and isp-run take one or more .lri files and/or
-                  directories (directories are scanned for *.lri). devices, pull and version take no input files.
+                  convert, animate, inspect, mod-info, profile, isp, isp-run, edits-info and cache take one or more .lri files
+                  and/or directories (directories are scanned for *.lri). import-lumen-edits takes .lris files
+                  and/or directories. devices, pull and version take no input files.
 
                 REQUIREMENTS:
                   - The .NET 10 runtime.
-                  - ffmpeg on PATH for the ANIMATED parallax formats only (parallax-wiggle, parallax-wiggle-interp,
-                    parallax-orbit, parallax-single, parallax-rack, parallax-dolly): the frames are produced by Lux,
-                    the GIF/WebP/AVIF/APNG container is written by ffmpeg. Convert checks for it before rendering
-                    anything and stops with exit 2 if it is missing.
+                  - ffmpeg on PATH only for AVIF (--parallax-format avif), --parallax-encoder ffmpeg, and MP4 / WebM video
+                    (animate --anim-container mp4|webm). GIF, APNG and WebP animations are written by Lux itself.
+                    The commands check for it before rendering anything and stop with exit 2 if it is missing.
 
                 CONVERT OPTIONS:
                   With no options specified, `convert` replicates Lumen output exactly: DNG (fmt 2) + companion JPG
@@ -374,9 +450,75 @@ namespace Lux.Cli
                                               depth map written alongside them follows the same rotation. Not
                                               combinable with the parallax formats (their rig geometry is in the
                                               unrotated frame)
+                    * --transform <m;c>       a crop / turn / flip exactly as Lux and Lumen save it: the nine matrix
+                                              values, ';', the crop corners x0,y0,x1,y1 (decimal, or 0x + the float's
+                                              32-bit pattern); the size follows Lumen's full-size rule. All four raster
+                                              formats; not combinable with --rotate or the parallax formats
+                    * --upright               turn a photo the way the camera was held (its accelerometer), with
+                                              Lumen's own rotate — as the desktop app exports it by default. Only
+                                              when the photo's crop / rotation was never edited (a saved one is
+                                              followed anyway); without it convert writes the capture as recorded,
+                                              exactly as Lumen does. All four raster formats; not combinable with
+                                              --rotate, --transform or the parallax formats
                     * --fnum <f>              Exif FNumber [dng, jpg, jpg+depth]
                     * --iso <n>               Exif ISO [dng, jpg, jpg+depth]
                     * --focal <n>             Exif focal length in mm [dng, jpg, jpg+depth]
+
+                  DEPTH EFFECT (Lumen's synthetic depth of field; dng, jpg, jpg+depth, hdr, ppm)
+                    * --f-number <N>          blur the picture as a lens of aperture f/N would, using the capture's
+                                              depth map: the smaller N, the shallower the depth of field. Values at
+                                              or above the capture's own all-in-focus f-number (about f/15 for a
+                                              28 mm capture) leave the image unchanged, exactly as in Lumen, whose
+                                              slider runs from f/4 up to that value; smaller values are accepted.
+                                              The Exif FNumber becomes N. Needs the depth map, so the full
+                                              registration runs even at a reduced --level
+                    * --focus-depth <mm>      distance that stays sharp, in millimetres (default: the distance the
+                                              camera focused at, as Lumen chooses it). Needs --f-number
+                    * --focus-point <x,y>     focus on whatever is at this point of the picture instead, like
+                                              clicking with Lumen's focus tool: x and y from 0 to 1, 0,0 = top
+                                              left. Needs --f-number; not combinable with --focus-depth or --rotate
+
+                  TONE & COLOUR ADJUSTMENTS (the controls of Lumen's editor; jpg and jpg+depth only)
+                    These change how the picture is rendered, like the sliders in Lumen's editor. They affect the
+                    JPG and jpg+depth images (and the on-screen preview) only: a DNG, PPM or HDR keeps the image as
+                    it is before this rendering and is written exactly as without them. A control left out keeps
+                    the picture as Lumen renders it.
+                    * --exposure <stops>      brighter (+) or darker (-), -3 to 3 stops
+                    * --contrast <v>          more (+) or less (-) contrast, -100 to 100
+                    * --temperature <K>       white balance: colour temperature in kelvin, 2000 to 20000 (default:
+                                              as shot); lower values make the picture bluer, higher warmer
+                    * --tint <v>              white balance: green (-) to magenta (+), -150 to 150 (default: as shot)
+                    * --vibrance <v>          strengthen (+) or mute (-) colours, the duller ones most, sparing
+                                              skin tones, -100 to 100
+                    * --saturation <v>        strengthen (+) or weaken (-) all colours, -100 (black and white) to 100
+                    * --sharpening <v>        sharpen (+) or soften (-), -100 to 100 (default 5, Lumen's own setting);
+                                              the same control as --jpeg-sharpening, give one of the two
+                    * --shadows <v>           lift (+) or deepen (-) the shadows, -100 to 100
+                    * --highlights <v>        recover (+) or brighten (-) the highlights, -100 to 100
+                    * --clarity <v>           more (+) or less (-) local contrast in the midtones, -100 to 100
+                    --shadows, --highlights and --clarity are Lux controls: the processing is part of Lumen's
+                    software, which never offered it as controls.
+
+                  SAVED DEPTH EDITS (the LuxImageContext folder next to the captures)
+                    A capture whose depth map was edited — in Lux, or in Lumen and brought over with
+                    `import-lumen-edits` — keeps those edits in LuxImageContext/edits/. Wherever convert reads the
+                    depth (--f-number, jpg+depth, depth, the depth-based parallax formats) it uses the edited
+                    depth of the capture's active variant, and says so. A variant imported from Lumen also carries
+                    the photo's settings (depth effect, tone and colour, crop / rotation): convert then renders it
+                    as Lumen does after reopening it, and an option given here replaces only its own setting.
+                    Captures without saved edits are not affected in any way.
+                    * --no-edits              ignore saved depth edits and saved settings: use the depth computed
+                                              from the capture
+                    * --edits <variant>       use this variant instead of the active one (`edits-info` lists them)
+
+                  ANALYSIS CACHE (LuxImageContext/cache next to the captures; see the cache command)
+                    Whatever a capture's cache holds replaces the work that would produce it — the output is
+                    byte-identical either way. When the capture already has a LuxImageContext folder, convert also
+                    keeps the camera geometry and depth map it computed there, so the next export of that capture
+                    skips that analysis. convert never creates a LuxImageContext folder by itself.
+                      --no-cache              neither read nor write the analysis cache
+                      --memory-budget <GB>    keep a full-size render within about this much memory (default: no
+                                              limit, the fastest). The same pixels, more time; see the README
 
                   DNG
                     * --dng-cs <n>            colour-space property 0x13 (default 0 = none, the app path)
@@ -389,7 +531,8 @@ namespace Lux.Cli
                     * --jpeg-sub <0|1|2>      chroma subsampling (default 2 = 4:2:0)
                     * --jpeg-v2               the renderer+0x64 v2 tone-mapping gate
                     * --jpeg-sharpening <v>   the renderer's sharpening property (ParamFloat 13, -100..100; default 5 =
-                                              Lumen's export state, tone_mapping.sharpening 1.0; 0 = Lumen's headless API export)
+                                              Lumen's export state, tone_mapping.sharpening 1.0; 0 = Lumen's headless API export);
+                                              the same control as --sharpening
                     * --jpeg-modify <ts>      Exif 0x0132 ModifyDate, YYYY-MM-DDTHH:MM:SS (default: now)
                     * --jpeg-comment <s>      the JPEG COM marker text
                     * --jpeg-software <s>     the Exif Software string
@@ -420,13 +563,14 @@ namespace Lux.Cli
                               single-view.)
 
                       parallax-wiggle         A-group frames, colour-matched, swept in spatial order. Module renders
-                                              only, no registration [ffmpeg]
+                                              only, no registration
                       parallax-wiggle-interp  N virtual viewpoints along the rig's axis, synthesised from the depth,
-                                              disocclusions filled from the other real modules [ffmpeg]
-                      parallax-orbit          the same synthesis on a closed circular path [ffmpeg]
-                      parallax-single         single-view 2.5D: the sweep with no multi-view fill [ffmpeg]
-                      parallax-rack           animated rack focus [ffmpeg]
-                      parallax-dolly          dolly zoom, pulling back while zooming in [ffmpeg]
+                                              disocclusions filled from the other real modules
+                      parallax-orbit          the same synthesis on a closed circular path
+                      parallax-single         single-view 2.5D: the sweep with no multi-view fill
+                      parallax-rack           animated rack focus (the experimental layered blur; `animate --anim-effect
+                                              rack-focus` uses Lumen's depth effect)
+                      parallax-dolly          dolly zoom, pulling back while zooming in
                       parallax-dof            synthetic depth of field, one PNG still
                       parallax-anaglyph       red/cyan (Dubois) anaglyph of a synthesised stereo pair, PNG
                       parallax-crosseye       cross-eye side-by-side stereo pair, PNG
@@ -435,7 +579,13 @@ namespace Lux.Cli
                       Every format but parallax-wiggle forces the level-0 build (announced, as jpg+depth is) and
                       synthesises from this run's JPEG render at --level, downscaled to --parallax-size: --level 2
                       renders the base at 2608 px, plenty for a 1600 px animation and far faster than full size.
-                      --parallax-format <c>   animation container: gif (default) | webp | avif | apng
+                      --parallax-format <c>   animation container: gif (default) | webp | avif | apng. GIF, APNG and WebP
+                                              are Lux's own writers; AVIF goes through ffmpeg. WebP is now LOSSLESS by
+                                              default (every pixel exact), so it is several times larger than the
+                                              earlier lossy WebP (46 frames at 800 px: 14.7 MB); --parallax-encoder
+                                              ffmpeg gives the old lossy WebP (quality: --parallax-quality)
+                      --parallax-encoder <e>  lux (default) | ffmpeg: the earlier ffmpeg recipes for every container (GIF
+                                              with one palette and Bayer dithering, lossy WebP)
                       --parallax-size <n>     long edge of the working image in px (default 1600; 0 = native, for
                                               parallax-wiggle)
                       --parallax-ms <n>       per-frame duration in ms (default 100 for parallax-wiggle, 70 for
@@ -476,13 +626,43 @@ namespace Lux.Cli
                       --parallax-dz <mm>      dolly travel (default 400; positive pulls back and zooms in, the one
                                               direction a single capture can carry — negative is clamped)
                       --parallax-t <tx,ty>    parallax-still: the virtual camera translation in mm (default 40,0)
-                      --parallax-quality <n>  WebP encoder quality (default 88) [--parallax-format webp]
+                      --parallax-quality <n>  ffmpeg's lossy WebP quality (default 88) [--parallax-format webp --parallax-encoder ffmpeg]
                       --parallax-crf <n>      AVIF encoder crf (default 18) [--parallax-format avif]
                       --parallax-order <k>    parallax-wiggle frame order: sweep (default, along the rig's dominant
                                               axis from the factory extrinsics) | label (module-name order) | an
                                               explicit list, e.g. A5,A1,A3,A4
                       --parallax-pivot <x,y,w,h> parallax-wiggle: hold a region still so the scene swings around it;
                       integer shift only, no resampling. Native sensor pixels
+
+                ANIMATE OPTIONS:
+                      --anim-effect <e>       rack-focus | aperture-sweep | wigglegram | parallax | lens-tour (required)
+                      --anim-container <c>    gif (default) | apng | webp (lossless) | mp4 | webm (these two need ffmpeg)
+                  -o, --out-directory <dir>   write <stem>_<effect>.<ext> (default: a lux_animate/ beside the .lri)
+                      --anim-size <px>        long edge of the frames (default 1040); the frames come from the smallest
+                                              export level at least that size
+                      --level <n>             render from this export level instead
+                      --anim-frames <n>       distinct frames (default 24; the wigglegram and lens tour have one per lens)
+                      --anim-ms <n>           time per frame in ms (default 70; wigglegram 100, parallax 60, lens tour 500)
+                      --anim-loop <k>         pingpong (default; the lens tour and the orbit: forward) | forward
+                      --anim-repeat <n>       times it plays (default 0 = forever)
+                      --f-number <N>          rack-focus: the aperture; aperture-sweep: the widest it opens to (default 2,
+                                              the widest Lumen's slider offers)
+                      --anim-f-from <N>       aperture-sweep: where it starts (default: all in focus)
+                      --anim-focus <m1,m2>    rack-focus: pull the focus from m1 to m2 metres (default: the 10th to the 90th
+                                              percentile of the scene's depth)
+                      --focus-depth <mm>      aperture-sweep: the focus distance (default: as the camera focused)
+                      --anim-path <k>         parallax: sweep (default) | arc | line | orbit
+                      --anim-baseline <mm>    parallax: how far the virtual camera travels (default 71.49)
+                      --anim-converge <k>     parallax: the distance that stays still: auto (median depth) | metres
+                      --anim-single-view      parallax from the main view only (gaps painted in)
+                      --anim-gif-dither <k>   ordered (default) | diffusion | none
+                      --anim-gif-palette <k>  global (default: one palette, no flicker) | frame
+                      --anim-no-diff          store every frame whole (by default only what changed is stored)
+                      --anim-keep-frames <d>  also write each distinct frame as an exact PNG, the plan (with the convert
+                                              options of each depth-effect frame) and the frames a viewer shows
+                      --no-edits, --edits <v> as for convert
+                      --upright               as for convert: a photo held turned comes out upright (the desktop app's
+                                              default); the parallax, wigglegram and lens-tour frames are turned the same way
 
                 INSPECT OPTIONS:
                       (none — inspect takes only input paths)

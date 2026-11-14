@@ -5,34 +5,34 @@ using System.Runtime.Intrinsics.X86;
 
 namespace Lux.Engine.Pipeline.ResAmp;
 
-/// <summary>Bit-exact port of cp.dll <c>FUN_1804443f0(ws)</c> (Lumen 2.3, x86-64 SSE): normalise the accumulated wavelet
+/// <summary>The inverse merge of Lumen 2.3 (x86-64 SSE), with Lumen's exact bits: normalise the accumulated wavelet
 /// coefficients of one 16×16 vec4 tile by the per-slot weight sums and run the inverse CDF-9/7 (levels 4, 3, 2 fused/inlined,
-/// level 1 via <see cref="Cdf97Kernels"/>). See spec <c>a-resamp.md</c> §5.2 / §5.5 / §5.6.
+/// level 1 via <see cref="Cdf97Kernels"/>).
 /// <para>Workspace <paramref name="ws"/> is the 0x26e0-byte tile workspace viewed as <c>float[]</c> (index = byte offset / 4):
 /// 0x1580–0x257f = 16×16 vec4 coefficients (row stride 0x100 B), 0x2580–0x25cf = 5 vec4 weight sums,
 /// 0x25d0–0x26cf = 256-byte slot table (one u8 per (row, col), read here via <see cref="MemoryMarshal.AsBytes{T}(Span{T})"/>,
 /// i.e. the bytes must live in the <c>float[]</c>'s memory exactly as in the native workspace).</para>
-/// <para>Fidelity: every lane op is one IEEE-single op in the machine's association; constants are loaded by bit pattern;
+/// <para>Fidelity: every lane op is one IEEE-single op in Lumen's association order; constants are loaded by bit pattern;
 /// <c>rcpps</c> is the modelled <see cref="IntelApprox.Reciprocal(Vector128{float})"/> with no Newton step.</para></summary>
 internal static class InverseMerge
 {
-    // Lifting constants (each a 4-lane splat in the DLL; one lane shown).
-    static readonly float A  = BitConverter.Int32BitsToSingle(0x3fcb0673); // 1806aebc0  a  =  1.5861343
-    static readonly float A2 = BitConverter.Int32BitsToSingle(0x404b0673); // 1806aebd0  2a =  3.1722686
-    static readonly float B  = BitConverter.Int32BitsToSingle(unchecked((int)0xbd5901ae)); // 1806aebe0  b  = -0.05298012
-    static readonly float B2 = BitConverter.Int32BitsToSingle(unchecked((int)0xbdd901ae)); // 1806aebf0  2b = -0.10596023
-    static readonly float C  = BitConverter.Int32BitsToSingle(unchecked((int)0xbf620676)); // 1806aec00  c  = -0.8829111
-    static readonly float C2 = BitConverter.Int32BitsToSingle(unchecked((int)0xbfe20676)); // 1806aec10  2c = -1.7658222
-    static readonly float K  = BitConverter.Int32BitsToSingle(0x3f93263d); // 1806aec20  K  =  1.1496044
-    static readonly float IK = BitConverter.Int32BitsToSingle(0x3f5eaf6f); // 1806aec30  iK =  0.8698644
-    static readonly float G  = BitConverter.Int32BitsToSingle(0x3f828605); // 1806deb40  g  =  1.0197150
-    static readonly float G2 = BitConverter.Int32BitsToSingle(0x3f028605); // 1806deb50  g2 =  0.5098575
+    // Lifting constants. Lumen uses each value in all four lanes; one lane is shown.
+    static readonly float A  = BitConverter.Int32BitsToSingle(0x3fcb0673); // a  =  1.5861343
+    static readonly float A2 = BitConverter.Int32BitsToSingle(0x404b0673); // 2a =  3.1722686
+    static readonly float B  = BitConverter.Int32BitsToSingle(unchecked((int)0xbd5901ae)); // b  = -0.05298012
+    static readonly float B2 = BitConverter.Int32BitsToSingle(unchecked((int)0xbdd901ae)); // 2b = -0.10596023
+    static readonly float C  = BitConverter.Int32BitsToSingle(unchecked((int)0xbf620676)); // c  = -0.8829111
+    static readonly float C2 = BitConverter.Int32BitsToSingle(unchecked((int)0xbfe20676)); // 2c = -1.7658222
+    static readonly float K  = BitConverter.Int32BitsToSingle(0x3f93263d); // K  =  1.1496044
+    static readonly float IK = BitConverter.Int32BitsToSingle(0x3f5eaf6f); // iK =  0.8698644
+    static readonly float G  = BitConverter.Int32BitsToSingle(0x3f828605); // g  =  1.0197150
+    static readonly float G2 = BitConverter.Int32BitsToSingle(0x3f028605); // g2 =  0.5098575
 
     const int Coef  = 0x1580 >> 2; // float index of the coefficient block (= return value)
     const int Wsum  = 0x2580 >> 2; // float index of the 5 vec4 weight sums
     const int SlotB = 0x25d0;      // byte offset of the 256-entry slot table
 
-    /// <summary><c>FUN_1804443f0(ws)</c>. Returns the float index of the fused patch (<c>ws + 0x1580</c> → 1376).</summary>
+    /// <summary>The inverse merge of <paramref name="ws"/>. Returns the float index of the fused patch (<c>ws + 0x1580</c> → 1376).</summary>
     public static int Run(float[] ws)
     {
         // (1) ws[0x2580 + k*16] = rcpps(ws[0x2580 + k*16]), k = 0..4 (raw reciprocal estimate, no refinement).
@@ -44,7 +44,6 @@ internal static class InverseMerge
         }
 
         // (2) ws[0x1580 + (r,c)] *= ws[0x2580 + slot(r,c)*16], slot(r,c) = byte at ws+0x25d0 + r*16 + c
-        //     (1804444b0–1804446ba: movzx esi,[rax-0xf..0]; shl rsi,4; mulps xmm,[rcx+rsi+0x2580]; rax += 0x10, rdx += 0x100).
         {
             ReadOnlySpan<byte> slots = MemoryMarshal.AsBytes(ws.AsSpan(SlotB >> 2, 64));
             for (int r = 0; r < 16; r++)
@@ -63,8 +62,8 @@ internal static class InverseMerge
         }
 
         // (3a) Inverse level 4 (2×2 at (0,0),(0,8),(8,0),(8,8)) fused with inverse level 3 (4×4 at rows/cols 0,4,8,12).
-        //      Decomp 358–826, transcribed statement by statement; lanes are independent so lane 0's statements are run per lane.
-        //      Variable names vNN = the decomp's fVarNN (lane 0).
+        //      Lumen's statements in order; lanes are independent so lane 0's statements are run per lane.
+        //      Variable names vNN follow the lane-0 temporaries.
         for (int l = 0; l < 4; l++)
         {
             float v103 = ws[(0x15c0 >> 2) + l];
@@ -149,7 +148,7 @@ internal static class InverseMerge
             v16 = v99 * IK - v29 * G;                             // col 8
             float v87 = v73 * IK - (v60 + v29) * G2;
             v99 = (v87 + v16) * C + v29 * K;
-            ws[(0x2200 >> 2) + l] = v60;                          // interim store (overwritten below), as the machine does
+            ws[(0x2200 >> 2) + l] = v60;                          // interim store (overwritten below), as Lumen does
             float v78 = v87 * C2 + v60 * K;
             v33 = v34 * IK - v17 * G;                             // col 12
             float v31 = v80 * IK - (v57 + v17) * G2;
@@ -184,8 +183,8 @@ internal static class InverseMerge
         }
 
         // (3b) Inverse level 2, rows: even rows 0,2,..,14 (8 iterations, pointer += 0x200 B), 8 samples at columns 0,2,..,14.
-        //      Decomp 827–962. On the first iteration z2/z4/z6 come from registers holding the values just stored at
-        //      0x15c0/0x1600/0x1640 (bit-identical to the memory reads used here); later iterations read pfVar8[0x90/0xa0/0xb0].
+        //      On the first iteration z2/z4/z6 come from registers holding the values just stored at
+        //      0x15c0/0x1600/0x1640 (bit-identical to the memory reads used here); later iterations read the memory.
         for (int r = 0; r < 16; r += 2)
         {
             int p = Coef + r * 64;
@@ -218,8 +217,8 @@ internal static class InverseMerge
             }
         }
 
-        // (3c) Inverse level 2, columns, step 1 (e', o'): even columns 0,2,..,14 over rows 0,2,..,14 (decomp 963–1020).
-        //      pfVar8 = ws+0x2380 (row 14) + 8 floats per column pair; rows at q-0x380 (row 0), -0x300 (2), -0x280 (4),
+        // (3c) Inverse level 2, columns, step 1 (e', o'): even columns 0,2,..,14 over rows 0,2,..,14.
+        //      The base is ws+0x2380 (row 14) + 8 floats per column pair; rows at q-0x380 (row 0), -0x300 (2), -0x280 (4),
         //      -0x200 (6), -0x180 (8), -0x100 (10), -0x80 (12), 0 (14).
         for (int c = 0; c < 16; c += 2)
         {
@@ -244,7 +243,7 @@ internal static class InverseMerge
             }
         }
 
-        // (3d) Inverse level 2, columns, step 2 (e'', o'') (decomp 1021–1078).
+        // (3d) Inverse level 2, columns, step 2 (e'', o'').
         for (int c = 0; c < 16; c += 2)
         {
             int q = (0x2380 >> 2) + c * 4;
@@ -268,7 +267,7 @@ internal static class InverseMerge
             }
         }
 
-        // (4) Inverse level 1: FUN_180448510 (rows) then FUN_180448910 (columns) on ws+0x1580.
+        // (4) Inverse level 1: Inverse16Rows then Inverse16Cols on ws+0x1580.
         Cdf97Kernels.Inverse16Rows(ws, Coef);
         Cdf97Kernels.Inverse16Cols(ws, Coef);
         return Coef;

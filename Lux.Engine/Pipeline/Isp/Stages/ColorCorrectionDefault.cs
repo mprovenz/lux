@@ -2,10 +2,10 @@ using Lux.Engine.Pipeline.Color;
 
 namespace Lux.Engine.Pipeline.Isp.Stages;
 
-/// <summary>`ColorCorrection:default` / `manual` — slot 10 (`setColorCorrection` 180408fa0 cases 1/2 → lambda_55 `180418e80`, meta 1/1/1):
-/// `ImageConvertColorSpace(working ∩ int rect → new image, from = Stats+0x14 (the camera space the Stats functor lambda_56 / lambda_58 built),
-/// to = FUN_18038a230 (linear ProPhoto D50), adaptation 1)`; the working image becomes that crop; the companion image (+0xa0, the pre-denoise
-/// copy) is converted the same way when present. Spec `a-reference-guide.md` §3.4.</summary>
+/// <summary>`ColorCorrection:default` / `manual` — slot 10 (`setColorCorrection` cases 1/2, meta 1/1/1):
+/// `ImageConvertColorSpace(working ∩ int rect → new image, from = the Stats camera space (built by the default / manual Stats
+/// functor), to = linear ProPhoto D50, adaptation 1)`; the working image becomes that crop; the companion image (the pre-denoise
+/// copy) is converted the same way when present.</summary>
 public sealed class ColorCorrectionDefaultStage : IStage
 {
     readonly string _type;

@@ -1,4 +1,3 @@
-// reconstructed from liblricompression.dylib
 syntax = "proto2";
 package ltpb;
 import "mirror_system.proto";

@@ -3,8 +3,8 @@ using Ltpb;
 namespace Lux.Engine.Pipeline.Isp;
 
 /// <summary>
-/// `lt::Sensor` noise tables (ctor `FUN_18011eb90` colour / `FUN_18011fda0` mono, per-channel builder `FUN_18011f5b0`,
-/// table maths `FUN_18011e550`, ISO lookup `FUN_180120cb0`, channel selection `FUN_180120f50`): for every
+/// `lt::Sensor` noise tables (Lumen's colour and mono constructors, per-channel builder, table maths, ISO lookup and channel
+/// selection): for every
 /// `SensorCharacterization.vst_model` (gain = ISO key) and channel, a σ table indexed by raw DN, built from the
 /// affine variance model `var(x) = a·x + b` of the normalised signal x = (DN + 0.5)/N, N = white + 1, with a
 /// clipped-Gaussian correction near zero (`σ · ½(1 + tanh(P(x/σ)))`), a linear extrapolation below
@@ -19,17 +19,17 @@ public sealed class SensorNoise
     public SensorType Type { get; }
     public float Black { get; }
     public float White { get; }
-    public float CliffSlope { get; }   // Sensor +0xc; entry +0xc — identified by elimination (the only other float in the proto) [?]
+    public float CliffSlope { get; }   // the only other float in the proto, so this is assumed to be the cliff slope [?]
     public IReadOnlyList<Model> Models { get; }   // sorted by ISO (std::map)
 
     public const int TableStride = 0x38;
-    private static readonly double[] Poly =   // DAT_18068b270 … 18068b2b8
+    private static readonly double[] Poly =
     {
         1.430853e-06, 3.2172868e-07, -2.6295693e-05, -8.5123452e-05, -1.7851033e-05, 0.0020282884, 0.024377832, 0.037234715, 0.70309281, 0.16923658,
     };
-    public const double VarianceFloor = 1e-10;   // DAT_18067eca8
-    public const float MaxWhite = 65535f;        // DAT_1806823fc
-    public const float IsoPerGain = 100f;        // DAT_18068b2d8
+    public const double VarianceFloor = 1e-10;
+    public const float MaxWhite = 65535f;
+    public const float IsoPerGain = 100f;
 
     public SensorNoise(SensorType type, SensorCharacterization sc)
     {
@@ -50,7 +50,7 @@ public sealed class SensorNoise
 
     public bool IsMono => Type == SensorType.SensorAr1335Mono || Type == SensorType.SensorImx386Mono;
 
-    /// <summary>`FUN_180120cb0`: ISO = (int)(gain · 100), first model with key ≥ ISO ("no noise model for ISO …").</summary>
+    /// <summary>ISO = (int)(gain · 100), first model with key ≥ ISO ("no noise model for ISO …").</summary>
     public Model ModelForGain(float analogGain)
     {
         int iso = (int)(analogGain * IsoPerGain);
@@ -58,7 +58,7 @@ public sealed class SensorNoise
         throw new InvalidOperationException($"no noise model for ISO {iso}");
     }
 
-    /// <summary>`FUN_180120f50`: σ tables per channel for the kernels — (R, G, B) for colour sensors, the panchromatic
+    /// <summary>σ tables per channel for the kernels — (R, G, B) for colour sensors, the panchromatic
     /// table for mono ("Mono sensor does not have panchromatic noise calibration!").</summary>
     public float[][] SigmaTables(float analogGain)
     {
@@ -73,7 +73,7 @@ public sealed class SensorNoise
 
     public Channel BuildChannel(float a, float b) => BuildChannel(a, b, Black, White, CliffSlope);
 
-    /// <summary>`FUN_18011f5b0(sensor, out, a, b)` with `FUN_18011e550(a, b, N = (int)(white + 1), 0)`.</summary>
+    /// <summary>Per-channel builder: the σ table of the variance model (a, b) with N = (int)(white + 1).</summary>
     public static Channel BuildChannel(float a, float b, float black, float white, float cliff)
     {
         int n = (int)(white + 1f);
@@ -95,7 +95,7 @@ public sealed class SensorNoise
         int c = (int)(black * cliff);
         if (c >= 0 && (float)c < white && c > 0)
         {
-            float slope = (sig[c + 2] - sig[c - 2]) * 0.25f;   // DAT_180681ed0
+            float slope = (sig[c + 2] - sig[c - 2]) * 0.25f;
             sig[0] = sig[c] - (float)c * slope;
             for (int j = 1; j < c; j++) sig[j] = sig[c] - (float)(c - j) * slope;
         }
@@ -110,9 +110,8 @@ public sealed class SensorNoise
         return new Channel(snr, sig, a, b);
     }
 
-    /// <summary>cp.dll's `lt::Sensor` models come ONLY from the built-in database (`CapturedImage` ctor `FUN_1801247b0` → `DAT_180831f40/f50`,
-    /// ctors `FUN_18011eb90` colour / `FUN_18011fda0` mono); the LRI header's `sensor_data` is parsed but never used (verified live 2026-08-26:
-    /// the ISO-375 AR1335 model is the built-in one). Black/white/cliff come from the first record (42 / 1023 / 2 for the AR1335).</summary>
+    /// <summary>Lumen's `lt::Sensor` models come ONLY from the built-in database (<see cref="SensorNoiseDb"/>); the LRI header's
+    /// `sensor_data` is parsed but never used. Black/white/cliff come from the first record (42 / 1023 / 2 for the AR1335).</summary>
     public static SensorNoise? FromHeader(LightHeader h, SensorType type) => FromDb(type);
 
     public static SensorNoise? FromDb(SensorType type) => type switch

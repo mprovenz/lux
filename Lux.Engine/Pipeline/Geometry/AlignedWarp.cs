@@ -4,11 +4,11 @@ using Lux.Engine.Pipeline.Isp;
 
 namespace Lux.Engine.Pipeline.Geometry;
 
-/// <summary>`ReferenceImageCache::processLevel` (`1804d86e0`): the per-module "aligned" image at pyramid level L for an output ROI —
+/// <summary>`ReferenceImageCache::processLevel`: the per-module "aligned" image at pyramid level L for an output ROI —
 /// source rectangle from the level-0 map's border scan, the level-L module ISP on that rectangle, then the clamped resample.</summary>
 public static class AlignedWarp
 {
-    /// <summary>`FUN_1804d9eb0` (border AABB `FUN_180304500` of the level-0 map over the ROI, then even-aligned ±2 expansion):
+    /// <summary>Border AABB of the level-0 map over the ROI, then even-aligned ±2 expansion:
     /// x0 = evenTowardZero(floor(minx)) − 2, x1 = 2·ceil(maxx) + 2 − evenTowardZero(ceil(maxx)); same for y. Level-0 coordinates.</summary>
     public static RectI SourceRect(AlignedCalib calib, RectI roi0)
     {
@@ -35,8 +35,8 @@ public static class AlignedWarp
         return new RectI(EvenTowardZero(fx) - 2, EvenTowardZero(fy) - 2, (cx * 2 + 2) - EvenTowardZero(cx), (cy * 2 + 2) - EvenTowardZero(cy));
     }
 
-    /// <summary>`PipelineCache::processLevel1` (`1804e2eb0`, spec ab6d047c §3) source rectangle: the level-0 map's border AABB over the ROI
-    /// (`FUN_180304500`) + `DAT_1806ea330` = (−2,−2,+2,+2), then `x0 = floorToEven((int)bb.x0)`, `x1 = ceilToEven((int)bb.x1)` (same for y),
+    /// <summary>`PipelineCache::processLevel1` source rectangle: the level-0 map's border AABB over the ROI
+    /// + (−2,−2,+2,+2), then `x0 = floorToEven((int)bb.x0)`, `x1 = ceilToEven((int)bb.x1)` (same for y),
     /// clamped to [0, frame). Level-0 (= full camera resolution) coordinates.</summary>
     public static RectI SourceRectLevel1(AlignedCalib calib, RectI roi, int frameW, int frameH)
     {
@@ -78,27 +78,34 @@ public static class AlignedWarp
 
     /// <summary>Warp `ispImage` (the level-L ISP result whose pixel (0,0) is level-L coordinate `srcOff`) onto the level-L output ROI.</summary>
     public static Image<Vec4F> WarpToRoi(AlignedCalib calib, int level, Image<Vec4F> ispImage, (int X, int Y) srcOff, RectI roiL, ReadOnlySpan<float> fill)
+        => WarpToRoi(calib, level, ispImage, (0, 0, ispImage.Width, ispImage.Height), srcOff, roiL, fill);
+
+    /// <summary>Warp a window of `image` onto the level-L output ROI: the source's pixel (0,0) is `image` pixel (`view.X0`, `view.Y0`) = level-L
+    /// coordinate `srcOff`, and the kernel clamps to the WHOLE `image` (the `lt::Image` rect fields of a cropped view still span the parent:
+    /// the warp lambda clamps its taps to the rect fields, not to the view's width/height).</summary>
+    public static Image<Vec4F> WarpToRoi(AlignedCalib calib, int level, Image<Vec4F> image, (int X0, int Y0, int X1, int Y1) view, (int X, int Y) srcOff, RectI roiL, ReadOnlySpan<float> fill)
     {
-        int w = ispImage.Width, h = ispImage.Height;
+        int w = image.Width, h = image.Height;
         var src = new float[w * h * 4];
         for (int y = 0; y < h; y++)
-            MemoryMarshal.AsBytes(ispImage.Row(y)).CopyTo(MemoryMarshal.AsBytes(src.AsSpan(y * w * 4, w * 4)));
+            MemoryMarshal.AsBytes(image.Row(y)).CopyTo(MemoryMarshal.AsBytes(src.AsSpan(y * w * 4, w * 4)));
         var dst = new float[roiL.Width * roiL.Height * 4];
-        WarpResample.Warp(calib, level, new WarpResample.Source(src, w, 0, 0, w, h), srcOff.X, srcOff.Y, roiL.X0, roiL.Y0, dst, roiL.Width, roiL.Height, fill);
+        var source = new WarpResample.Source(src, w, -view.X0, -view.Y0, w - view.X0, h - view.Y0, (view.Y0 * w + view.X0) * 4);
+        WarpResample.Warp(calib, level, source, srcOff.X, srcOff.Y, roiL.X0, roiL.Y0, dst, roiL.Width, roiL.Height, fill);
         var outImg = new Image<Vec4F>(new RectI(0, 0, roiL.Width, roiL.Height));
         MemoryMarshal.AsBytes(dst.AsSpan()).CopyTo(MemoryMarshal.AsBytes(outImg.Data.AsSpan()));
         return outImg;
     }
 
     /// <summary>
-    /// The stacked-capture source of `processLevel` (`1804d86e0` L145): what `FUN_18020a6d0` returns for a module whose
+    /// The stacked-capture source of `processLevel`: what Lumen reads for a module whose
     /// stack has more than one frame — the fused float Bayer frame — together with the uint8 gain map
-    /// (`FUN_18020b870`) the STD plane comes from, and the ISP tile margin `ReferenceImageCache+0xbc`.
+    /// the STD plane comes from, and the ISP tile margin of the reference image cache.
     /// </summary>
     public sealed record StackedSource(Image<float> Bayer, Func<RectI, Image<float>> Std, int Margin);
 
     /// <summary>Full `processLevel` for a raw capture: ROI (level-L coords) → level-0 → source rect (clamped to the frame) → level-L
-    /// ISP → warp. Without a calibration the ISP image is returned as-is (Lumen: `+0xb8 == 0`).</summary>
+    /// ISP → warp. Without a calibration the ISP image is returned as-is (as in Lumen).</summary>
     public static Image<Vec4F> ProcessLevel(SoftIsp isp, CapturedFrame frame, AlignedCalib? calib, int level, RectI roiL, ReadOnlySpan<float> fill, Action<string>? log = null, StackedSource? stacked = null)
     {
         if (level is < 0 or > 3) throw new ArgumentOutOfRangeException(nameof(level));
@@ -110,6 +117,7 @@ public static class AlignedWarp
         log?.Invoke($"processLevel L{level}: roi0 {roi0} → source {src0}");
         Image<Vec4F> ispImg;
         (int X, int Y) srcOff;
+        Image<Vec4F>? window = null; (int X0, int Y0, int X1, int Y1) windowView = default;
         if (stacked is null)
         {
             ispImg = isp.ProcessBayer(frame, src0, level, log);
@@ -118,40 +126,45 @@ public static class AlignedWarp
         else
         {
             var stats = isp.ComputeStats(frame);
-            // L155–240: the `denoising.type == "none"` branch (cache level 0 only) runs the BayerFloat runner on the plain ROI
+            // The `denoising.type == "none"` branch (cache level 0 only) runs the BayerFloat runner on the plain ROI
             // with an EMPTY std image; every other level takes the gain-map branch below.
             if (isp.Tuning.Type("denoising") == "none")
             {
-                // `FUN_1803dc980(isp, out, srcView(roi), cap, roi, empty)`: srcView is a VIEW of the whole stacked frame (rect fields still span
+                // The runner gets a VIEW of the whole stacked frame (rect fields still span
                 // (0,0,W,H), only w/h are the ROI's) and nothing is copied, so the runner's available region is the entire frame — the stages read
-                // real neighbours past the ROI. Verified on 00431 level 0 (oracle ORACLE_STACK refstk dumps): with the view clipped to the ROI the
-                // ISP output differed on 99.9 % of the pixels (max |d| 4.9e-4); with the whole frame it is bit-exact.
+                // real neighbours past the ROI. With the view clipped to the ROI, the ISP output differs on almost every pixel
+                // (max |d| 4.9e-4).
                 ispImg = isp.ProcessBayerFloat(frame, stats, stacked.Bayer, null, src0, level, log);
                 srcOff = (src0.X0 / fc, src0.Y0 / fc);
             }
             else
             {
-                // L242–290: grow the ROI by the tile margin `+0xbc`, run on the grown rect with the gain map as the STD plane,
-                // then cut the halo back off in LEVEL pixels (`local_e8 / (1 << level)`).
+                // Grow the ROI by the tile margin, run on the grown rect with the gain map as the STD plane,
+                // then cut the halo back off in LEVEL pixels (pad / (1 << level)).
                 int m = stacked.Margin >> 1, m2 = Math.Max(stacked.Margin - 1, 0) >> 1;
                 int padL = Math.Min(src0.X0, m), padT = Math.Min(src0.Y0, m);
                 int padR = Math.Min(frame.Width - src0.X1, m2), padB = Math.Min(frame.Height - src0.Y1, m2);
                 var grown = new RectI(src0.X0 - padL, src0.Y0 - padT, src0.X1 + padR, src0.Y1 + padB);
-                // `FUN_180012530` copies exactly the grown window, so the runner's available region IS the ROI — no stage can
-                // grow past it. (Falsified alternatives, all far worse on 00551: ROI = the un-grown rect with the halo as growth
-                // room, 99.698 %; an edge-replicated pad so growth reads clamped values, 17.5 %; a whole-frame ROI, 19.1 %.)
+                // Lumen copies exactly the grown window, so the runner's available region IS the ROI — no stage can
+                // grow past it.
                 var res = isp.ProcessBayerFloat(frame, stats, stacked.Bayer.View(grown), stacked.Std(grown), grown, level, log);
-                // `local_168` is the runner's result in ITS own frame (0,0,w,h); the crop is [pad, pad + roi) / fc
+                // The runner's result is in ITS own frame (0,0,w,h); the crop is [pad, pad + roi) / fc
                 int cx0 = Math.Max(0, padL / fc), cy0 = Math.Max(0, padT / fc);
                 int cx1 = Math.Min(res.Width, (padL - src0.X0 + src0.X1) / fc), cy1 = Math.Min(res.Height, (padT - src0.Y0 + src0.Y1) / fc);
                 if (cx1 <= cx0 || cy1 <= cy0) throw new InvalidOperationException("processLevel: empty halo crop");
                 ispImg = res.View(new RectI(res.Rect.X0 + cx0, res.Rect.Y0 + cy0, res.Rect.X0 + cx1, res.Rect.Y0 + cy1));
                 srcOff = (ispImg.Rect.X0, ispImg.Rect.Y0);
+                // The crop is a VIEW (Lumen's copy onto itself does nothing: `loadImage`
+                // keeps an image whose size already matches), so its rect fields still span the runner's whole result, and the warp lambda
+                // clamps its Catmull-Rom taps to those rect fields: near the right / bottom edge of a cache tile it reads the
+                // real halo pixels past the crop instead of repeating the crop's last column / row. This affects the last column / row of the
+                // 512 tiles at reduced levels on stacked captures.
+                window = res; windowView = (cx0, cy0, cx1, cy1);
                 log?.Invoke($"processLevel L{level}: stacked grown {grown} (margin {stacked.Margin}) → crop ({cx0},{cy0})-({cx1},{cy1}) at {srcOff}");
             }
         }
         if (stacked is not null && Environment.GetEnvironmentVariable("LUX_REF_ISPDUMP") is string dp && ResAmp.TeleLevel0Cache.RectWanted("LUX_REF_ISPDUMP_RECTS", src0))
-        {   // diagnostic twin of the oracle's ORACLE_STACK refstk/refstkg dumps: the level ISP output of the stacked branch, rect in the name (level-L pixels)
+        {   // diagnostic: the level ISP output of the stacked branch, rect in the name (level-L pixels)
             var r = ispImg.Rect; int gw = ispImg.Width, gh = ispImg.Height; var mb = new byte[16 + (long)gw * gh * 16];
             BitConverter.GetBytes(gw).CopyTo(mb, 0); BitConverter.GetBytes(gh).CopyTo(mb, 4); BitConverter.GetBytes(gw).CopyTo(mb, 8); BitConverter.GetBytes(16).CopyTo(mb, 12);
             for (int y = 0; y < gh; y++) System.Runtime.InteropServices.MemoryMarshal.AsBytes(ispImg.Row(y)).CopyTo(mb.AsSpan(16 + y * gw * 16, gw * 16));
@@ -160,6 +173,7 @@ public static class AlignedWarp
             BayerFusion.PackedBayerFusion.DumpFloat($"{dp}_ref_L{level}_src_{src0.X0}_{src0.Y0}_{src0.X1}_{src0.Y1}_bayer.bin", fb, src0.Width, src0.Height);
         }
         if (calib is null) return ispImg;
+        if (window is not null) return WarpToRoi(calib, level, window, windowView, srcOff, roiL, fill);
         return WarpToRoi(calib, level, ispImg, srcOff, roiL, fill);
     }
 }

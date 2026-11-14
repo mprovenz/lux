@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Lux.Engine.Imaging;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
@@ -6,11 +7,11 @@ using Lux.Engine.Pipeline.Isp;
 namespace Lux.Engine.Pipeline.Isp.Stages;
 
 /// <summary>
-/// `Denoising:hybrid` (slot 9; spec `a0349917a78884e46.md`): `Pipeline::lambda_34` glue (context ring of ≤ 63 px, σ image
-/// `Sensor::forwardSTD`, threshold = threshold_multiplier·parameter_scale (×1.12 for the collapse demosaics)) around `lambda_48`: RGB→(Y,C1,C2)
+/// `Denoising:hybrid` (slot 9): Lumen's hybrid stage glue (context ring of ≤ 63 px, σ image
+/// `Sensor::forwardSTD`, threshold = threshold_multiplier·parameter_scale (×1.12 for the collapse demosaics)) around the hybrid core: RGB→(Y,C1,C2)
 /// rotation, a 5-level Gaussian pyramid, per level the trapezoid bilateral N×N (`BilateralGeneric&lt;N,0&gt;`, N = `bilateral_denoiser.window_size`
 /// ∈ {3,5,7,9}) and the `SubtractUpscaleAndAdd`
-/// reconstruction, a full-resolution jittered `ImageDenoisePatchNLM&lt;4&gt;`, rotation back. All arithmetic in the machine order; `rcpps` raw.
+/// reconstruction, a full-resolution jittered `ImageDenoisePatchNLM&lt;4&gt;`, rotation back. All arithmetic in Lumen's order; `rcpps` raw.
 /// </summary>
 public sealed class DenoiseHybridStage : IStage
 {
@@ -27,7 +28,7 @@ public sealed class DenoiseHybridStage : IStage
         var bil = new HybridDenoise.BilateralParams { WindowSize = (int)Get("bilateral_denoiser.window_size", 5), ChromaBoost = Get("bilateral_denoiser.chroma_boost", 2f), PyramidSize = (int)Get("bilateral_denoiser.pyramid_size", 5) };
         float thr = Get("denoising.threshold_multiplier", 1f) * Get("pipeline.parameter_scale", 1f);
         string demosaic = t.Type("demosaicking");
-        if (demosaic is "collapse2" or "collapse4" or "collapse8") thr = (float)((double)thr * 1.12);   // DAT_1806d7640
+        if (demosaic is "collapse2" or "collapse4" or "collapse8") thr = (float)((double)thr * 1.12);
         if (Environment.GetEnvironmentVariable("LUX_ISP_DEBUG") == "1") Console.Error.WriteLine($"[hybrid] thr {thr:R} gain {p.Frame.AnalogGain:R} black {(!float.IsNaN(p.Stats.SensorBlack) ? p.Stats.SensorBlack : -1):R} neutral {p.Stats.Neutral[0]:R} {p.Stats.Neutral[1]:R} {p.Stats.Neutral[2]:R} tuning thr_mult {p.Context.Tuning.Num("denoising.threshold_multiplier"):R} pscale {p.Context.Tuning.Num("pipeline.parameter_scale"):R} nlm.chroma {p.Context.Tuning.Num("nlm_denoiser.chroma_boost"):R} bil.chroma {p.Context.Tuning.Num("bilateral_denoiser.chroma_boost"):R} min_luma {p.Context.Tuning.Num("nlm_denoiser.min_luma_std"):R}");
         var abs = p.ToAbsolute(p.IntRect).Intersect(img.Rect);
         if (abs.IsEmpty) return;
@@ -38,12 +39,12 @@ public sealed class DenoiseHybridStage : IStage
         for (int y = 0; y < h; y++) img.Row(view.Y0 - img.Rect.Y0 + y).Slice(view.X0 - img.Rect.X0, w).CopyTo(src.AsSpan(y * w, w));
         var noise = p.Stats.Noise ?? p.Frame.Noise ?? throw new InvalidOperationException("Denoising:hybrid needs the sensor noise model");
         float black = !float.IsNaN(p.Stats.SensorBlack) ? p.Stats.SensorBlack : noise.Black, white = !float.IsNaN(p.Stats.SensorWhite) ? p.Stats.SensorWhite : noise.White;
-        var std = HybridDenoise.ForwardStd(src, w, h, noise.ModelForGain(p.Frame.AnalogGain), black, white, p.Stats.Neutral);
-        // lambda_34 180417110 (asm 180417374–1804175ae; spec a-std-plane.md): when the payload carries a STD plane (+0x40, data +0x60
-        // non-null, +0x50/+0x54 > 0 — the level-1 FusionCacheBayer weight image) it is viewed exactly like the RGB source (∩ int rect, grown by
-        // min(63, available) per side of ITS OWN rect), its size must equal the σ image ("std Image provided does not match image size!" /
-        // FUN_18035ffc0 "image size mismatch!"), then FUN_18035fe00 multiplies the forwardSTD σ in place, per pixel by view-local index, the scalar
-        // broadcast to all four lanes (movss+shufps 0, mulps): σ_c(x,y) = std(x,y)·σ_c(x,y). This happens BEFORE lambda_48 (rotation / ImageTransformSTD).
+        Vec4F[] std; using (Diagnostics.PhaseLog.Time("hyb.fstd")) std = HybridDenoise.ForwardStd(src, w, h, noise.ModelForGain(p.Frame.AnalogGain), black, white, p.Stats.Neutral);
+        // When the payload carries a STD plane (the level-1 FusionCacheBayer weight image), it is viewed exactly like the RGB source
+        // (∩ int rect, grown by min(63, available) per side of ITS OWN rect). Its size must equal the σ image ("std Image provided does
+        // not match image size!" / "image size mismatch!"). Then Lumen multiplies the forwardSTD σ in place, per pixel by view-local
+        // index, the scalar broadcast to all four lanes: σ_c(x,y) = std(x,y)·σ_c(x,y). This happens BEFORE the
+        // hybrid core (rotation / ImageTransformSTD).
         // No STD (single capture) → σ unchanged.
         if (p.Std is not null && p.Std.Width > 0 && p.Std.Height > 0)
         {
@@ -63,8 +64,9 @@ public sealed class DenoiseHybridStage : IStage
             }
             HybridDenoise.DumpStd(std, w, h);
         }
-        var outp = HybridDenoise.Run(src, std, w, h, thr, nlm, bil);
-        // lambda_34 swaps the denoised image into +0x70; the previous working image stays in the payload (+0xa0) and PostProcessing uses it as the LDiff companion
+        Vec4F[] outp; using (Diagnostics.PhaseLog.Time("hyb.run")) outp = HybridDenoise.Run(src, std, w, h, thr, nlm, bil);
+        using var phc = Diagnostics.PhaseLog.Time("hyb.copies");
+        // the stage swaps the denoised image into the working slot; the previous working image stays in the payload and PostProcessing uses it as the LDiff companion
         var before = new Image<Vec4F>(img.Rect); for (int y = 0; y < img.Height; y++) img.Row(y).CopyTo(before.Row(y)); p.Companion = before;
         for (int y = 0; y < abs.Height; y++) outp.AsSpan((y + padT) * w + padL, abs.Width).CopyTo(img.Row(abs.Y0 - img.Rect.Y0 + y).Slice(abs.X0 - img.Rect.X0, abs.Width));
     }
@@ -72,12 +74,12 @@ public sealed class DenoiseHybridStage : IStage
 
 public static class HybridDenoise
 {
-    /// <summary>Diagnostic: `LUX_HYB_DUMP=&lt;prefix&gt;` writes every intermediate as `{prefix}_hyb_{tag}_{w}x{h}.f32` (header w,h,stride,16) like cp.dll's hybrid-denoise intermediate hooks.</summary>
+    /// <summary>Diagnostic: `LUX_HYB_DUMP=&lt;prefix&gt;` writes every intermediate as `{prefix}_hyb_{tag}_{w}x{h}.f32`: raw 32-bit floats, four per pixel, no header.</summary>
     static readonly string? DumpPrefix = Environment.GetEnvironmentVariable("LUX_HYB_DUMP");
     static void Dump(string tag, Vec4F[] img, int w, int h)
     {
         if (DumpPrefix is null) return;
-        using var fo = File.Create($"{DumpPrefix}_hyb_{tag}_{w}x{h}.f32");   // the size keeps calls of different ISPs (tiles vs a telephoto grown rect) from overwriting each other fo.Write(BitConverter.GetBytes(w)); fo.Write(BitConverter.GetBytes(h)); fo.Write(BitConverter.GetBytes(w)); fo.Write(BitConverter.GetBytes(16));
+        using var fo = File.Create($"{DumpPrefix}_hyb_{tag}_{w}x{h}.f32");   // the size keeps calls of different ISPs (tiles vs a telephoto grown rect) from overwriting each other
         var bytes = new byte[img.Length * 16]; System.Runtime.InteropServices.MemoryMarshal.AsBytes(img.AsSpan()).CopyTo(bytes); fo.Write(bytes);
     }
     internal static void DumpStd(Vec4F[] img, int w, int h) => Dump("stdmul_out", img, w, h);
@@ -85,13 +87,29 @@ public static class HybridDenoise
     public sealed class BilateralParams { public int WindowSize = 5, PyramidSize = 5; public float ChromaBoost = 2f; }
 
     static float Rcp(float d) => IntelApprox.ReciprocalScalar(Vector128.CreateScalar(d)).ToScalar();
-    static float Max(float a, float b) => a > b ? a : b;          // maxps: NaN → second operand… (a > b false → b)
+    static float Max(float a, float b) => a > b ? a : b;          // MAXPS semantics: NaN gives b
     static Vec4F Add(Vec4F a, Vec4F b) => new(a.R + b.R, a.G + b.G, a.B + b.B, a.A + b.A);
     static float Abs(float a) => BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(a) & 0x7fffffff);
+
+    // ---- the four lanes of a pixel as one Vector128 — every lane does exactly its scalar operations in the same order ----
+    static Vector128<float> V(in Vec4F v) => Vector128.Create(v.R, v.G, v.B, v.A);
+    static Vec4F F4(Vector128<float> v) => new(v.GetElement(0), v.GetElement(1), v.GetElement(2), v.GetElement(3));
+    static Vector128<float> MaxV(Vector128<float> a, Vector128<float> b) => Vector128.ConditionalSelect(Vector128.GreaterThan(a, b), a, b);   // a > b ? a : b
+    static Vector128<float> AbsV(Vector128<float> a) => (a.AsInt32() & Vector128.Create(0x7fffffff)).AsSingle();
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]   // always inlined, so the shuffle control stays an immediate
+    static Vector128<float> Bc(Vector128<float> v, [System.Diagnostics.CodeAnalysis.ConstantExpected] byte lane) => Sse.Shuffle(v, v, lane);   // broadcast one lane (0x00, 0x55, 0xAA, 0xFF)
+    /// <summary>Per-tap bilateral weight on all four lanes: max(1 − max(d − σ, 0)·r, 1e-6) with d broadcast.</summary>
+    static Vector128<float> TapWeight(Vector128<float> d, Vector128<float> s, Vector128<float> r)
+    {
+        var z = Vector128<float>.Zero; var t = MaxV(d - s, z);
+        return MaxV(Vector128.Create(1.0f) - t * r, Vector128.Create(Eps6));
+    }
+    static ReadOnlySpan<Vector128<float>> AsV(Vec4F[] a) => System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, Vector128<float>>(a);
+    static Span<Vector128<float>> AsVW(Vec4F[] a) => System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, Vector128<float>>(a.AsSpan());
     static readonly float Eps6 = BitConverter.Int32BitsToSingle(0x358637BD), Eps5 = BitConverter.Int32BitsToSingle(0x3727C5AC);
     static readonly float M0 = BitConverter.Int32BitsToSingle(0x3F13CD36), M3 = BitConverter.Int32BitsToSingle(0x3F350529), M5 = BitConverter.Int32BitsToSingle(unchecked((int)0xBF350529)),
                           M6 = BitConverter.Int32BitsToSingle(0x3ED10625), M7 = BitConverter.Int32BitsToSingle(unchecked((int)0xBF510625));
-    static readonly float[] M = { M0, M0, M0, M3, 0f, M5, M6, M7, M6 };   // rows of the RGB→YCC rotation (DAT_180835d68)
+    static readonly float[] M = { M0, M0, M0, M3, 0f, M5, M6, M7, M6 };   // rows of the RGB→YCC rotation
     static readonly float U64 = BitConverter.Int32BitsToSingle(0x3F23D70B), U08 = BitConverter.Int32BitsToSingle(0x3DA3D70B), U01 = BitConverter.Int32BitsToSingle(0x3C23D70B),
                           U05 = BitConverter.Int32BitsToSingle(0x3D4CCCCD), U40 = BitConverter.Int32BitsToSingle(0x3ECCCCCD), U25 = 0.25f, C001 = BitConverter.Int32BitsToSingle(0x3C23D70A);
 
@@ -100,24 +118,22 @@ public static class HybridDenoise
     {
         float inv = 1.0f / white, k = (white - black) * inv, o = inv * black;
         float kr = k * neutral[0], kg = k * neutral[1], kb = k * neutral[2], ka = k * 1.0f;
-        float ar = model.R.A, ag = model.G.A, ab = model.Bl.A, br = model.R.B, bg = model.G.B, bb = model.Bl.B;
-        var std = new Vec4F[w * h];
-        for (int i = 0; i < src.Length; i++)
-        {
-            var s = src[i];
-            std[i] = new Vec4F(MathF.Sqrt(Max(((s.R * kr) + o) * ar + br, Eps5)), MathF.Sqrt(Max(((s.G * kg) + o) * ag + bg, Eps5)), MathF.Sqrt(Max(((s.B * kb) + o) * ab + bb, Eps5)), MathF.Sqrt(Max(((s.A * ka) + o) * 1.0f + 1.0f, Eps5)));
-        }
+        var K = Vector128.Create(kr, kg, kb, ka); var Ov = Vector128.Create(o); var Av = Vector128.Create(model.R.A, model.G.A, model.Bl.A, 1.0f); var Bv = Vector128.Create(model.R.B, model.G.B, model.Bl.B, 1.0f);
+        var e5 = Vector128.Create(Eps5);
+        var std = new Vec4F[w * h]; var S = AsV(src); var O = AsVW(std);
+        for (int i = 0; i < src.Length; i++) O[i] = Vector128.Sqrt(MaxV(((S[i] * K) + Ov) * Av + Bv, e5));
         return std;
     }
 
     /// <summary>`ImageApplyColorMatrix`: out = ((v.w·c3) + (v.z·c2)) + ((v.y·c1) + (v.x·c0)), columns of the 4×4 (rows m, last row (0,0,0,1)).</summary>
     static Vec4F[] ApplyMatrix(Vec4F[] src, float[] m)
     {
-        var o = new Vec4F[src.Length];
+        var o = new Vec4F[src.Length]; var S = AsV(src); var O = AsVW(o);
+        var c0 = Vector128.Create(m[0], m[3], m[6], 0f); var c1 = Vector128.Create(m[1], m[4], m[7], 0f); var c2 = Vector128.Create(m[2], m[5], m[8], 0f); var z = Vector128<float>.Zero;
         for (int i = 0; i < src.Length; i++)
         {
-            var v = src[i];
-            o[i] = new Vec4F(((v.A * 0f) + (v.B * m[2])) + ((v.G * m[1]) + (v.R * m[0])), ((v.A * 0f) + (v.B * m[5])) + ((v.G * m[4]) + (v.R * m[3])), ((v.A * 0f) + (v.B * m[8])) + ((v.G * m[7]) + (v.R * m[6])), v.A);
+            var v = S[i];   // ((A·0) + (B·c2)) + ((G·c1) + (R·c0)) on lanes 0–2, lane 3 = the source alpha
+            O[i] = (((Bc(v, 0xFF) * z) + (Bc(v, 0xAA) * c2)) + ((Bc(v, 0x55) * c1) + (Bc(v, 0x00) * c0))).WithElement(3, src[i].A);
         }
         return o;
     }
@@ -127,18 +143,19 @@ public static class HybridDenoise
     static Vec4F[] TransformStd(Vec4F[] vst, float[] m, float floorY)
     {
         float c00 = m[0] * m[0], c01 = m[3] * m[3], c02 = m[6] * m[6], c10 = m[1] * m[1], c11 = m[4] * m[4], c12 = m[7] * m[7], c20 = m[2] * m[2], c21 = m[5] * m[5], c22 = m[8] * m[8];
-        var o = new Vec4F[vst.Length];
+        var o = new Vec4F[vst.Length]; var S = AsV(vst); var O = AsVW(o);
+        var k0 = Vector128.Create(c00, c01, c02, 0f); var k1 = Vector128.Create(c10, c11, c12, 0f); var k2 = Vector128.Create(c20, c21, c22, 0f); var fl = Vector128.Create(floorY, 0f, 0f, 0f);
         for (int i = 0; i < vst.Length; i++)
         {
-            var s = vst[i]; float qx = s.R * s.R, qy = s.G * s.G, qz = s.B * s.B;
-            o[i] = new Vec4F(Max(MathF.Sqrt((qz * c20) + ((qy * c10) + (qx * c00))), floorY), Max(MathF.Sqrt((qz * c21) + ((qy * c11) + (qx * c01))), 0f), Max(MathF.Sqrt((qz * c22) + ((qy * c12) + (qx * c02))), 0f), 0f);
+            var q = S[i] * S[i];   // (qx, qy, qz, ·); lane c: max(sqrt((qz·c2c) + ((qy·c1c) + (qx·c0c))), floor_c), lane 3 = 0
+            O[i] = MaxV(Vector128.Sqrt((Bc(q, 0xAA) * k2) + ((Bc(q, 0x55) * k1) + (Bc(q, 0x00) * k0))), fl).WithElement(3, 0f);
         }
         return o;
     }
 
     static int CeilLog2(int v) { int l = 0; while ((1 << l) < v) l++; return l; }
 
-    /// <summary>`lambda_48`.</summary>
+    /// <summary>The hybrid core: RGB→YCC rotation, pyramid bilateral, full-resolution NLM, rotation back.</summary>
     public static Vec4F[] Run(Vec4F[] src, Vec4F[] vst, int w, int h, float thr, NlmParams nlm, BilateralParams bil)
     {
         if (nlm.PyramidSize != bil.PyramidSize) throw new InvalidOperationException("pyramid size mismatch!");
@@ -151,6 +168,7 @@ public static class HybridDenoise
         var pyr = new List<(Vec4F[] Img, int W, int H)>(); var vpyr = new List<(Vec4F[] Img, int W, int H)>();
         {
             Vec4F[] cur = srcT, vcur = vstT; int cw = w, ch = h;
+            using var php = Diagnostics.PhaseLog.Time("hyb.pyramid");
             for (int l = 0; l < N; l++)
             {
                 var d = CnrPyramid.Downsample(cur, cw, ch, out int w2, out int h2); var vd = CnrPyramid.Downsample(vcur, cw, ch, out _, out _);
@@ -167,24 +185,24 @@ public static class HybridDenoise
             float e2 = MathF.ScaleB(1.0f, -(L + 1));
             var tune = new Vec4F(e2 * hb.R, e2 * hb.G, e2 * hb.B, e2 * hb.A);
             int bi = N - 1 - L; Dump($"bil{bi}_src", curL, pyr[L].W, pyr[L].H); Dump($"bil{bi}_vst", vpyr[L].Img, pyr[L].W, pyr[L].H);
-            var den = Bilateral(bil.WindowSize, curL, vpyr[L].Img, pyr[L].W, pyr[L].H, tune); Dump($"bil{bi}_out", den, pyr[L].W, pyr[L].H);
-            curL = UpscaleAdd(den, pyr[L].Img, pyr[L].W, pyr[L].H, pyr[L - 1].Img, pyr[L - 1].W, pyr[L - 1].H); Dump($"ups{bi}_out", curL, pyr[L - 1].W, pyr[L - 1].H);
+            Vec4F[] den; using (Diagnostics.PhaseLog.Time("hyb.bilateral")) den = Bilateral(bil.WindowSize, curL, vpyr[L].Img, pyr[L].W, pyr[L].H, tune); Dump($"bil{bi}_out", den, pyr[L].W, pyr[L].H);
+            using (Diagnostics.PhaseLog.Time("hyb.ups")) curL = UpscaleAdd(den, pyr[L].Img, pyr[L].W, pyr[L].H, pyr[L - 1].Img, pyr[L - 1].W, pyr[L - 1].H); Dump($"ups{bi}_out", curL, pyr[L - 1].W, pyr[L - 1].H);
         }
         float r = Rcp(2.0f); r = (1.0f - (r + r)) * r + r;
         Dump($"bil{N - 1}_src", curL, pyr[0].W, pyr[0].H); Dump($"bil{N - 1}_vst", vpyr[0].Img, pyr[0].W, pyr[0].H);
-        var den0 = Bilateral(bil.WindowSize, curL, vpyr[0].Img, pyr[0].W, pyr[0].H, new Vec4F(hb.R * r, hb.G * r, hb.B * r, hb.A * r)); Dump($"bil{N - 1}_out", den0, pyr[0].W, pyr[0].H);
-        var full = UpscaleAdd(den0, pyr[0].Img, pyr[0].W, pyr[0].H, srcT, w, h); Dump($"ups{N - 1}_out", full, w, h); Dump("nlm_src", full, w, h); Dump("nlm_vst", vstT, w, h);
+        Vec4F[] den0; using (Diagnostics.PhaseLog.Time("hyb.bilateral0")) den0 = Bilateral(bil.WindowSize, curL, vpyr[0].Img, pyr[0].W, pyr[0].H, new Vec4F(hb.R * r, hb.G * r, hb.B * r, hb.A * r)); Dump($"bil{N - 1}_out", den0, pyr[0].W, pyr[0].H);
+        Vec4F[] full; using (Diagnostics.PhaseLog.Time("hyb.ups0")) full = UpscaleAdd(den0, pyr[0].Img, pyr[0].W, pyr[0].H, srcT, w, h); Dump($"ups{N - 1}_out", full, w, h); Dump("nlm_src", full, w, h); Dump("nlm_vst", vstT, w, h);
         if (nlm.StepSize <= 0) throw new NotSupportedException("nlm_denoiser.step_size == 0 (ImageDenoiseNLM) is not ported");
-        var outp = PatchNlm4(full, vstT, w, h, hn, nlm.WindowSize, nlm.StepSize); Dump("nlm_out", outp, w, h);
+        Vec4F[] outp; using (Diagnostics.PhaseLog.Time("hyb.nlm")) outp = PatchNlm4(full, vstT, w, h, hn, nlm.WindowSize, nlm.StepSize); Dump("nlm_out", outp, w, h);
         var fin = transform ? ApplyMatrix(outp, Transpose(M)) : outp; Dump("mat1_out", fin, w, h);
         return fin;
     }
 
-    /// <summary>`ImageDenoiseBilateralGeneric&lt;N,0&gt;` by `bilateral_denoiser.window_size`, i.e. the dispatcher `1803af4d0`
+    /// <summary>`ImageDenoiseBilateralGeneric&lt;N,0&gt;` by `bilateral_denoiser.window_size`, i.e. Lumen's dispatcher
     /// (`switch (window − 3)`: case 0 → &lt;3,·&gt;, 2 → &lt;5,·&gt;, 4 → &lt;7,·&gt;, 6 → &lt;9,·&gt;, default → "Unsupported bilateral kernel size!").
-    /// The hybrid core `lambda_48` (1803addf0) always passes the literal `0` for the second template argument, so only the
-    /// `&lt;N,0&gt;` half of the family is reachable from this stage; the `&lt;N,1&gt;` half belongs to `setDenoising::lambda_38`
-    /// (1803ac5b0 = `denoising.type` `bilateral`/`bilateral_420`, flag 0 on the pyramid levels and 1 on the full-res call),
+    /// The hybrid core always passes the literal `0` for the second template argument, so only the
+    /// `&lt;N,0&gt;` half of the family is reachable from this stage. The `&lt;N,1&gt;` half belongs to Lumen's `bilateral`/`bilateral_420`
+    /// denoising stage (flag 0 on the pyramid levels and 1 on the full-res call),
     /// a stage Lux does not implement. Sizes `IsoTuning` can select: 5 (ISO 100/200 rows), 7 (ISO 400 and, key 2, ISO 625)
     /// and 9 (key 2 ISO 775; key 4 ISO 800/1600). 3 appears in the tuning rows only as `Bil420Pyramid` (the bilateral_420
     /// pyramid size), never as a window — `&lt;3,0&gt;` is ported for completeness of the dispatcher.</summary>
@@ -200,83 +218,69 @@ public static class HybridDenoise
         5 => Bilateral5(src, vst, w, h, tune),
         7 => Bilateral7(src, vst, w, h, tune),
         9 => Bilateral9(src, vst, w, h, tune),
-        _ => throw new InvalidOperationException("Unsupported bilateral kernel size!"),   // 1803af4d0 default arm
+        _ => throw new InvalidOperationException("Unsupported bilateral kernel size!"),   // the dispatcher's default arm
     };
 
-    /// <summary>`ImageDenoiseBilateralGeneric&lt;9,0&gt;::lambda_1` (1803b8d90, inner loops 1803b9730–1803b9792, transcribed from the
-    /// disassembly). Same per-tap weight as the 3/5/7 kernels; tile grown by 4 → neighbours outside the image are (0,0,0,0)
-    /// in `src` (the slow path memsets a (tw+8)×(th+8) buffer and copies the clipped source into it).
-    /// **This is the one variant the compiler did NOT unroll**: `1803b9730` is a real row loop (ecx = −4…4) around a real tap
-    /// loop (rdx = −0x40…0x40 step 0x10 = dx −4…+4), and both accumulators are live across all 81 taps
-    /// (`xorps xmm7,xmm7` / `xorps xmm0,xmm0` sit *before* the row loop, `addps xmm7,xmm3` / `addps xmm0,xmm1` are the whole
-    /// reduction). So there is no per-row association tree at all — acc and wsum are a straight left-to-right sequential sum
-    /// in raster tap order, unlike `&lt;3,0&gt;`/`&lt;5,0&gt;`/`&lt;7,0&gt;` which each fold one unrolled row into the carry with a tree.</summary>
+    /// <summary>`ImageDenoiseBilateralGeneric&lt;9,0&gt;` tile lambda. Same per-tap weight as the 3/5/7 kernels; tile grown by 4 → neighbours
+    /// outside the image are (0,0,0,0) in `src` (the slow path memsets a (tw+8)×(th+8) buffer and copies the clipped source into it).
+    /// **Lumen's compiler did NOT unroll this variant**: it is a real row loop (dy = −4…4) around a real tap loop (dx = −4…+4),
+    /// and both accumulators are live across all 81 taps. So there is no per-row association tree at all — acc and wsum are a
+    /// straight left-to-right sequential sum in raster tap order, unlike `&lt;3,0&gt;`/`&lt;5,0&gt;`/`&lt;7,0&gt;` which each fold one
+    /// unrolled row into the carry with a tree.</summary>
     static Vec4F[] Bilateral9(Vec4F[] src, Vec4F[] vst, int w, int h, Vec4F tune)
     {
-        var o = new Vec4F[w * h];
+        var o = new Vec4F[w * h]; var S = AsV(src); var Vs = AsV(vst); var O = AsVW(o); var T = V(tune); var z = Vector128<float>.Zero;
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
             {
-                var c = src[y * w + x]; var v = vst[y * w + x];
-                float sR = tune.R * v.R, sG = tune.G * v.G, sB = tune.B * v.B, sA = tune.A * v.A;   // movaps tune; mulps vst
-                float rR = Rcp(sR), rG = Rcp(sG), rB = Rcp(sB), rA = Rcp(1.0f);                     // insertps lane3 ← 1.0; rcpps
-                float aR = 0f, aG = 0f, aB = 0f, aA = 0f, wR = 0f, wG = 0f, wB = 0f, wA = 0f;
+                var c = S[y * w + x]; var sg = T * Vs[y * w + x];
+                var r = IntelApprox.Reciprocal(sg.WithElement(3, 1.0f));          // lane 3 = 1.0, then the RCPPS estimate
+                var a = z; var ws = z;
                 for (int dy = -4; dy <= 4; dy++)
                 {
-                    int yy = y + dy;
+                    int yy = y + dy; bool rowIn = yy >= 0 && yy < h;
                     for (int dx = -4; dx <= 4; dx++)
                     {
-                        int xx = x + dx; Vec4F n = (yy >= 0 && yy < h && xx >= 0 && xx < w) ? src[yy * w + xx] : default;
-                        float dR = Abs(n.R - c.R), dG = Abs(n.G - c.G), dB = Abs(n.B - c.B);
-                        float d = Max(Max(dB, dR), Max(dB, dG));   // pshufd 0x4a → (z,z,x,y); maxps dst,abs; movshdup; maxss
-                        float kR = Max(1.0f - Max(d - sR, 0f) * rR, Eps6), kG = Max(1.0f - Max(d - sG, 0f) * rG, Eps6),
-                              kB = Max(1.0f - Max(d - sB, 0f) * rB, Eps6), kA = Max(1.0f - Max(d - sA, 0f) * rA, Eps6);
-                        aR = aR + n.R * kR; aG = aG + n.G * kG; aB = aB + n.B * kB; aA = aA + n.A * kA;   // addps xmm7, n·w
-                        wR = wR + kR; wG = wG + kG; wB = wB + kB; wA = wA + kA;                          // addps xmm0, w
+                        int xx = x + dx; var n = rowIn && xx >= 0 && xx < w ? S[yy * w + xx] : z;
+                        var ad = AbsV(n - c);
+                        var d = MaxV(MaxV(Bc(ad, 0xAA), Bc(ad, 0x00)), MaxV(Bc(ad, 0xAA), Bc(ad, 0x55)));   // max(max(dB, dR), max(dB, dG))
+                        var k = TapWeight(d, sg, r);
+                        a = a + n * k; ws = ws + k;
                     }
                 }
-                o[y * w + x] = new Vec4F(Rcp(wR) * aR, Rcp(wG) * aG, Rcp(wB) * aB, Rcp(wA) * aA);
+                O[y * w + x] = IntelApprox.Reciprocal(ws) * a;
             }
         return o;
     }
 
-    /// <summary>`ImageDenoiseBilateralGeneric&lt;7,0&gt;::lambda_1` (1803b77a0, inner loop 1803b8180–1803b83f8, transcribed from the disassembly): same per-tap
+    /// <summary>`ImageDenoiseBilateralGeneric&lt;7,0&gt;` tile lambda: same per-tap
     /// weight as the 5-tap kernel (d = max(|n−c|.xyz), w = max(1 − max(d − σ, 0)·rcpps(σ|lane3=1), 1e-6), σ = tune·vst all 4 lanes); per row
     /// `acc = P₊₃ + ((P₊₂ + (P₊₁ + P₀)) + ((P₋₁ + P₋₂) + (P₋₃ + acc)))`, `wsum` likewise; tile grown by 3 → zero neighbours outside the image;
     /// out = rcpps(wsum)·acc.</summary>
     static Vec4F[] Bilateral7(Vec4F[] src, Vec4F[] vst, int w, int h, Vec4F tune)
     {
-        var o = new Vec4F[w * h];
-        Span<float> nR = stackalloc float[7], nG = stackalloc float[7], nB = stackalloc float[7], nA = stackalloc float[7], kR = stackalloc float[7], kG = stackalloc float[7], kB = stackalloc float[7], kA = stackalloc float[7];
+        var o = new Vec4F[w * h]; var S = AsV(src); var Vs = AsV(vst); var O = AsVW(o); var T = V(tune); var z = Vector128<float>.Zero;
+        Span<Vector128<float>> n = stackalloc Vector128<float>[7]; Span<Vector128<float>> kk = stackalloc Vector128<float>[7];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
             {
-                var c = src[y * w + x]; var v = vst[y * w + x];
-                float sR = tune.R * v.R, sG = tune.G * v.G, sB = tune.B * v.B, sA = tune.A * v.A;
-                float rR = Rcp(sR), rG = Rcp(sG), rB = Rcp(sB), rA = Rcp(1.0f);
-                float aR = 0f, aG = 0f, aB = 0f, aA = 0f, wR = 0f, wG = 0f, wB = 0f, wA = 0f;
+                var c = S[y * w + x]; var sg = T * Vs[y * w + x];
+                var r = IntelApprox.Reciprocal(sg.WithElement(3, 1.0f));
+                var a = z; var ws = z;
                 for (int dy = -3; dy <= 3; dy++)
                 {
-                    int yy = y + dy;
+                    int yy = y + dy; bool rowIn = yy >= 0 && yy < h;
                     for (int k = 0; k < 7; k++)
                     {
-                        int xx = x + k - 3; Vec4F n = (yy >= 0 && yy < h && xx >= 0 && xx < w) ? src[yy * w + xx] : default;
-                        float dR = Abs(n.R - c.R), dG = Abs(n.G - c.G), dB = Abs(n.B - c.B);
-                        float d = Max(Max(dR, dB), Max(dG, dB));   // pshufd 0x4a/maxps/movshdup/maxss: max(max(x,z), max(y,z))
-                        kR[k] = Max(1.0f - Max(d - sR, 0f) * rR, Eps6); kG[k] = Max(1.0f - Max(d - sG, 0f) * rG, Eps6); kB[k] = Max(1.0f - Max(d - sB, 0f) * rB, Eps6); kA[k] = Max(1.0f - Max(d - sA, 0f) * rA, Eps6);
-                        nR[k] = n.R; nG[k] = n.G; nB[k] = n.B; nA[k] = n.A;
+                        int xx = x + k - 3; var nb = rowIn && xx >= 0 && xx < w ? S[yy * w + xx] : z;
+                        var ad = AbsV(nb - c);
+                        var d = MaxV(MaxV(Bc(ad, 0x00), Bc(ad, 0xAA)), MaxV(Bc(ad, 0x55), Bc(ad, 0xAA)));   // max(max(x,z), max(y,z))
+                        kk[k] = TapWeight(d, sg, r); n[k] = nb;
                     }
-                    // taps k: 0 = −3 … 6 = +3
-                    aR = nR[6] * kR[6] + ((nR[5] * kR[5] + (nR[4] * kR[4] + nR[3] * kR[3])) + ((nR[2] * kR[2] + nR[1] * kR[1]) + (nR[0] * kR[0] + aR)));
-                    aG = nG[6] * kG[6] + ((nG[5] * kG[5] + (nG[4] * kG[4] + nG[3] * kG[3])) + ((nG[2] * kG[2] + nG[1] * kG[1]) + (nG[0] * kG[0] + aG)));
-                    aB = nB[6] * kB[6] + ((nB[5] * kB[5] + (nB[4] * kB[4] + nB[3] * kB[3])) + ((nB[2] * kB[2] + nB[1] * kB[1]) + (nB[0] * kB[0] + aB)));
-                    aA = nA[6] * kA[6] + ((nA[5] * kA[5] + (nA[4] * kA[4] + nA[3] * kA[3])) + ((nA[2] * kA[2] + nA[1] * kA[1]) + (nA[0] * kA[0] + aA)));
-                    wR = kR[6] + ((kR[5] + (kR[4] + kR[3])) + ((kR[2] + kR[1]) + (kR[0] + wR)));
-                    wG = kG[6] + ((kG[5] + (kG[4] + kG[3])) + ((kG[2] + kG[1]) + (kG[0] + wG)));
-                    wB = kB[6] + ((kB[5] + (kB[4] + kB[3])) + ((kB[2] + kB[1]) + (kB[0] + wB)));
-                    wA = kA[6] + ((kA[5] + (kA[4] + kA[3])) + ((kA[2] + kA[1]) + (kA[0] + wA)));
+                    a = n[6] * kk[6] + ((n[5] * kk[5] + (n[4] * kk[4] + n[3] * kk[3])) + ((n[2] * kk[2] + n[1] * kk[1]) + (n[0] * kk[0] + a)));
+                    ws = kk[6] + ((kk[5] + (kk[4] + kk[3])) + ((kk[2] + kk[1]) + (kk[0] + ws)));
                 }
-                o[y * w + x] = new Vec4F(Rcp(wR) * aR, Rcp(wG) * aG, Rcp(wB) * aB, Rcp(wA) * aA);
+                O[y * w + x] = IntelApprox.Reciprocal(ws) * a;
             }
         return o;
     }
@@ -284,75 +288,62 @@ public static class HybridDenoise
     /// <summary>`ImageDenoiseBilateralGeneric&lt;5,0&gt;`: neighbours outside the image are (0,0,0,0); per tap w = max(1 − max(d − σ, 0)·rcp(σ), 1e-6) with d = max over R,G,B of |n − c|.</summary>
     static Vec4F[] Bilateral5(Vec4F[] src, Vec4F[] vst, int w, int h, Vec4F tune)
     {
-        var o = new Vec4F[w * h];
-        Span<float> nR = stackalloc float[5], nG = stackalloc float[5], nB = stackalloc float[5], nA = stackalloc float[5], kR = stackalloc float[5], kG = stackalloc float[5], kB = stackalloc float[5], kA = stackalloc float[5];
+        var o = new Vec4F[w * h]; var S = AsV(src); var Vs = AsV(vst); var O = AsVW(o); var T = V(tune); var z = Vector128<float>.Zero;
+        Span<Vector128<float>> n = stackalloc Vector128<float>[5]; Span<Vector128<float>> kk = stackalloc Vector128<float>[5];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
             {
-                var c = src[y * w + x]; var v = vst[y * w + x];
-                float sR = tune.R * v.R, sG = tune.G * v.G, sB = tune.B * v.B, sA = tune.A * v.A;
-                float rR = Rcp(sR), rG = Rcp(sG), rB = Rcp(sB), rA = Rcp(1.0f);
-                float aR = 0f, aG = 0f, aB = 0f, aA = 0f, wR = 0f, wG = 0f, wB = 0f, wA = 0f;
+                var c = S[y * w + x]; var sg = T * Vs[y * w + x];
+                var r = IntelApprox.Reciprocal(sg.WithElement(3, 1.0f));
+                var a = z; var ws = z;
                 for (int dy = -2; dy <= 2; dy++)
                 {
-                    int yy = y + dy;
+                    int yy = y + dy; bool rowIn = yy >= 0 && yy < h;
                     for (int k = 0; k < 5; k++)
                     {
-                        int xx = x + k - 2; Vec4F n = (yy >= 0 && yy < h && xx >= 0 && xx < w) ? src[yy * w + xx] : default;
-                        float dR = Abs(n.R - c.R), dG = Abs(n.G - c.G), dB = Abs(n.B - c.B);
-                        float d = Max(Max(dR, dG), dB);
-                        kR[k] = Max(1.0f - Max(d - sR, 0f) * rR, Eps6); kG[k] = Max(1.0f - Max(d - sG, 0f) * rG, Eps6); kB[k] = Max(1.0f - Max(d - sB, 0f) * rB, Eps6); kA[k] = Max(1.0f - Max(d - sA, 0f) * rA, Eps6);
-                        nR[k] = n.R; nG[k] = n.G; nB[k] = n.B; nA[k] = n.A;
+                        int xx = x + k - 2; var nb = rowIn && xx >= 0 && xx < w ? S[yy * w + xx] : z;
+                        var ad = AbsV(nb - c);
+                        var d = MaxV(MaxV(Bc(ad, 0x00), Bc(ad, 0x55)), Bc(ad, 0xAA));   // max(max(dR, dG), dB)
+                        kk[k] = TapWeight(d, sg, r); n[k] = nb;
                     }
-                    aR = (nR[4] * kR[4] + nR[3] * kR[3]) + ((nR[2] * kR[2] + nR[1] * kR[1]) + (nR[0] * kR[0] + aR));
-                    aG = (nG[4] * kG[4] + nG[3] * kG[3]) + ((nG[2] * kG[2] + nG[1] * kG[1]) + (nG[0] * kG[0] + aG));
-                    aB = (nB[4] * kB[4] + nB[3] * kB[3]) + ((nB[2] * kB[2] + nB[1] * kB[1]) + (nB[0] * kB[0] + aB));
-                    aA = (nA[4] * kA[4] + nA[3] * kA[3]) + ((nA[2] * kA[2] + nA[1] * kA[1]) + (nA[0] * kA[0] + aA));
-                    wR = (kR[4] + kR[3]) + ((kR[2] + kR[1]) + (kR[0] + wR)); wG = (kG[4] + kG[3]) + ((kG[2] + kG[1]) + (kG[0] + wG));
-                    wB = (kB[4] + kB[3]) + ((kB[2] + kB[1]) + (kB[0] + wB)); wA = (kA[4] + kA[3]) + ((kA[2] + kA[1]) + (kA[0] + wA));
+                    a = (n[4] * kk[4] + n[3] * kk[3]) + ((n[2] * kk[2] + n[1] * kk[1]) + (n[0] * kk[0] + a));
+                    ws = (kk[4] + kk[3]) + ((kk[2] + kk[1]) + (kk[0] + ws));
                 }
-                o[y * w + x] = new Vec4F(Rcp(wR) * aR, Rcp(wG) * aG, Rcp(wB) * aB, Rcp(wA) * aA);
+                O[y * w + x] = IntelApprox.Reciprocal(ws) * a;
             }
         return o;
     }
 
-    /// <summary>`ImageDenoiseBilateralGeneric&lt;3,0&gt;::lambda_1` (1803b5030, inner loop 1803b59c0–1803b5a8a, transcribed from the
-    /// disassembly): same per-tap weight as the other sizes; the 3 taps of a row are fully unrolled inside a 3-iteration row
+    /// <summary>`ImageDenoiseBilateralGeneric&lt;3,0&gt;` tile lambda: same per-tap weight as the other sizes; the 3 taps of a
+    /// row are fully unrolled inside a 3-iteration row
     /// loop (dy = −1…+1), tile grown by 1 → zero neighbours outside the image; out = rcpps(wsum)·acc.
-    /// Row tree (`addps xmm7,xmm3` / `addps xmm3,xmm0` / `addps xmm3,xmm7`): `acc = (P₊₁ + P₀) + (P₋₁ + acc)`, `wsum` likewise —
+    /// Row tree: `acc = (P₊₁ + P₀) + (P₋₁ + acc)`, `wsum` likewise —
     /// the same shape as the 5-tap tree with the outer pair dropped, so nothing is unusual here (unlike `&lt;9,0&gt;`).
     /// Unreachable from `IsoTuning` (no row carries `bilateral window` 3) but present in the dispatcher, so it is ported too.</summary>
     static Vec4F[] Bilateral3(Vec4F[] src, Vec4F[] vst, int w, int h, Vec4F tune)
     {
-        var o = new Vec4F[w * h];
-        Span<float> nR = stackalloc float[3], nG = stackalloc float[3], nB = stackalloc float[3], nA = stackalloc float[3], kR = stackalloc float[3], kG = stackalloc float[3], kB = stackalloc float[3], kA = stackalloc float[3];
+        var o = new Vec4F[w * h]; var S = AsV(src); var Vs = AsV(vst); var O = AsVW(o); var T = V(tune); var z = Vector128<float>.Zero;
+        Span<Vector128<float>> n = stackalloc Vector128<float>[3]; Span<Vector128<float>> kk = stackalloc Vector128<float>[3];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
             {
-                var c = src[y * w + x]; var v = vst[y * w + x];
-                float sR = tune.R * v.R, sG = tune.G * v.G, sB = tune.B * v.B, sA = tune.A * v.A;
-                float rR = Rcp(sR), rG = Rcp(sG), rB = Rcp(sB), rA = Rcp(1.0f);
-                float aR = 0f, aG = 0f, aB = 0f, aA = 0f, wR = 0f, wG = 0f, wB = 0f, wA = 0f;
+                var c = S[y * w + x]; var sg = T * Vs[y * w + x];
+                var r = IntelApprox.Reciprocal(sg.WithElement(3, 1.0f));
+                var a = z; var ws = z;
                 for (int dy = -1; dy <= 1; dy++)
                 {
-                    int yy = y + dy;
+                    int yy = y + dy; bool rowIn = yy >= 0 && yy < h;
                     for (int k = 0; k < 3; k++)
                     {
-                        int xx = x + k - 1; Vec4F n = (yy >= 0 && yy < h && xx >= 0 && xx < w) ? src[yy * w + xx] : default;
-                        float dR = Abs(n.R - c.R), dG = Abs(n.G - c.G), dB = Abs(n.B - c.B);
-                        float d = Max(Max(dB, dR), Max(dB, dG));   // pshufd 0x4a → (z,z,x,y); maxps dst,abs; movshdup; maxss
-                        kR[k] = Max(1.0f - Max(d - sR, 0f) * rR, Eps6); kG[k] = Max(1.0f - Max(d - sG, 0f) * rG, Eps6); kB[k] = Max(1.0f - Max(d - sB, 0f) * rB, Eps6); kA[k] = Max(1.0f - Max(d - sA, 0f) * rA, Eps6);
-                        nR[k] = n.R; nG[k] = n.G; nB[k] = n.B; nA[k] = n.A;
+                        int xx = x + k - 1; var nb = rowIn && xx >= 0 && xx < w ? S[yy * w + xx] : z;
+                        var ad = AbsV(nb - c);
+                        var d = MaxV(MaxV(Bc(ad, 0xAA), Bc(ad, 0x00)), MaxV(Bc(ad, 0xAA), Bc(ad, 0x55)));   // max(max(dB, dR), max(dB, dG))
+                        kk[k] = TapWeight(d, sg, r); n[k] = nb;
                     }
-                    // taps k: 0 = −1, 1 = 0, 2 = +1
-                    aR = (nR[2] * kR[2] + nR[1] * kR[1]) + (nR[0] * kR[0] + aR);
-                    aG = (nG[2] * kG[2] + nG[1] * kG[1]) + (nG[0] * kG[0] + aG);
-                    aB = (nB[2] * kB[2] + nB[1] * kB[1]) + (nB[0] * kB[0] + aB);
-                    aA = (nA[2] * kA[2] + nA[1] * kA[1]) + (nA[0] * kA[0] + aA);
-                    wR = (kR[2] + kR[1]) + (kR[0] + wR); wG = (kG[2] + kG[1]) + (kG[0] + wG);
-                    wB = (kB[2] + kB[1]) + (kB[0] + wB); wA = (kA[2] + kA[1]) + (kA[0] + wA);
+                    a = (n[2] * kk[2] + n[1] * kk[1]) + (n[0] * kk[0] + a);
+                    ws = (kk[2] + kk[1]) + (kk[0] + ws);
                 }
-                o[y * w + x] = new Vec4F(Rcp(wR) * aR, Rcp(wG) * aG, Rcp(wB) * aB, Rcp(wA) * aA);
+                O[y * w + x] = IntelApprox.Reciprocal(ws) * a;
             }
         return o;
     }
@@ -362,51 +353,28 @@ public static class HybridDenoise
     /// the last column of an odd width uses the x-even formula; small-image taps clamped (row/column cache replication).</summary>
     static Vec4F[] UpscaleAdd(Vec4F[] a, Vec4F[] b, int sw, int sh, Vec4F[] c, int w, int h)
     {
-        var s = new Vec4F[sw * sh]; for (int i = 0; i < s.Length; i++) s[i] = new Vec4F(a[i].R - b[i].R, a[i].G - b[i].G, a[i].B - b[i].B, a[i].A - b[i].A);
-        var o = new Vec4F[w * h];
-        Vec4F S(int m, int j) => s[Math.Clamp(m, 0, sh - 1) * sw + Math.Clamp(j, 0, sw - 1)];
-        static float L4(float p, float q, float r, float t) => ((p + q) + r) + t;
+        var s = new Vec4F[sw * sh]; var A = AsV(a); var B = AsV(b); var Sv = AsVW(s); for (int i = 0; i < s.Length; i++) Sv[i] = A[i] - B[i];
+        var o = new Vec4F[w * h]; var O = AsVW(o); var C = AsV(c); var SS = AsV(s);
+        var u64 = Vector128.Create(U64); var u08 = Vector128.Create(U08); var u01 = Vector128.Create(U01); var u05 = Vector128.Create(U05); var u40 = Vector128.Create(U40); var u25 = Vector128.Create(U25);
         for (int y = 0; y < h; y++)
         {
             int m = y >> 1; bool odd = (y & 1) != 0;
+            int rm1 = Math.Clamp(m - 1, 0, sh - 1) * sw, rm = Math.Clamp(m, 0, sh - 1) * sw, rp1 = Math.Clamp(m + 1, 0, sh - 1) * sw;
             for (int x = 0; x < w; x += 2)
             {
-                int j = x >> 1;
-                Vec4F sm1jp = S(m - 1, j + 1), sm1jm = S(m - 1, j - 1), sp1jm = S(m + 1, j - 1), sp1jp = S(m + 1, j + 1), sp1j = S(m + 1, j), sm1j = S(m - 1, j), smjm = S(m, j - 1), smjp = S(m, j + 1), smj = S(m, j);
-                Vec4F cc = c[y * w + x];
+                int j = x >> 1, jm = Math.Clamp(j - 1, 0, sw - 1), j0 = Math.Clamp(j, 0, sw - 1), jp = Math.Clamp(j + 1, 0, sw - 1);
+                var sm1jp = SS[rm1 + jp]; var sm1jm = SS[rm1 + jm]; var sp1jm = SS[rp1 + jm]; var sp1jp = SS[rp1 + jp]; var sp1j = SS[rp1 + j0]; var sm1j = SS[rm1 + j0];
+                var smjm = SS[rm + jm]; var smjp = SS[rm + jp]; var smj = SS[rm + j0];
+                var cc = C[y * w + x];
                 if (!odd)
                 {
-                    o[y * w + x] = new Vec4F(
-                        ((smj.R * U64) + (L4(sp1j.R, sm1j.R, smjm.R, smjp.R) * U08 + L4(sm1jp.R, sm1jm.R, sp1jm.R, sp1jp.R) * U01)) + cc.R,
-                        ((smj.G * U64) + (L4(sp1j.G, sm1j.G, smjm.G, smjp.G) * U08 + L4(sm1jp.G, sm1jm.G, sp1jm.G, sp1jp.G) * U01)) + cc.G,
-                        ((smj.B * U64) + (L4(sp1j.B, sm1j.B, smjm.B, smjp.B) * U08 + L4(sm1jp.B, sm1jm.B, sp1jm.B, sp1jp.B) * U01)) + cc.B,
-                        ((smj.A * U64) + (L4(sp1j.A, sm1j.A, smjm.A, smjp.A) * U08 + L4(sm1jp.A, sm1jm.A, sp1jm.A, sp1jp.A) * U01)) + cc.A);
-                    if (x + 1 < w)
-                    {
-                        Vec4F c1 = c[y * w + x + 1];
-                        o[y * w + x + 1] = new Vec4F(
-                            (L4(sm1jp.R, sm1j.R, sp1j.R, sp1jp.R) * U05 + c1.R) + (smjp.R + smj.R) * U40,
-                            (L4(sm1jp.G, sm1j.G, sp1j.G, sp1jp.G) * U05 + c1.G) + (smjp.G + smj.G) * U40,
-                            (L4(sm1jp.B, sm1j.B, sp1j.B, sp1jp.B) * U05 + c1.B) + (smjp.B + smj.B) * U40,
-                            (L4(sm1jp.A, sm1j.A, sp1j.A, sp1jp.A) * U05 + c1.A) + (smjp.A + smj.A) * U40);
-                    }
+                    O[y * w + x] = ((smj * u64) + (((sp1j + sm1j) + smjm + smjp) * u08 + ((sm1jp + sm1jm) + sp1jm + sp1jp) * u01)) + cc;
+                    if (x + 1 < w) O[y * w + x + 1] = (((sm1jp + sm1j) + sp1j + sp1jp) * u05 + C[y * w + x + 1]) + (smjp + smj) * u40;
                 }
                 else
                 {   // odd row: small rows m, m+1
-                    o[y * w + x] = new Vec4F(
-                        (L4(smjp.R, smjm.R, sp1jm.R, sp1jp.R) * U05 + cc.R) + (sp1j.R + smj.R) * U40,
-                        (L4(smjp.G, smjm.G, sp1jm.G, sp1jp.G) * U05 + cc.G) + (sp1j.G + smj.G) * U40,
-                        (L4(smjp.B, smjm.B, sp1jm.B, sp1jp.B) * U05 + cc.B) + (sp1j.B + smj.B) * U40,
-                        (L4(smjp.A, smjm.A, sp1jm.A, sp1jp.A) * U05 + cc.A) + (sp1j.A + smj.A) * U40);
-                    if (x + 1 < w)
-                    {
-                        Vec4F c1 = c[y * w + x + 1];
-                        o[y * w + x + 1] = new Vec4F(
-                            L4(smjp.R, smj.R, sp1j.R, sp1jp.R) * U25 + c1.R,
-                            L4(smjp.G, smj.G, sp1j.G, sp1jp.G) * U25 + c1.G,
-                            L4(smjp.B, smj.B, sp1j.B, sp1jp.B) * U25 + c1.B,
-                            L4(smjp.A, smj.A, sp1j.A, sp1jp.A) * U25 + c1.A);
-                    }
+                    O[y * w + x] = (((smjp + smjm) + sp1jm + sp1jp) * u05 + cc) + (sp1j + smj) * u40;
+                    if (x + 1 < w) O[y * w + x + 1] = ((smjp + smj) + sp1j + sp1jp) * u25 + C[y * w + x + 1];
                 }
             }
         }
@@ -430,12 +398,15 @@ public static class HybridDenoise
     {
         var tab = _jitter.GetOrAdd(step, Jitter);
         var outp = new Vec4F[w * h]; var wsum = new Vec4F[w * h];
-        for (int i = 0; i < src.Length; i++) { outp[i] = new Vec4F(src[i].R * C001, src[i].G * C001, src[i].B * C001, src[i].A * C001); wsum[i] = new Vec4F(C001, C001, C001, C001); }
-        float k16R = hn.R * 16.0f, k16G = hn.G * 16.0f, k16B = hn.B * 16.0f, k16A = hn.A * 16.0f;   // h16 = hn·16 (DAT_180687650), T = vst(q)·h16 per lane
-        var h16 = new Vec4F[w * h]; for (int i = 0; i < vst.Length; i++) h16[i] = new Vec4F(vst[i].R * k16R, vst[i].G * k16G, vst[i].B * k16B, vst[i].A * k16A);
+        var S = AsV(src); var Vs = AsV(vst); var O = AsVW(outp); var WS = AsVW(wsum);
+        var c001 = Vector128.Create(C001);
+        for (int i = 0; i < src.Length; i++) { O[i] = S[i] * c001; WS[i] = c001; }
+        var k16 = Vector128.Create(hn.R * 16.0f, hn.G * 16.0f, hn.B * 16.0f, hn.A * 16.0f);   // h16 = hn·16, T = vst(q)·h16 per lane
+        var h16 = new Vec4F[w * h]; var H16 = AsVW(h16); for (int i = 0; i < vst.Length; i++) H16[i] = Vs[i] * k16;
         var region = new RectI(2, 2, w - 1, h - 1);
         var tiles = Tiler.Rects(region, 128, 128).ToList();
-        var acc = new Vec4F[16]; var refp = new Vec4F[16]; Span<Vec4F> A = stackalloc Vec4F[16]; Span<Vec4F> cand = stackalloc Vec4F[16];
+        Span<Vector128<float>> acc = stackalloc Vector128<float>[16]; Span<Vector128<float>> refp = stackalloc Vector128<float>[16];
+        var z = Vector128<float>.Zero; var one = Vector128.Create(1.0f);
         for (int pass = 0; pass < 4; pass++)
             foreach (var tile in tiles)
             {
@@ -449,30 +420,45 @@ public static class HybridDenoise
                     {
                         int bx = tab[2 * idx], by = tab[2 * idx + 1]; idx = idx + 1 == 12553u ? 0u : idx + 1;
                         int qx = Math.Min(x0 + bx, xe - 1), qy = Math.Min(y0 + by, ye - 1);
-                        for (int r = 0; r < 4; r++) for (int c = 0; c < 4; c++) refp[r * 4 + c] = src[(qy - 2 + r) * w + (qx - 2 + c)];
-                        var T = h16[qy * w + qx]; float rTR = Rcp(T.R), rTG = Rcp(T.G), rTB = Rcp(T.B), rTA = Rcp(T.A);
+                        for (int r = 0; r < 4; r++) for (int c = 0; c < 4; c++) refp[r * 4 + c] = S[(qy - 2 + r) * w + (qx - 2 + c)];
+                        var T = H16[qy * w + qx]; var rT = IntelApprox.Reciprocal(T);
                         int sx0 = Math.Max(qx - (W >> 1), 2); int sx1 = Math.Min(sx0 + W, w - 1); int sy0 = Math.Max(qy - (W >> 1), 2); int sy1 = Math.Min(sy0 + W, h - 1);
-                        Array.Clear(acc); float waR = 0f, waG = 0f, waB = 0f, waA = 0f;
+                        acc.Clear(); var wa = z;
+                        ref Vector128<float> sb = ref System.Runtime.InteropServices.MemoryMarshal.GetReference(S);
+                        ref Vector128<float> ab = ref System.Runtime.InteropServices.MemoryMarshal.GetReference(acc);
+                        ref Vector128<float> rb = ref System.Runtime.InteropServices.MemoryMarshal.GetReference(refp);
                         for (int cy = sy1 - W; cy < sy1; cy++)
                             for (int cx = (sx1 - W) + (cy & 1); cx < sx1; cx += 2)
                             {
-                                Vec4F P, Q;
-                                for (int r = 0; r < 4; r++) for (int c = 0; c < 4; c++) { var cv = src[(cy - 2 + r) * w + (cx - 2 + c)]; cand[r * 4 + c] = cv; var rf = refp[r * 4 + c]; A[r * 4 + c] = new Vec4F(Abs(cv.R - rf.R), Abs(cv.G - rf.G), Abs(cv.B - rf.B), Abs(cv.A - rf.A)); }
-                                P = Add(Add(A[3], A[2]), Add(A[1], A[0])); P = Add(A[7], P); P = Add(A[9], P); P = Add(A[11], P); P = Add(A[13], P); P = Add(A[15], P);
-                                Q = Add(A[5], A[4]); Q = Add(A[6], Q); Q = Add(A[8], Q); Q = Add(A[10], Q); Q = Add(A[12], Q); Q = Add(A[14], Q);
-                                var D = Add(P, Q); float d = Max(Max(D.R, D.G), D.B);
-                                float wvR = Max(1.0f - Max(d - T.R, 0f) * rTR, 0f), wvG = Max(1.0f - Max(d - T.G, 0f) * rTG, 0f), wvB = Max(1.0f - Max(d - T.B, 0f) * rTB, 0f), wvA = Max(1.0f - Max(d - T.A, 0f) * rTA, 0f);
-                                for (int k = 0; k < 16; k++) { var cv = cand[k]; acc[k] = new Vec4F(acc[k].R + cv.R * wvR, acc[k].G + cv.G * wvG, acc[k].B + cv.B * wvB, acc[k].A + cv.A * wvA); }
-                                waR += wvR; waG += wvG; waB += wvB; waA += wvA;
+                                // |cand − ref| per pixel of the 4×4 patch; P = ((A3 + A2) + (A1 + A0)), then + A7, A9, A11, A13, A15; Q = A5 + A4, then + A6 … A14
+                                ref Vector128<float> p0 = ref Unsafe.Add(ref sb, (cy - 2) * w + (cx - 2)); ref Vector128<float> p1 = ref Unsafe.Add(ref p0, w);
+                                ref Vector128<float> p2 = ref Unsafe.Add(ref p1, w); ref Vector128<float> p3 = ref Unsafe.Add(ref p2, w);
+                                var a0 = AbsV(p0 - rb); var a1 = AbsV(Unsafe.Add(ref p0, 1) - Unsafe.Add(ref rb, 1)); var a2 = AbsV(Unsafe.Add(ref p0, 2) - Unsafe.Add(ref rb, 2)); var a3 = AbsV(Unsafe.Add(ref p0, 3) - Unsafe.Add(ref rb, 3));
+                                var a4 = AbsV(p1 - Unsafe.Add(ref rb, 4)); var a5 = AbsV(Unsafe.Add(ref p1, 1) - Unsafe.Add(ref rb, 5)); var a6 = AbsV(Unsafe.Add(ref p1, 2) - Unsafe.Add(ref rb, 6)); var a7 = AbsV(Unsafe.Add(ref p1, 3) - Unsafe.Add(ref rb, 7));
+                                var a8 = AbsV(p2 - Unsafe.Add(ref rb, 8)); var a9 = AbsV(Unsafe.Add(ref p2, 1) - Unsafe.Add(ref rb, 9)); var a10 = AbsV(Unsafe.Add(ref p2, 2) - Unsafe.Add(ref rb, 10)); var a11 = AbsV(Unsafe.Add(ref p2, 3) - Unsafe.Add(ref rb, 11));
+                                var a12 = AbsV(p3 - Unsafe.Add(ref rb, 12)); var a13 = AbsV(Unsafe.Add(ref p3, 1) - Unsafe.Add(ref rb, 13)); var a14 = AbsV(Unsafe.Add(ref p3, 2) - Unsafe.Add(ref rb, 14)); var a15 = AbsV(Unsafe.Add(ref p3, 3) - Unsafe.Add(ref rb, 15));
+                                var P = (a3 + a2) + (a1 + a0); P = a7 + P; P = a9 + P; P = a11 + P; P = a13 + P; P = a15 + P;
+                                var Q = a5 + a4; Q = a6 + Q; Q = a8 + Q; Q = a10 + Q; Q = a12 + Q; Q = a14 + Q;
+                                var D = P + Q;
+                                var d = MaxV(MaxV(Bc(D, 0x00), Bc(D, 0x55)), Bc(D, 0xAA));   // max(max(D.R, D.G), D.B)
+                                var wv = MaxV(one - MaxV(d - T, z) * rT, z);
+                                for (int k = 0; k < 4; k++)
+                                {
+                                    Unsafe.Add(ref ab, k) = Unsafe.Add(ref ab, k) + Unsafe.Add(ref p0, k) * wv;
+                                    Unsafe.Add(ref ab, 4 + k) = Unsafe.Add(ref ab, 4 + k) + Unsafe.Add(ref p1, k) * wv;
+                                    Unsafe.Add(ref ab, 8 + k) = Unsafe.Add(ref ab, 8 + k) + Unsafe.Add(ref p2, k) * wv;
+                                    Unsafe.Add(ref ab, 12 + k) = Unsafe.Add(ref ab, 12 + k) + Unsafe.Add(ref p3, k) * wv;
+                                }
+                                wa = wa + wv;
                             }
                         for (int r = 0; r < 4; r++) for (int c = 0; c < 4; c++)
                             {
-                                int i = (qy - 2 + r) * w + (qx - 2 + c); var o = outp[i]; var ac = acc[r * 4 + c]; var ws = wsum[i];
-                                outp[i] = new Vec4F(o.R + ac.R, o.G + ac.G, o.B + ac.B, o.A + ac.A); wsum[i] = new Vec4F(ws.R + waR, ws.G + waG, ws.B + waB, ws.A + waA);
+                                int i = (qy - 2 + r) * w + (qx - 2 + c);
+                                O[i] = O[i] + acc[r * 4 + c]; WS[i] = WS[i] + wa;
                             }
                     }
             }
-        for (int i = 0; i < outp.Length; i++) { var o = outp[i]; var ws = wsum[i]; outp[i] = new Vec4F(Rcp(ws.R) * o.R, Rcp(ws.G) * o.G, Rcp(ws.B) * o.B, src[i].A); }
+        for (int i = 0; i < outp.Length; i++) O[i] = (IntelApprox.Reciprocal(WS[i]) * O[i]).WithElement(3, src[i].A);
         return outp;
     }
 }

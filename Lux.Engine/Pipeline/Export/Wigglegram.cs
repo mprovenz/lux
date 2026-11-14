@@ -13,8 +13,8 @@ namespace Lux.Engine.Pipeline.Export;
 /// Three things decide whether it looks like depth or like a broken GIF, and all three are settled here:
 ///
 /// * <b>Which modules.</b> The A group only. B and C aim at different parts of the scene to be stitched, not the
-///   same framing from offset positions. Within A, the <b>monochrome module is excluded</b> — on the corpus that is
-///   A2 (`sensor_bayer_red_override = (-1,-1)`), and leaving it in makes every fourth frame greyscale.
+///   same framing from offset positions. Within A, the <b>monochrome module is excluded</b> (on the L16 this is
+///   A2, `sensor_bayer_red_override = (-1,-1)`); leaving it in makes every fourth frame greyscale.
 /// * <b>What order.</b> By projecting the modules' factory camera positions onto their own dominant axis, so the
 ///   animation sweeps once across the rig rather than backtracking. See <see cref="SweepOrder"/>.
 /// * <b>Colour.</b> The modules disagree about white balance by 30–43 levels of 255; untouched, the result strobes
@@ -62,10 +62,9 @@ public static class Wigglegram
     /// centre is `−(Rᵀ·t)`. Those centres are projected onto their own dominant axis (the principal component)
     /// and sorted along it.
     ///
-    /// Label order is wrong and visibly so: on the corpus A1→A3→A4→A5 backtracks, giving three small steps and one
-    /// hard snap. The dominant axis for the four colour A modules comes out ~12° off horizontal, and the resulting
-    /// order matches, in reverse, what an independent measurement of foreground parallax across 120 captures
-    /// produced — reversal being immaterial to a ping-pong loop.
+    /// Label order is wrong and visibly so: A1→A3→A4→A5 backtracks, giving three small steps and one
+    /// hard snap. The dominant axis for the four colour A modules comes out ~12° off horizontal. The order can come out
+    /// reversed, which is immaterial to a ping-pong loop.
     /// </summary>
     public static IReadOnlyList<string> SweepOrder(LriFile lri, IReadOnlyList<string> names)
     {
@@ -107,8 +106,8 @@ public static class Wigglegram
     /// <summary>
     /// Pull every frame's per-channel mean and standard deviation onto the group average.
     ///
-    /// Matching to the group average rather than to a chosen reference avoids privileging one module's cast. On the
-    /// corpus this takes a 30–43 level per-channel spread down to under 1, which is the difference between a
+    /// Matching to the group average rather than to a chosen reference avoids privileging one module's cast. This
+    /// typically takes a 30–43 level per-channel spread down to under 1, which is the difference between a
     /// wigglegram that reads as depth and one that reads as a colour-strobing fault. Frames are corrected one at a
     /// time so the whole set is never held in float at once.
     /// </summary>

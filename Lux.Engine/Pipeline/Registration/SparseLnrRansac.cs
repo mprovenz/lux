@@ -1,20 +1,20 @@
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// The RANSAC gate of `lt::SparseLNR` (`FUN_1802e5390`), `markInliers` (`FUN_1802e4640` + lambda_0 1802ec530: 4-point
+/// The RANSAC gate of `lt::SparseLNR`, `markInliers` (4-point
 /// homography RANSAC over the good matches of one view with `std::mt19937(13)` shuffled pools), the per-view homography
-/// update (`FUN_180300450` / `FUN_180300790`) and the finalize step (`FUN_1802e9c50`).
+/// update and the finalize step.
 /// </summary>
 public static class SparseLnrRansac
 {
-    /// <summary>Accumulated (feature-normalised, match-normalised) pairs per level for a view (`View+0x30/+0x48`).</summary>
+    /// <summary>Accumulated (feature-normalised, match-normalised) pairs per level for a view.</summary>
     public sealed class ViewPoints
     {
         public List<(float X, float Y)>[] Src, Dst;
         public ViewPoints(int nLevels) { Src = new List<(float, float)>[nLevels]; Dst = new List<(float, float)>[nLevels]; for (int i = 0; i < nLevels; i++) { Src[i] = new(); Dst[i] = new(); } }
     }
 
-    /// <summary>`FUN_1802e5390(this, feats, matches, thrA, thrB, minInl, allowDisable)`.</summary>
+    /// <summary>The RANSAC gate (feats, matches, thrA, thrB, minInl, allowDisable).</summary>
     public static void Gate(MatchedPoint[] m, MatchView viewA, MatchView viewB, FeaturePoint[] feats, float thrA, float thrB, int minInl, bool allowDisable = true)
     {
         int nA = 0, nB = 0;
@@ -25,7 +25,7 @@ public static class SparseLnrRansac
         int iterA = Iter(nA), iterB = Iter(nB);
         if (nA + nB <= 3)
         {
-            viewA.Enabled = false; viewB.Enabled = true;   // 1802e55fd–: A disabled, B enabled (not both disabled)
+            viewA.Enabled = false; viewB.Enabled = true;   // A disabled, B enabled (not both disabled)
             for (int i = 0; i < m.Length; i++) if (m[i].Status >= 3) { m[i].Status = 5; m[i].Octave = 2; }
             return;
         }
@@ -77,7 +77,7 @@ public static class SparseLnrRansac
         if (inl < 5) foreach (int i in cand) if (m[i].Status == 4) m[i].Status = 5;
     }
 
-    /// <summary>`FUN_180300450(view, level, feats, matches, refine)`: collect the RANSAC inliers of this view, re-estimate H from
+    /// <summary>Collect the RANSAC inliers of this view, re-estimate H from
     /// the pairs of this level and the next coarser one, reject large changes when refining, disable the view if the homography is not valid.</summary>
     public static void UpdateView(MatchView view, ViewPoints pts, int level, FeaturePoint[] feats, MatchedPoint[] m, bool refine)
     {
@@ -85,7 +85,7 @@ public static class SparseLnrRansac
         for (int i = 0; i < m.Length; i++)
             if (m[i].Octave == view.Id && m[i].Status == 5) { var f = feats[m[i].RefIdx]; pts.Src[level].Add((f.Nx, f.Ny)); pts.Dst[level].Add((m[i].NmX, m[i].NmY)); }
         var src = new List<(float X, float Y)>(); var dst = new List<(float X, float Y)>();
-        // verified against the live view updates: the estimate uses this level's pairs followed by the next coarser level's
+        // the estimate uses this level's pairs followed by the next coarser level's
         for (int l = level; l < Math.Min(level + 2, pts.Src.Length); l++) { src.AddRange(pts.Src[l]); dst.AddRange(pts.Dst[l]); }
         float[] Hn;
         if (src.Count == 4) Hn = Homography.FromFourPairs(src.ToArray(), dst.ToArray());
@@ -96,7 +96,7 @@ public static class SparseLnrRansac
         if (!Homography.IsValid(view.H)) view.Enabled = false;
     }
 
-    /// <summary>`FUN_1802e9c50`: full-resolution matched positions for every reference point of levels 0..2 (RANSAC inliers only).</summary>
+    /// <summary>Full-resolution matched positions for every reference point of levels 0..2 (RANSAC inliers only).</summary>
     public static (float X, float Y)[] Finalize(MatchedPoint[][] perLevel, int nRefPts)
     {
         var outp = new (float X, float Y)[nRefPts];
