@@ -32,7 +32,8 @@ public sealed class TileImage
 /// What the viewer wants now: the tiles of <see cref="Level"/> covering <see cref="ImageRect"/> (level-0 picture pixels) for
 /// <see cref="Channel"/>, of which <see cref="Needed"/> are the ones it does not hold at the current version (the coarsest level's tiles
 /// among them when it lacks those). <see cref="ScreenPixels"/> is the device-pixel size the rectangle covers; <see cref="Interactive"/> is
-/// set while the user pans or zooms. The newest request (highest <see cref="RequestId"/>) wins.
+/// set while the user pans or zooms. The newest request (highest <see cref="RequestId"/>) wins. A source may keep one request at a time
+/// and cancel an older one of any channel, so the viewer asks for one channel at a time.
 /// </summary>
 public sealed record TileRequest(int Channel, int Level, Rect ImageRect, IReadOnlyList<TileKey> Needed, long RequestId)
 {

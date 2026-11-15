@@ -273,7 +273,9 @@ public interface IPhotoView
     /// drop every held tile and request again.</summary>
     event EventHandler<PictureGeometry>? GeometryChanged;
 
-    /// <summary>Ask for the tiles of a viewport. Returns the request number (tiles carry it). Older requests are cancelled between tiles.</summary>
+    /// <summary>Ask for the tiles of a viewport. Returns the request number (tiles carry it). Older requests are cancelled between tiles,
+    /// whatever their mode: a request for the depth view cancels one for the photo, and the reverse. Two viewers of one photo view (the photo
+    /// and its depth map) must take turns.</summary>
     long RequestViewport(ViewportRequest request);
     /// <summary>A tile is ready (library thread).</summary>
     event EventHandler<PictureTile>? TileReady;

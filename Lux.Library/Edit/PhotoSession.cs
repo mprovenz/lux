@@ -107,13 +107,14 @@ internal sealed class PhotoSessionImpl : IPhotoSession
 
     internal bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
-    /// <summary>A job changed what the capture keeps: the engine reads its cache again and the viewer renders the last
-    /// request again for the finest level the photo may now show.</summary>
+    /// <summary>A job changed what the capture keeps: the engine reads its cache again, the viewer renders the last
+    /// request again for the finest level the photo may now show, and a photo without depth reads a depth the capture now keeps.</summary>
     internal void OnCacheChanged()
     {
         if (IsDisposed) return;
         Engine.RefreshCache();
         ViewImpl.OnCacheChanged();
+        DepthImpl.OnCacheChanged();
     }
 
     public void Dispose()

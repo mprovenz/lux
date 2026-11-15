@@ -70,6 +70,7 @@ dotnet vpk "$DIRECTIVE" pack --packId Lux --packTitle Lux --packAuthors "Lux con
   --packVersion "$VERSION" --packDir "$WORK/app" --mainExe "lux-app$EXE" --icon "$ICON" \
   --runtime "$RID" --channel "$CHANNEL" --outputDir "$WORK/feed" "${EXTRA[@]}"
 rm -f "$WORK/feed"/*-Portable.zip        # the plain archive above is the portable build
+rm -f "$WORK/feed"/assets.*.json        # only the packer's own upload command reads these lists
 cp "$WORK/feed"/* "$OUT/"
 
 echo "== done: $OUT"

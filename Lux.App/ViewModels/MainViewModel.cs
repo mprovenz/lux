@@ -46,6 +46,7 @@ public sealed partial class MainViewModel : ObservableObject, IShell, IAsyncDisp
         Library.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName is nameof(LibraryViewModel.SelectedCount)) RaiseStatus();
+            if (e.PropertyName is nameof(LibraryViewModel.IsAnimateOpen)) OnPropertyChanged(nameof(ShowLibraryTools));
         };
         _events.CapturesChanged += (_, _) => ScheduleStats();
         _events.FoldersChanged += () => { ScheduleStats(); _ = Settings?.RefreshFoldersAsync(); };
@@ -113,8 +114,10 @@ public sealed partial class MainViewModel : ObservableObject, IShell, IAsyncDisp
 
     [ObservableProperty] Page _currentPage = Page.Library;
 
-    partial void OnCurrentPageChanged(Page value)
+    partial void OnCurrentPageChanged(Page oldValue, Page value)
     {
+        // a Develop tool belongs to its page: leaving the page ends it, so its option bar is not there on return
+        if (oldValue == Page.Develop && value != Page.Develop) Develop.EndTool();
         OnPropertyChanged(nameof(IsLibrary)); OnPropertyChanged(nameof(IsDevelop)); OnPropertyChanged(nameof(IsQueue));
         OnPropertyChanged(nameof(IsCamera)); OnPropertyChanged(nameof(IsSettings)); OnPropertyChanged(nameof(ShowLibraryTools));
         OnPropertyChanged(nameof(ShowEmpty)); OnPropertyChanged(nameof(ShowLibraryPage));
@@ -133,7 +136,8 @@ public sealed partial class MainViewModel : ObservableObject, IShell, IAsyncDisp
     public bool IsQueue => CurrentPage == Page.Queue;
     public bool IsCamera => CurrentPage == Page.Camera;
     public bool IsSettings => CurrentPage == Page.Settings;
-    public bool ShowLibraryTools => IsLibrary && !IsFirstRun;
+    /// <summary>The header's filter and view switch: on the Library page, but not while the Animate panel's preview covers the grid.</summary>
+    public bool ShowLibraryTools => IsLibrary && !IsFirstRun && !Library.IsAnimateOpen;
     public bool ShowEmpty => IsLibrary && IsFirstRun;
     public bool ShowLibraryPage => IsLibrary && !IsFirstRun;
     public string QueueTabLabel => Queue.TabLabel;

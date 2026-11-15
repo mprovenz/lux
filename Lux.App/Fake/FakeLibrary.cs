@@ -328,6 +328,7 @@ public sealed class FakeLibrary : ILibrary
     {
         long g; lock (_gate) g = _generation;
         var e = new CapturesChangedEventArgs { Added = added ?? Array.Empty<string>(), Changed = changed ?? Array.Empty<string>(), Removed = removed ?? Array.Empty<string>(), Generation = g };
+        if (_o.CaptureEventDelayMs > 0) { _ = Task.Delay(_o.CaptureEventDelayMs).ContinueWith(_ => _pump.Post(() => CapturesChanged?.Invoke(this, e)), TaskScheduler.Default); return; }
         _pump.Post(() => CapturesChanged?.Invoke(this, e));
     }
 

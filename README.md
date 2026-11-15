@@ -1,7 +1,7 @@
 # Lux
 Lux is an image processing utility for the Light L16 camera. It is independently built to be a cross-platform replacement for the original Lumen software. Its goal is to offer byte-exact processing to the original Lumen software while also adding new features and improvements.
 
-Currently, only the Lux 'light' CLI exists. This is meant to be a lightweight GUI replacement. Eventually, a full GUI will be developed.
+Lux has two programs. **Lux** is the desktop app: a photo library, an editor with Lumen's depth tools, exports and camera import. **`lux-light`** is the command line tool for conversion and batch work. Both use the same engine and give the same output.
 
 ## Requirements
 - [.NET 10](https://dotnet.microsoft.com/download/dotnet/10.0): The SDK to build from source. The precompiled releases bundle
@@ -9,6 +9,41 @@ Currently, only the Lux 'light' CLI exists. This is meant to be a lightweight GU
 - [ffmpeg](https://ffmpeg.org/download.html) on PATH only for AVIF animations, `--parallax-encoder ffmpeg` and MP4 / WebM video (`animate --anim-container mp4|webm`).
   - GIF, APNG and (lossless) WebP animations are written by Lux itself. The CLI exits before rendering anything if ffmpeg is needed and cannot be found.
 - libgphoto2 on Linux only if MTP connection to the camera is desired
+
+## Desktop app
+The app runs on Linux x64 and Windows x64. Get it from the [Releases page](https://github.com/mprovenz/lux/releases); see [Build & run](#build--run) for the downloads.
+
+- **Library:** add folders of captures, browse them as a grid, a timeline or a list, filter, rate, and group them in albums.
+- **Develop:** tone and colour, crop and rotation, the depth effect (aperture and focus), and Lumen's depth-editing tools (refine edge, blend area, match depth, quick select). A photo and its depth map can be shown side by side, and a before / after view compares the edit with the original.
+- **Quality per photo:** choose how much rendered detail Lux keeps for each photo (preview, 13 MP or full detail). Lux always keeps the depth map at full precision.
+- **Export:** DNG, JPG, HDR and depth formats, and animations (rack focus, aperture sweep, wigglegram, parallax, lens tour) with a preview.
+- **Lumen sessions:** import the depth edits and settings that Lumen saved for a photo.
+- **Camera:** list the photos on a connected L16 and import them (Linux only for now).
+- **Queue and settings:** all background work is listed in one place; thread counts, memory and the number of jobs at once are adjustable.
+
+The library, with captures grouped by folder and day:
+
+[![The Lux library](Samples/app/app-library.jpg)](Samples/app/app-library.jpg)
+
+One capture selected: its details, the quality choice and the actions for it.
+
+[![A selected capture in the library](Samples/app/app-library-selection.jpg)](Samples/app/app-library-selection.jpg)
+
+The Develop page:
+
+[![The Develop page](Samples/app/app-develop.jpg)](Samples/app/app-develop.jpg)
+
+A photo while Lux makes its depth map and a 13 MP copy. Progress shows over the picture and in the Queue.
+
+[![A photo being processed](Samples/app/app-develop-processing.jpg)](Samples/app/app-develop-processing.jpg)
+
+The focus tool. The shaded area is outside the focal region.
+
+[![The focus tool](Samples/app/app-focus-tool.jpg)](Samples/app/app-focus-tool.jpg)
+
+A photo beside its depth map:
+
+[![A photo and its depth map](Samples/app/app-photo-and-depth.jpg)](Samples/app/app-photo-and-depth.jpg)
 
 ## Features
 - .DNG and .JPG outputs 1:1 with Lumen
@@ -32,6 +67,8 @@ Currently, only the Lux 'light' CLI exists. This is meant to be a lightweight GU
   JPEG+GDepth, plus the Lux formats that share the same render: the stereo depth pair, `lens-frames` and the
   experimental `parallax-*` animations and stills), `inspect`, `profile`, `isp`, `isp-run`, `mod-info`, `devices`,
   `pull`, `version`, `edits-info`, `import-lumen-edits`, `cache`.
+- **Lux.Library** — the photo library that the app uses: folders, albums, ratings, the job queue, edit sessions and camera import.
+- **Lux.App** — the desktop app (Avalonia).
 - **Lux.Store** — what Lux keeps per capture on disk (the `LuxImageContext` folder): the depth-edit database and the
   analysis cache. It carries the SQLite dependency (`Microsoft.Data.Sqlite`), so the engine itself has none.
 
@@ -69,7 +106,7 @@ with one thread per CPU by default, so on a batch pass `-j` with a count that ke
 - DNG and JPG are byte-exact to Lumen (excluding the dense-stereo race condition and assuming processed in Lumen with no pre-existing .lris). 
 - Performance needs some work, exports take 2-4 minutes to process all formats
 - The tool is heavily tested on Linux and checked on Windows; macOS and ARM builds are not published for now (untested)
-- Automated builds are not up yet, coming soon
+- The desktop app is new in 2.0. Camera import in the app works on Linux only for now.
 
 ## Sample Images
 All samples are one capture, `L16_00049`, written by `lux-light convert` and checked in under

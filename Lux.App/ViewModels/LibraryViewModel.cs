@@ -75,6 +75,10 @@ public sealed partial class LibraryViewModel : ObservableObject
         events.AlbumsChanged += () => _ = RefreshTreeAsync();
         queue.ActiveCapturesChanged += ids =>
         {
+            // The library reports the capture's new state a moment after its job ends. The captures whose job ended are read again at once,
+            // so that no view shows a change under way after the job, or the quality kept before it.
+            var ended = ids.Where(id => queue.ActiveJobOf(id) == null && _byId.ContainsKey(id)).ToList();
+            if (ended.Count > 0) OnCapturesChanged(ended, false);
             foreach (var id in ids) if (_byId.TryGetValue(id, out var vm)) vm.JobStateChanged();
             if (Details.Current is { } cur && ids.Contains(cur.Id)) Details.JobProgress();
         };
@@ -91,6 +95,8 @@ public sealed partial class LibraryViewModel : ObservableObject
     public CellMetrics CardMetrics { get; } = new();
     public IReadOnlyList<CaptureItemViewModel> Items => _items;
     public IReadOnlyCollection<string> SelectedIds => _selected;
+    /// <summary>Whether the capture is in the current result (its item follows the library's changes).</summary>
+    public bool Shows(string id) => _byId.ContainsKey(id);
     public QueueViewModel Queue => _queue;
     internal AppServices Services => _s;
 
@@ -655,6 +661,10 @@ public sealed partial class LibraryViewModel : ObservableObject
     public bool IsEmptyResult => TotalCount == 0 && !IsLoading;
 
     public bool HasSelection => SelectedCount > 0;
+    /// <summary>The selection bar: there is a selection and the grid is on screen (the Animate panel's preview covers the grid).</summary>
+    public bool ShowSelectionBar => HasSelection && !IsAnimateOpen;
+    /// <summary>The bars over the grid (title, sort, size and the filter chips): hidden while the Animate panel's preview covers the grid.</summary>
+    public bool ShowBrowseBars => !IsAnimateOpen;
     public string SelectionTitle => $"{Text.Number(SelectedCount)} selected";
     public string ExportLabel => SelectedCount > 1 ? $"Export {Text.Number(SelectedCount)}…" : "Export…";
     public int CursorIndex => _cursor;
@@ -663,7 +673,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     void SelectionChanged()
     {
         SelectedCount = _selected.Count;
-        OnPropertyChanged(nameof(CountsText)); OnPropertyChanged(nameof(HasSelection)); OnPropertyChanged(nameof(SelectionTitle));
+        OnPropertyChanged(nameof(CountsText)); OnPropertyChanged(nameof(HasSelection)); OnPropertyChanged(nameof(ShowSelectionBar)); OnPropertyChanged(nameof(SelectionTitle));
         OnPropertyChanged(nameof(ExportLabel)); OnPropertyChanged(nameof(CursorItem));
         OnPropertyChanged(nameof(CanCopyAdjustments)); OnPropertyChanged(nameof(CanPasteAdjustments)); OnPropertyChanged(nameof(PasteLabel));
         Details.Refresh();
@@ -1017,6 +1027,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     {
         oldValue?.Dispose();
         OnPropertyChanged(nameof(IsAnimateOpen)); OnPropertyChanged(nameof(IsSidePanelOpen));
+        OnPropertyChanged(nameof(ShowSelectionBar)); OnPropertyChanged(nameof(ShowBrowseBars));
     }
 
     [RelayCommand]

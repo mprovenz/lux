@@ -8,14 +8,14 @@
   <!-- The quality chosen for a capture, with one-click changes: exactly one option is
        selected — the choice (the quality being made while a change runs). The copy still kept on disk during a change carries a small tick;
        what is on screen and what is kept / being made are said in words in the caption. The same control in the details panel and, compact
-       (no caption: the viewer bar says it), under the picture. -->
+       (no caption and no label: the viewer bar shows the label beside it, CompactLabel; the status bar says what is on screen), under the
+       picture. -->
   <StackPanel Spacing="6">
     <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding !$parent[v:QualitySelector].Compact}">
       <TextBlock Classes="secondary" Text="Quality" VerticalAlignment="Center" />
     </Grid>
-    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
-      <TextBlock Classes="secondary small" Text="Quality" VerticalAlignment="Center" IsVisible="{Binding $parent[v:QualitySelector].Compact}" />
-      <Border Grid.Column="1" BorderBrush="{DynamicResource LuxLineMid}" BorderThickness="1" CornerRadius="2">
+    <Grid>
+      <Border BorderBrush="{DynamicResource LuxLineMid}" BorderThickness="1" CornerRadius="2">
         <UniformGrid Columns="3" AutomationProperties.Name="Quality">
           <Button Classes="seg" Classes.small="{Binding $parent[v:QualitySelector].Compact}" Classes.selected="{Binding IsPreview}" x:Name="PreviewOption"
                   HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Command="{Binding ChooseCommand}" CommandParameter="{x:Static lib:ViewQuality.Preview}"

@@ -64,7 +64,7 @@ public sealed class FakeDepthSession : IDepthSession, IDisposable
     {
         _s = s; _svc = svc; _tiles = tiles; _t = timings;
         (_index, _orientation) = svc.Library.SceneOf(s.Item.Id);
-        _view = new FakeLayerSource(tiles, (st, t) => st is LayerState l ? FakeLayerSource.PaintDepth(l.Depth, l.Map, l.Near, l.Far, t) : null, timings, "depth");
+        _view = new FakeLayerSource(tiles, (st, t) => st is LayerState l ? FakeLayerSource.PaintDepth(l.Depth, l.Map, l.Near, l.Far, t) : null, timings, "depth", sharesRequest: true);
         _shade = new FakeLayerSource(tiles, (st, t) => st is LayerState l ? FakeLayerSource.PaintShade(l.Depth, l.Map, l.Near, l.Far, t) : null, timings, "shade");
         _mask = new FakeLayerSource(tiles, (st, t) => st is MaskState m ? FakeLayerSource.PaintMask(m.Mask, m.Map, t) : null, timings, "mask");
         if (IsAnalysed) EnsureMap();

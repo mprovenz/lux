@@ -13,7 +13,8 @@ namespace Lux.Library.Animation;
 /// <summary>
 /// <see cref="IAnimationSource"/>: one capture opened for animated effects. The renders use the photo's open editing session when it is open
 /// (the Develop page: same state, same depth, same edits), else a session of its own. Preview frames are export level 4 (520 × 390 on a
-/// 4:3 capture; the lens effects 520 px wide from a quicker lens render), made in an order that covers the animation early (first, last,
+/// 4:3 capture; the lens effects 520 px wide from a quicker lens render), then, for the depth effects and the parallax, sharper frames from
+/// export level 3 that replace them (see <see cref="SharpSpec"/>). Frames are made in an order that covers the animation early (first, last,
 /// middle, quarters, …) and kept per set of frame-defining values for as long as the source is open. A depth effect on a photo that has
 /// not been analysed asks the Queue for the analysis (so it shows there) and continues when it is done.
 /// </summary>
@@ -198,11 +199,15 @@ internal sealed class AnimationSourceImpl : IAnimationSource
         ? o.ToSpec(level: null, longEdge: 520, lensIspLevel: 2)
         : o.ToSpec(level: 4, longEdge: 0) with { SingleView = true };
 
-    /// <summary>The sharper pass of a depth-effect preview: the frames at the size the file will have, from export level 3 at most (a level-3
-    /// frame is ~4× the work of a level-4 one; finer levels would take seconds a frame); null when the quick frames already are that size.</summary>
-    internal static AnimationSpec? SharpSpec(AnimationOptions o) => o.Effect is AnimationEffect.RackFocus or AnimationEffect.ApertureSweep && o.LongEdge > 600
-        ? o.ToSpec(level: 3, longEdge: o.LongEdge) with { SingleView = true }
-        : null;
+    /// <summary>The sharper pass of a preview: the frames at the size the file will have, from export level 3 at most, which replace the quick
+    /// level-4 ones; null when the quick frames already have the file's detail, and for the lens effects. A level-3 depth-effect frame is ~4×
+    /// the work of a level-4 one (finer levels would take seconds a frame). The parallax renders level 3 once for all its frames, then takes a
+    /// fraction of a second a frame; like the quick frames, it is made from the main view (the other lenses' pictures would add seconds). The
+    /// lens effects are not sharpened: their pictures at the file's resolution take seconds each.</summary>
+    internal static AnimationSpec? SharpSpec(AnimationOptions o) =>
+        o.Effect is AnimationEffect.RackFocus or AnimationEffect.ApertureSweep or AnimationEffect.ParallaxSweep && o.LongEdge > 600
+            ? o.ToSpec(level: 3, longEdge: o.LongEdge) with { SingleView = true }
+            : null;
 
     internal static string SharpKey(AnimationOptions o) => $"{FrameKey(o)}|{o.LongEdge}";
 
@@ -316,8 +321,8 @@ internal sealed class AnimationSourceImpl : IAnimationSource
 }
 
 /// <summary>Preview frames of one set of frame-defining values, kept while the source is open: the quick ones (export level 4, every frame
-/// first) and, for the depth effects, sharper ones at the size the file will have (up to export level 3) that replace them as they come
-/// (the level-4 frames drawn enlarged make the depth effect hard to see).</summary>
+/// first) and, for the depth effects and the parallax, sharper ones from export level 3 that replace them as they come (the level-4 frames
+/// drawn enlarged look soft).</summary>
 internal sealed class FrameStore
 {
     readonly ConcurrentDictionary<int, PreviewFrame> _frames = new();
@@ -350,6 +355,7 @@ internal sealed class PreviewImpl : IAnimationPreview
     volatile string _status = "Starting";
     volatile string? _error;
     volatile bool _complete;
+    volatile bool _sharpening;
 
     public AnimationOptions Options { get; }
     internal FrameStore Store { get; }
@@ -365,6 +371,7 @@ internal sealed class PreviewImpl : IAnimationPreview
     public double Progress => _plan is { } p && p.Frames.Count > 0 ? Math.Min(1.0, Enumerable.Range(0, p.Frames.Count).Count(i => Store.Get(i) is not null) / (double)p.Frames.Count) : 0;
     public string Status => _status;
     public bool IsComplete => _complete;
+    public bool IsSharpening => _sharpening;
     public string? Error => _error;
     /// <summary>The plan's notes, then what the frames show: why nothing (or little) changes on this photo with these settings.</summary>
     public IReadOnlyList<string> Notes => _notes;
@@ -498,9 +505,10 @@ internal sealed class PreviewImpl : IAnimationPreview
                 _status = $"{order.Count} frames ready ({sw.Elapsed.TotalSeconds:0.0} s)";
                 _complete = true;
                 Raise();
-                // the sharper pass (depth effects): the same frames at the size the file will have, replacing the quick ones as they come
+                // the sharper pass (depth effects, parallax): the same frames from export level 3, replacing the quick ones as they come
                 if (AnimationSourceImpl.SharpSpec(Options) is { } sharp0)
                 {
+                    _sharpening = true;
                     var sharp = _src.Oriented(sharp0, Options);
                     string key = AnimationSourceImpl.SharpKey(Options);
                     _status = $"{order.Count} frames ready · sharpening {order.Count(i => Store.HasSharp(i, key))} of {order.Count}"; Raise();
@@ -519,12 +527,13 @@ internal sealed class PreviewImpl : IAnimationPreview
                             sharpDone++;
                             Raise();
                         }
-                        _status = $"{order.Count} frames ready ({sw.Elapsed.TotalSeconds:0.0} s)";
-                        Raise();
                     }
+                    _sharpening = false;
+                    _status = $"{order.Count} frames ready ({sw.Elapsed.TotalSeconds:0.0} s)";
+                    Raise();
                 }
             }
-            finally { _src.RenderGate.Release(); }
+            finally { _sharpening = false; _src.RenderGate.Release(); }
         }
         catch (OperationCanceledException) { _status = "Stopped"; }
         catch (Exception e) when (e is LibraryException or ExportRequestException or InvalidOperationException or IOException)

@@ -113,7 +113,7 @@
     <!-- ================================================================ centre: crop bar, picture, viewer bar, filmstrip -->
     <DockPanel Grid.Column="1">
       <!-- crop tool options (S-Depth's tool option bar) -->
-      <Border DockPanel.Dock="Top" Classes="toolbar2" IsVisible="{Binding IsCropping}">
+      <Border DockPanel.Dock="Top" Classes="toolbar2" IsVisible="{Binding IsCropping}" AutomationProperties.Name="Crop options">
         <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="12">
           <TextBlock Classes="strong" Text="Crop" VerticalAlignment="Center" />
           <Border Grid.Column="1" BorderBrush="{DynamicResource LuxLineLight}" BorderThickness="1" CornerRadius="2" VerticalAlignment="Center">
@@ -289,7 +289,10 @@
             <Button Classes="ghost small star" Padding="3,0" Content="★" Command="{Binding RateCommand}" CommandParameter="4" Classes.on="{Binding Rating, Converter={x:Static v:DevelopView.StarOn}, ConverterParameter=4}" />
             <Button Classes="ghost small star" Padding="3,0" Content="★" Command="{Binding RateCommand}" CommandParameter="5" Classes.on="{Binding Rating, Converter={x:Static v:DevelopView.StarOn}, ConverterParameter=5}" />
           </StackPanel>
-          <!-- the quality selector (shared with the details panel): one choice selected, the kept copy's tick only during a change -->
+          <!-- the quality selector (shared with the details panel): one choice selected, the kept copy's tick only during a change. Its label
+               ("Quality", or what is being made while a change runs) takes the free room beside it and is cut short when the bar is narrow. -->
+          <TextBlock Grid.Column="5" x:Name="CompactLabelText" Classes="secondary small" Text="{Binding Quality.CompactLabel}" ToolTip.Tip="{Binding Quality.CompactTip}"
+                     HorizontalAlignment="Right" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
           <v:QualitySelector Grid.Column="6" Compact="True" DataContext="{Binding Quality}" VerticalAlignment="Center" x:Name="ViewerQuality" />
         </Grid>
       </Border>

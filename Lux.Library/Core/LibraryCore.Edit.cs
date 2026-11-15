@@ -64,8 +64,9 @@ internal sealed partial class LibraryCore
     internal void UnregisterAnimation(Lux.Library.Animation.AnimationSourceImpl a) { lock (_sessionsLock) _animSources.Remove(a); }
 
     /// <summary>A job changed what the capture keeps (its analysis, a quality made or released): its open photos and animation sources use
-    /// the cache as it is now, and the open photos' viewers render again for the finest level they may now show (an
-    /// upgrade made while the photo was open was not read by the open photo, which kept generating full detail itself).</summary>
+    /// the cache as it is now, the open photos' viewers render again for the finest level they may now show (an
+    /// upgrade made while the photo was open was not read by the open photo, which kept generating full detail itself), and an open photo
+    /// without depth reads a depth the capture now keeps.</summary>
     internal void OnCacheChanged(string captureId)
     {
         List<PhotoSessionImpl> photos; List<Lux.Library.Animation.AnimationSourceImpl> anims;

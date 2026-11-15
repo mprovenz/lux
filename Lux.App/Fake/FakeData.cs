@@ -26,6 +26,9 @@ public sealed record FakeLibraryOptions
     public string? SettingsFile { get; init; }
     /// <summary>Fixed "now" so screenshots are stable.</summary>
     public DateTime NowUtc { get; init; } = new(2026, 10, 12, 17, 5, 0, DateTimeKind.Utc);
+    /// <summary>Capture changes are reported this many ms after they happen, as the library reports them in batches a moment later
+    /// (0 = at once). The job queue's own events are not late.</summary>
+    public int CaptureEventDelayMs { get; init; }
 }
 
 /// <summary>The synthetic capture set: names, times, lenses, ratings, cache levels and edits in realistic proportions.</summary>

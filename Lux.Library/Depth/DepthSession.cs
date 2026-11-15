@@ -238,6 +238,17 @@ internal sealed partial class DepthSession : IPhotoDepth, IDepthEdit, IPhotoHist
     internal bool DepthViewReady => _snap is not null;
     internal void EnsureDepthInBackground() { }
 
+    /// <summary>A job changed what the capture keeps (call after the engine reads its cache again). When the photo has no depth yet and the
+    /// capture now keeps one, the photo reads it in the background, as at open: the status goes to ready, and the depth effect, the tools and
+    /// the depth view work. A depth that the photo holds stays when the kept copy is released: the photo keeps it in memory until it closes.</summary>
+    internal void OnCacheChanged()
+    {
+        if (_stopped || _snap is not null) return;
+        if (Status.Availability is not (DepthAvailability.NotAnalysed or DepthAvailability.Failed)) return;
+        if (_s.Engine.CacheLevel < CacheLevel.Geometry) return;
+        StartAttach(analyse: false);
+    }
+
     // ================================================================================================================ attaching a version
 
     /// <summary>Build the editor for the photo's active version (worker): the version's pinned depth (or the computed one for the clean version)

@@ -44,14 +44,22 @@ internal sealed class FakeLayerSource : ITileSource, IDisposable
     long _version = 1, _floor = 1;
     object? _state;
 
-    public FakeLayerSource(FakeTileSource baseSource, Func<object?, LayerTile, byte[]?> paint, FakeTimings timings, string name)
+    /// <param name="sharesRequest">The layer shares the picture's one request (the depth view, as in the library) when the picture keeps one
+    /// request at a time: a request of either cancels the work of the other.</param>
+    public FakeLayerSource(FakeTileSource baseSource, Func<object?, LayerTile, byte[]?> paint, FakeTimings timings, string name, bool sharesRequest = false)
     {
         _base = baseSource;
         _paint = paint;
         _t = timings;
         Name = name;
-        _base.Changed += () => { lock (_gate) { foreach (var f in _inflight.Values) f.Cts.Cancel(); _inflight.Clear(); } Changed?.Invoke(); };
+        _shares = sharesRequest && baseSource.KeepsOneRequest;
+        _base.Changed += () => { CancelAll(); Changed?.Invoke(); };
+        if (_shares) _base.SharedRequest += CancelAll;
     }
+
+    readonly bool _shares;
+
+    void CancelAll() { lock (_gate) { foreach (var f in _inflight.Values) f.Cts.Cancel(); _inflight.Clear(); } }
 
     public string Name { get; }
     public int LevelCount => _base.LevelCount;
@@ -81,6 +89,7 @@ internal sealed class FakeLayerSource : ITileSource, IDisposable
 
     public void Request(TileRequest request)
     {
+        if (_shares) _base.CancelForSharedRequest();
         var start = new List<(TileKey Key, long Version, long Geometry, object? State, CancellationTokenSource Cts)>();
         lock (_gate)
         {

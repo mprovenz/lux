@@ -174,8 +174,9 @@ public interface IAnimationSource : IDisposable
     Task<(float Near, float Far, float DefaultFocus)> FocusDefaultsAsync(CancellationToken cancel = default);
     /// <summary>The all-in-focus f-number (the aperture sweep's start).</summary>
     float AllInFocusFNumber { get; }
-    /// <summary>A progressive preview of <paramref name="options"/> at a small size (export level 4): frames are made in an order that covers
-    /// the whole animation early, and kept for this source — asking again for the same frames returns them at once. A new preview of other
+    /// <summary>A progressive preview of <paramref name="options"/> at a small size (export level 4), then for the depth effects and the
+    /// parallax sharper frames from export level 3 that replace the quick ones (<see cref="IAnimationPreview.IsSharpening"/>): frames are made
+    /// in an order that covers the whole animation early, and kept for this source — asking again for the same frames returns them at once. A new preview of other
     /// options does not stop an earlier one's frames being kept; the earlier one stops rendering.</summary>
     IAnimationPreview Preview(AnimationOptions options);
     /// <summary>The file size and time of the export, from the preview's frames when it has them (encoded in the chosen format and scaled),
@@ -202,6 +203,8 @@ public interface IAnimationPreview : IDisposable
     /// <summary>What it is doing ("Computing depth", "Rendering frames 3 of 24").</summary>
     string Status { get; }
     bool IsComplete { get; }
+    /// <summary>Every frame is ready and sharper frames are being made to replace them (frames at the file's size, up to export level 3).</summary>
+    bool IsSharpening => false;
     /// <summary>Why it stopped (plain language); null while fine.</summary>
     string? Error { get; }
     IReadOnlyList<string> Notes { get; }

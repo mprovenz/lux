@@ -25,10 +25,19 @@ public sealed partial class QualitySelectorViewModel : ObservableObject
         set
         {
             if (_item == value) { Refresh(); return; }
+            if (_item != null) _item.PropertyChanged -= OnItemChanged;
             _item = value;
+            if (_item != null) _item.PropertyChanged += OnItemChanged;
             Notice = null;
             Refresh();
         }
+    }
+
+    /// <summary>The selector follows its capture: a new record from the library, or a job that starts, moves or ends. Each page has its own
+    /// selector, and each one shows the same state.</summary>
+    void OnItemChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is null or "" or nameof(CaptureItemViewModel.Quality)) Refresh();
     }
 
     QualityStatus? Status => _item?.Quality;
@@ -36,7 +45,8 @@ public sealed partial class QualitySelectorViewModel : ObservableObject
     public void Refresh()
     {
         foreach (var p in new[] { nameof(IsPreview), nameof(IsStandard), nameof(IsFull), nameof(StandardKept), nameof(FullKept), nameof(Selected),
-                                  nameof(StatusText), nameof(Caption), nameof(IsRunning), nameof(Progress), nameof(CanChange), nameof(HasItem), nameof(IsPending) })
+                                  nameof(StatusText), nameof(Caption), nameof(IsRunning), nameof(Progress), nameof(CanChange), nameof(HasItem), nameof(IsPending),
+                                  nameof(CompactLabel), nameof(CompactTip) })
             OnPropertyChanged(p);
     }
 
@@ -77,6 +87,21 @@ public sealed partial class QualitySelectorViewModel : ObservableObject
             };
         }
     }
+
+    /// <summary>The compact selector's label (it has no caption): "Quality", or while a change runs what is being made ("Full detail is being
+    /// made · 40 %", "Going back to 13 MP · waiting in the Queue"). The tick of the copy kept meanwhile then has its reason beside it.</summary>
+    public string CompactLabel
+    {
+        get
+        {
+            if (Status is not { Target: { } t } st) return "Quality";
+            string what = t > st.Cached ? $"{QualityRules.Name(t)} is being made" : $"Going back to {QualityRules.Name(t)}";
+            return st.IsRunning ? $"{what} · {Text.Percent(st.Progress)}" : $"{what} · waiting in the Queue";
+        }
+    }
+
+    /// <summary>The compact label's tooltip while a change runs: what is kept and what is being made, in full.</summary>
+    public string? CompactTip => IsPending ? StatusText : null;
 
     /// <summary>The viewer's own words for what is on screen ("Showing 13 MP"), set by the page that shows the picture; null = no picture.</summary>
     public string? OnScreen { get => _onScreen; set { if (_onScreen == value) return; _onScreen = value; OnPropertyChanged(nameof(Caption)); } }

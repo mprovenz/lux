@@ -38,6 +38,10 @@ public partial class DevelopView : UserControl
         Viewer.AddOverlay(_crop);
         foreach (var o in new ViewerOverlay[] { _shade, _mask, _pins, _brush, _lasso, _pick, _mirrorOnPhoto, _photoLabel }) Viewer.AddOverlay(o);
         foreach (var o in new ViewerOverlay[] { _mirrorOnDepth, _depthPins, _legend }) DepthViewer.AddOverlay(o);
+        // Photo + depth: both viewers ask the photo's one view for tiles; the depth map asks after the photo has its tiles
+        DepthViewer.AsksAfter = Viewer;
+        // The quality label takes the free room in the viewer bar. When that room holds only a few characters, hide the text.
+        CompactLabelText.SizeChanged += (_, e) => CompactLabelText.Opacity = e.NewSize.Width < 48 ? 0 : 1;
         WireDepth();
         _crop.Changed += () => { if (!_syncingCrop) _vm?.CropFrameDragged(_crop.Rect, _crop.IsDragging); };
         _crop.DragEnded += () => _vm?.CropFrameDragged(_crop.Rect, false);

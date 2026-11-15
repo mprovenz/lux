@@ -497,24 +497,109 @@ public sealed class PhotoViewer : Control, IViewerCommands
         Dispatcher.UIThread.Post(() => { _requestPosted = false; RequestNow(); }, DispatcherPriority.Normal);
     }
 
+    /// <summary>The channel whose request waits for the channels before it (−1 = none).</summary>
+    int _waitingChannel = -1;
+
+    // ---- two viewers of one request stream (Photo + depth: the photo and its depth map come from the same photo view)
+    PhotoViewer? _asksAfter, _asksBefore;
+    bool _waitingForTurn;
+
+    /// <summary>The viewer whose source shares this viewer's request stream and asks first (Photo + depth: the photo before its depth map).
+    /// The source keeps one request at a time, so a request of one viewer cancels the work of the other. This viewer asks only when that
+    /// viewer has every tile it needs; the arrival that completes that viewer lets this one ask. A viewer with nothing to ask sends no request
+    /// while the other one still needs tiles. Null (the default): the viewer asks on its own.</summary>
+    public PhotoViewer? AsksAfter
+    {
+        get => _asksAfter;
+        set
+        {
+            if (_asksAfter == value) return;
+            if (_asksAfter != null) _asksAfter._asksBefore = null;
+            _asksAfter = value;
+            if (value != null) value._asksBefore = this;
+        }
+    }
+
+    /// <summary>Whether a viewer takes part in the turns now: it is shown and has a picture.</summary>
+    static bool TakesTurns(PhotoViewer? v) => v != null && v.IsVisible && v._source != null && v._pyramid != null && v.Transform() != null;
+
+    /// <summary>Whether a channel this viewer asks for lacks a tile it needs now.</summary>
+    bool NeedsTiles()
+    {
+        if (_source == null || _pyramid == null || Transform() is not { } t) return false;
+        foreach (var (channel, clip, _) in ChannelsFor(t, new Rect(Viewport), forRequest: true))
+        {
+            if (channel == Lux.App.Viewer.Channels.Before && !_source.HasBefore) continue;
+            if (Needed(t, channel, clip, out _, out _, out _).Count > 0) return true;
+        }
+        return false;
+    }
+
+    /// <summary>This viewer has every tile it needs: the viewer that waits for it asks now.</summary>
+    void LetNextAsk()
+    {
+        if (_asksBefore is { _waitingForTurn: true } next && TakesTurns(next) && !NeedsTiles()) next.ScheduleRequest();
+    }
+
     /// <summary>Ask the source for what the view needs now (normally posted once per UI turn after a change).</summary>
+    /// <remarks>A source can keep one request at a time: a newer request cancels an older one, whatever its channel. So the channels are
+    /// asked in turn, in the order <see cref="ChannelsFor"/> gives them (the edited picture first, unless the toggle shows the original).
+    /// A channel is asked only when the channels before it have every tile they need. The arrival that completes them asks again. Two viewers
+    /// of one stream take turns in the same way (<see cref="AsksAfter"/>).</remarks>
     public void RequestNow()
     {
         if (_source == null || _pyramid == null || Transform() is not { } t) return;
+        // the viewer that asks first still needs tiles: this one waits (its request would cancel that one's work)
+        if (TakesTurns(_asksAfter) && _asksAfter!.NeedsTiles())
+        {
+            _waitingForTurn = true;
+            Array.Clear(_lastSignature);
+            return;
+        }
+        _waitingForTurn = false;
         var bounds = new Rect(Viewport);
+        var asks = new List<(int Channel, List<TileKey> Needed, int Level, long Version, Rect Visible)>();
         foreach (var (channel, clip, _) in ChannelsFor(t, bounds, forRequest: true))
-            RequestChannel(t, channel, clip);
+        {
+            if (channel == Lux.App.Viewer.Channels.Before && !_source.HasBefore) continue;
+            var needed = Needed(t, channel, clip, out int level, out long cur, out var vis);
+            asks.Add((channel, needed, level, cur, vis));
+        }
+        int first = asks.FindIndex(a => a.Needed.Count > 0);
+        if (TakesTurns(_asksBefore) && _asksBefore!.NeedsTiles())
+        {
+            // nothing to ask: no request while the viewer after this one needs tiles (an empty request would cancel its work)
+            if (first < 0) { LetNextAsk(); return; }
+            // this request cancels the work of the viewer after this one: it asks again when this one has its tiles
+            _asksBefore._waitingForTurn = true;
+            Array.Clear(_asksBefore._lastSignature);
+        }
+        _waitingChannel = -1;
+        for (int i = 0; i < asks.Count; i++)
+        {
+            var a = asks[i];
+            // a complete channel before the one asked is not asked: an empty request would cancel the request after it
+            if (first >= 0 && i < first) continue;
+            if (first >= 0 && i > first)
+            {
+                // asked later: when it is asked, its request goes out even if its needs did not change meanwhile
+                _lastSignature[a.Channel] = 0;
+                if (_waitingChannel < 0) _waitingChannel = a.Channel;
+                continue;
+            }
+            Send(t, a.Channel, a.Needed, a.Level, a.Version, a.Visible);
+        }
     }
 
-    void RequestChannel(ViewTransform t, int channel, Rect clip)
+    /// <summary>The tiles a channel needs at the target level of the view (the coarsest level's whole picture among them when it lacks it).</summary>
+    List<TileKey> Needed(ViewTransform t, int channel, Rect clip, out int level, out long cur, out Rect vis)
     {
         var src = _source!;
         var p = _pyramid!;
-        if (channel == Lux.App.Viewer.Channels.Before && !src.HasBefore) return;
-        int level = p.LevelFor(t.PhysicalScale, src.FinestLevel, LevelBias);
-        var vis = ViewerMath.VisibleImageRect(t, clip);
+        level = p.LevelFor(t.PhysicalScale, src.FinestLevel, LevelBias);
+        vis = ViewerMath.VisibleImageRect(t, clip);
         var cache = _caches[channel];
-        long cur = src.Version(channel);
+        cur = src.Version(channel);
         var needed = new List<TileKey>();
         // the coarsest level, whole: the base that is always on screen (and the blurred stand-in)
         foreach (var k in p.TilesIn(p.Coarsest, p.ImageRect))
@@ -522,6 +607,13 @@ public sealed class PhotoViewer : Control, IViewerCommands
         if (level < p.Coarsest)
             foreach (var k in p.TilesIn(level, vis))
                 if (cache.Get(k) is not { } e || e.Version < cur) needed.Add(k);
+        return needed;
+    }
+
+    /// <summary>Ask for a channel's tiles when its needs changed.</summary>
+    void Send(ViewTransform t, int channel, List<TileKey> needed, int level, long cur, Rect vis)
+    {
+        var src = _source!;
         // the same level, the same needs at the same version: nothing new to say
         long sig = Signature(needed, cur, level, src.GeometryVersion);
         if (_lastSignature[channel] == sig) return;
@@ -529,6 +621,18 @@ public sealed class PhotoViewer : Control, IViewerCommands
         Stats.Requests++;
         var screen = new Size(vis.Width * t.PhysicalScale, vis.Height * t.PhysicalScale);
         src.Request(new TileRequest(channel, level, vis, needed, ++_requestId) { ScreenPixels = screen, Interactive = _interactive || _panning });
+    }
+
+    /// <summary>Whether the channels asked before <paramref name="waiting"/> have every tile they need.</summary>
+    bool EarlierChannelsComplete(ViewTransform t, int waiting)
+    {
+        var bounds = new Rect(Viewport);
+        foreach (var (channel, clip, _) in ChannelsFor(t, bounds, forRequest: true))
+        {
+            if (channel == waiting) return true;
+            if (Needed(t, channel, clip, out _, out _, out _).Count > 0) return false;
+        }
+        return true;
     }
 
     static long Signature(List<TileKey> keys, long version, int level, long geometry)
@@ -568,6 +672,10 @@ public sealed class PhotoViewer : Control, IViewerCommands
         if (!any) return;
         if (_hold != null && HasWholeCoarse(Lux.App.Viewer.Channels.After)) _hold = null;
         if (State == ImageState.Processing) BuildBlur();
+        // a channel waits for the channels before it: once they have their tiles, it is asked for
+        if (_waitingChannel >= 0 && _pyramid != null && Transform() is { } vt && EarlierChannelsComplete(vt, _waitingChannel)) ScheduleRequest();
+        // a viewer of the same stream waits for this one: once this one has its tiles, it asks
+        LetNextAsk();
         InvalidateVisual();
     }
 
@@ -638,7 +746,8 @@ public sealed class PhotoViewer : Control, IViewerCommands
 
     // ============================================================================================================ drawing
 
-    /// <summary>The channels to draw (or request) and their clip in view coordinates.</summary>
+    /// <summary>The channels to draw (or request) and their clip in view coordinates, in the order they are asked for: the one on screen
+    /// first (the edited picture in the split, as edits change it), the one kept ready after it.</summary>
     IEnumerable<(int Channel, Rect Clip, bool Draw)> ChannelsFor(ViewTransform t, Rect bounds, bool forRequest)
     {
         var photo = t.DisplayRect.Intersect(bounds);
@@ -648,8 +757,8 @@ public sealed class PhotoViewer : Control, IViewerCommands
             case CompareMode.Split:
             {
                 double x = t.DisplayRect.X + t.DisplayRect.Width * Math.Clamp(SplitPosition, 0, 1);
-                yield return (Lux.App.Viewer.Channels.Before, new Rect(photo.X, photo.Y, Math.Max(0, x - photo.X), photo.Height), true);
                 yield return (Lux.App.Viewer.Channels.After, new Rect(x, photo.Y, Math.Max(0, photo.Right - x), photo.Height), true);
+                yield return (Lux.App.Viewer.Channels.Before, new Rect(photo.X, photo.Y, Math.Max(0, x - photo.X), photo.Height), true);
                 break;
             }
             case CompareMode.ToggleAfter:

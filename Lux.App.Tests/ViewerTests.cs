@@ -440,8 +440,12 @@ public sealed class ViewerTests
         var (win, v) = Host(src);
         v.Compare = CompareMode.Split;
         Pump(win);
-        Assert.Contains(src.Requests, r => r.Channel == Channels.Before);
+        // one channel at a time (a source may keep one request at a time): the edited side first, the before side when it has its tiles
         Assert.Contains(src.Requests, r => r.Channel == Channels.After);
+        Assert.DoesNotContain(src.Requests, r => r.Channel == Channels.Before);
+        Assert.True(src.DeliverNeeded(Colors.Gray, Channels.After) > 0);
+        Pump(win);
+        Assert.Contains(src.Requests, r => r.Channel == Channels.Before);
         win.MouseDown(new Point(500, 300), Avalonia.Input.MouseButton.Left);
         win.MouseMove(new Point(250, 300));
         win.MouseUp(new Point(250, 300), Avalonia.Input.MouseButton.Left);

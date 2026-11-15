@@ -46,9 +46,10 @@
       </DockPanel>
     </Border>
 
-    <!-- ================================================================ toolbar, chips, selection bar, browse view -->
+    <!-- ================================================================ toolbar, chips, selection bar, browse view
+         (the bars act on the grid: they give way while the Animate panel's preview covers it) -->
     <DockPanel Grid.Column="1">
-      <Border Classes="toolbar" DockPanel.Dock="Top">
+      <Border Classes="toolbar" DockPanel.Dock="Top" IsVisible="{Binding ShowBrowseBars}">
         <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto">
           <TextBlock Classes="strong" Text="{Binding ScopeTitle}" VerticalAlignment="Center" MaxWidth="320" />
           <TextBlock Grid.Column="1" Classes="secondary" Text="{Binding CountsText}" VerticalAlignment="Center" Margin="12,0,0,0" />
@@ -70,7 +71,7 @@
                   IsVisible="{Binding ShowSizeSlider}" SmallChange="10" LargeChange="40" AutomationProperties.Name="Thumbnail size" />
         </Grid>
       </Border>
-      <Border Classes="chipbar" DockPanel.Dock="Top">
+      <Border Classes="chipbar" DockPanel.Dock="Top" IsVisible="{Binding ShowBrowseBars}">
         <ItemsControl ItemsSource="{Binding Chips}" AutomationProperties.Name="Quick filters">
           <ItemsControl.ItemsPanel>
             <ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate>
@@ -83,7 +84,7 @@
           </ItemsControl.ItemTemplate>
         </ItemsControl>
       </Border>
-      <Border Classes="selectionbar" DockPanel.Dock="Top" IsVisible="{Binding HasSelection}">
+      <Border Classes="selectionbar" DockPanel.Dock="Top" IsVisible="{Binding ShowSelectionBar}">
         <Grid ColumnDefinitions="Auto,*,Auto">
           <TextBlock Classes="strong" Text="{Binding SelectionTitle}" VerticalAlignment="Center" />
           <WrapPanel Grid.Column="2" Orientation="Horizontal">

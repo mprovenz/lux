@@ -133,6 +133,9 @@ public sealed record DepthViewMapping(float NearMm, float FarMm)
 /// </summary>
 public interface IPhotoDepth
 {
+    /// <summary>The depth now. It follows what the capture keeps: when any job (a quality change, an export, an analysis started elsewhere)
+    /// keeps a depth map while the photo is open, a photo without depth reads it and becomes ready. A depth the photo holds stays until the
+    /// photo closes, also when the kept copy is released.</summary>
     DepthStatus Status { get; }
     event EventHandler<DepthStatus>? StatusChanged;
     /// <summary>Make the depth available: nothing when ready; else the analysis runs (a library job that keeps the result in the photo's cache)

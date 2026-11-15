@@ -44,7 +44,7 @@ public sealed partial class DevelopViewModel : ObservableObject, IAsyncDisposabl
         _queue = queue;
         Quality = new QualitySelectorViewModel(library.QualityChanges);
         Interaction = new InteractionHint(s.Library.Jobs);
-        Depth = new DepthViewModel(shell, () => { if (IsCropping) ApplyCrop(); return Session != null; });
+        Depth = new DepthViewModel(shell, () => { CloseSidePanels(); if (IsCropping) ApplyCrop(); return Session != null; });
         Depth.Changed += () => { RefreshHistory(); SyncTools(); RaiseStatusPointer(); OnPropertyChanged(nameof(ShowDepthCard)); OnPropertyChanged(nameof(ShowDepthNotReady)); };
         Depth.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(DepthViewModel.PointerText)) RaiseStatusPointer(); };
         Tools = new ObservableCollection<ToolViewModel>
@@ -58,7 +58,13 @@ public sealed partial class DevelopViewModel : ObservableObject, IAsyncDisposabl
         };
         s.Develop.PresetsChanged += () => Dispatcher.UIThread.Post(RefreshPresets);
         s.Develop.ClipboardChanged += () => Dispatcher.UIThread.Post(() => { OnPropertyChanged(nameof(CanPaste)); OnPropertyChanged(nameof(ClipboardText)); });
-        queue.ActiveCapturesChanged += ids => { if (Item != null && ids.Contains(Item.Id)) Dispatcher.UIThread.Post(QualityMoved); };
+        queue.ActiveCapturesChanged += ids =>
+        {
+            if (Item is not { } it || !ids.Contains(it.Id)) return;
+            // the library's result reads a capture again when its job ends; an open photo outside that result is read here
+            if (queue.ActiveJobOf(it.Id) == null && !library.Shows(it.Id) && s.Library.Get(it.Id) is { } fresh) it.Update(fresh);
+            Dispatcher.UIThread.Post(QualityMoved);
+        };
         RefreshPresets();
         s.ViewerPrefs.Load(s.Library.Settings);
         // the render progress: re-read once a second while something is coming (notices a picture that stops moving)
@@ -655,6 +661,7 @@ public sealed partial class DevelopViewModel : ObservableObject, IAsyncDisposabl
     void EnterCropCore()
     {
         if (Session is not { } s) return;
+        CloseSidePanels();
         var crop = s.Geometry.Crop;
         Hint(Turn.Identity, NormRect.Full, crop);
         PortraitAspects = AspectPreset.Of(s.Geometry.Aspect).IsPortrait;
@@ -967,11 +974,30 @@ public sealed partial class DevelopViewModel : ObservableObject, IAsyncDisposabl
         OnPropertyChanged(nameof(IsAnimateOpen)); OnPropertyChanged(nameof(IsSidePanelOpen));
     }
 
+    // A tool and a side panel are never open together. The tools edit the picture and the Export and Animate panels take the place of the
+    // editing panel (the Animate preview also covers the picture). Opening a side panel ends the tool. Choosing a tool closes the side panel.
+
+    /// <summary>Ends the active tool and closes its option bar. An open crop is applied, as when a depth tool starts; a depth tool is left.
+    /// The Export and Animate panels call it when they open, and the shell calls it when the page changes.</summary>
+    public void EndTool()
+    {
+        if (IsCropping) ApplyCrop();
+        if (Depth.Tool != PageTool.None) Depth.LeaveToolCommand.Execute(null);
+    }
+
+    /// <summary>Closes the Export or Animate panel before a tool starts.</summary>
+    void CloseSidePanels()
+    {
+        ExportPanel = null;
+        AnimatePanel = null;
+    }
+
     /// <summary>Animate… for the open photo: its edits are saved first so the preview and the job use them.</summary>
     [RelayCommand]
     public void OpenAnimate()
     {
         if (Item is not { } item || Session is not { } s) return;
+        EndTool();
         ExportPanel = null;
         AnimatePanel = new AnimatePanelViewModel(_s, new[] { item }, _queue, () => AnimatePanel = null, _shell.Notify, () => s.SaveNowAsync());
     }
@@ -981,6 +1007,7 @@ public sealed partial class DevelopViewModel : ObservableObject, IAsyncDisposabl
     public void OpenExport()
     {
         if (Item is not { } item || Session is not { } s) return;
+        EndTool();
         AnimatePanel = null;
         ExportPanel = new ExportPanelViewModel(_s, new[] { item }, _queue, () => ExportPanel = null, _shell.Notify, async options =>
         {

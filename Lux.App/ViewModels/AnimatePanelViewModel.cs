@@ -145,6 +145,25 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
     [ObservableProperty] string? _error;
     /// <summary>The preview's notes: why nothing or little changes with these settings on this photo.</summary>
     [ObservableProperty] string? _previewNote;
+    /// <summary>How much detail the preview shows next to the file: said when its frames are smaller than the file's.</summary>
+    [ObservableProperty] string? _previewDetailNote;
+    /// <summary>The size of the file's frames, from the last estimate.</summary>
+    (int W, int H)? _fileSize;
+
+    /// <summary>Say plainly when the frames on screen have less detail than the file will have: while sharper frames replace them, or when
+    /// the preview stays a quick one (the lens effects; a file larger than the sharper frames).</summary>
+    void UpdateDetailNote()
+    {
+        string? text = null;
+        if (Player.Preview is { IsPlanned: true } p && _fileSize is { } file && (p.Frame(0) ?? p.NearestFrame(0)) is { } f)
+        {
+            if (p.IsSharpening)
+                text = $"Sharper frames replace the quick ones as they are made. The file is made at {file.W} × {file.H}.";
+            else if (Math.Max(f.Width, f.Height) * 10 < Math.Max(file.W, file.H) * 9)
+                text = $"The preview's frames are {f.Width} × {f.Height}: they show less detail than the file, which is made at {file.W} × {file.H}.";
+        }
+        if (PreviewDetailNote != text) PreviewDetailNote = text;
+    }
 
     public bool IsRack => Selected.Effect == AnimationEffect.RackFocus;
     public bool IsAperture => Selected.Effect == AnimationEffect.ApertureSweep;
@@ -303,6 +322,7 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
                 Player.Bind(p);
                 p.Changed += OnPreviewChanged;
                 PreviewNote = NotesOf(p);
+                UpdateDetailNote();
             });
             await RefreshEstimateAsync().ConfigureAwait(false);
         });
@@ -316,7 +336,12 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
         if (sender is IAnimationPreview np)
         {
             var text = NotesOf(np);
-            Dispatcher.UIThread.Post(() => { if (!_disposed && ReferenceEquals(Player.Preview, np) && PreviewNote != text) PreviewNote = text; });
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_disposed || !ReferenceEquals(Player.Preview, np)) return;
+                if (PreviewNote != text) PreviewNote = text;
+                UpdateDetailNote();
+            });
         }
         // a finer estimate as frames arrive (every few frames, and at the end)
         if (sender is IAnimationPreview p && (p.IsComplete || Interlocked.Increment(ref _estimateTick) % 6 == 0)) _ = RefreshEstimateAsync();
@@ -336,7 +361,13 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
             int n = _items.Count;
             string text = $"About {Text.Mb(est.Bytes * n)} · {est.Width} × {est.Height} · {est.PlayedFrames} frames"
                         + $" · about {Text.Duration(TimeSpan.FromSeconds(est.Time.TotalSeconds * n))} to make" + (est.Basis == "typical size" ? " (typical size)" : "");
-            await Dispatcher.UIThread.InvokeAsync(() => { if (!cts.IsCancellationRequested) Estimate = text; });
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (cts.IsCancellationRequested) return;
+                Estimate = text;
+                _fileSize = (est.Width, est.Height);
+                UpdateDetailNote();
+            });
         }
         catch (OperationCanceledException) { }
         catch (Exception e) when (e is LibraryException or InvalidOperationException) { await Dispatcher.UIThread.InvokeAsync(() => Estimate = "No estimate: " + e.Message); }

@@ -19,6 +19,9 @@ public sealed record FakeTimings
     /// <summary>Scale of the depth tools' simulated times (refine edge ~1.8 s, blend area ~0.7 s, a quick-select stroke ~0.25 s, the history
     /// rebuild 0.4 s a step, an analysis ~4 s at 1).</summary>
     public double ToolScale { get; init; } = 1;
+    /// <summary>A new request cancels the work of every channel, as the library's view does (it keeps one request at a time). The depth view
+    /// shares that one request with the photo, as in the library.</summary>
+    public bool OneRequestAtATime { get; init; }
     public static readonly FakeTimings Default = new();
     /// <summary>Fast enough for tests, slow enough that the order of arrivals is real.</summary>
     public static readonly FakeTimings Fast = new() { TileDelayMs = new[] { 12, 8, 5, 3, 1 }, Workers = 4, ToolScale = 0.05 };
@@ -184,8 +187,28 @@ public sealed class FakeTileSource : ITileSource, IDisposable
         Changed?.Invoke();
     }
 
+    /// <summary>With <see cref="FakeTimings.OneRequestAtATime"/>: a request of this source arrived (a source that shares its one request
+    /// cancels its own work).</summary>
+    internal event Action? SharedRequest;
+
+    /// <summary>With <see cref="FakeTimings.OneRequestAtATime"/>: a source that shares this one's request got a request, which cancels the
+    /// work of every channel here.</summary>
+    internal void CancelForSharedRequest()
+    {
+        if (!_t.OneRequestAtATime) return;
+        lock (_gate)
+        {
+            foreach (var f in _inflight.Values) { f.Cts.Cancel(); Interlocked.Increment(ref Cancelled); }
+            _inflight.Clear();
+        }
+    }
+
+    /// <summary>Whether this source keeps one request at a time (<see cref="FakeTimings.OneRequestAtATime"/>).</summary>
+    internal bool KeepsOneRequest => _t.OneRequestAtATime;
+
     public void Request(TileRequest request)
     {
+        if (_t.OneRequestAtATime) SharedRequest?.Invoke();
         var start = new List<(TileKey Key, long Version, long Geometry, IReadOnlyDictionary<string, double> Values, CancellationTokenSource Cts, bool Drag)>();
         FakeEffect? effect;
         lock (_gate)
@@ -207,8 +230,8 @@ public sealed class FakeTileSource : ITileSource, IDisposable
             }
             foreach (var (id, f) in _inflight.ToList())
             {
-                if (id.Channel != ch) continue;
-                if (!wanted.Contains(id.Key) || f.Version != version)
+                if (id.Channel != ch && !_t.OneRequestAtATime) continue;
+                if (id.Channel != ch || !wanted.Contains(id.Key) || f.Version != version)
                 {
                     f.Cts.Cancel();
                     _inflight.Remove(id);

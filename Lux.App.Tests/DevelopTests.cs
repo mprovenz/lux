@@ -742,13 +742,17 @@ public sealed class DevelopTests
         Key(h, Avalonia.Input.Key.E);
         Assert.Equal(PageTool.RefineEdge, d.Depth.Tool);
         Assert.All(d.Tools, t => Assert.True(t.IsAvailable));
-        // Ctrl+E: the export side panel; Esc closes it, Esc again leaves the page
+        // Ctrl+E: the export side panel, which ends the depth tool; Esc closes it
         Key(h, Avalonia.Input.Key.E, RawInputModifiers.Control);
         Assert.True(d.IsExportOpen);
+        Assert.Equal(PageTool.None, d.Depth.Tool);
         Key(h, Avalonia.Input.Key.Escape);
         Assert.False(d.IsExportOpen);
         Assert.True(h.Vm.IsDevelop);
+        // with a depth tool on, Esc leaves the tool first, then the page
         v.Focus();
+        Key(h, Avalonia.Input.Key.E);
+        Assert.Equal(PageTool.RefineEdge, d.Depth.Tool);
         Key(h, Avalonia.Input.Key.Escape);                              // the depth tool
         Assert.Equal(PageTool.None, d.Depth.Tool);
         Assert.True(h.Vm.IsDevelop);
