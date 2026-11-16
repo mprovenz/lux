@@ -8,7 +8,7 @@ Lux has two programs. **Lux** is the desktop app: a photo library, an editor wit
   the runtime and need no .NET install.
 - [ffmpeg](https://ffmpeg.org/download.html) on PATH only for AVIF animations, `--parallax-encoder ffmpeg` and MP4 / WebM video (`animate --anim-container mp4|webm`).
   - GIF, APNG and (lossless) WebP animations are written by Lux itself. The CLI exits before rendering anything if ffmpeg is needed and cannot be found.
-- libgphoto2 on Linux only if MTP connection to the camera is desired
+- libgphoto2 on Linux only if MTP connection to the camera is desired (Windows needs nothing more)
 
 ## Desktop app
 The app runs on Linux, Windows and macOS (x64 and ARM64). Get it from the [Releases page](https://github.com/mprovenz/lux/releases); see [Build & run](#build--run) for the downloads.
@@ -18,7 +18,7 @@ The app runs on Linux, Windows and macOS (x64 and ARM64). Get it from the [Relea
 - **Quality per photo:** choose how much rendered detail Lux keeps for each photo (preview, 13 MP or full detail). Lux always keeps the depth map at full precision.
 - **Export:** DNG, JPG, HDR and depth formats, and animations (rack focus, aperture sweep, wigglegram, parallax, lens tour) with a preview.
 - **Lumen sessions:** import the depth edits and settings that Lumen saved for a photo.
-- **Camera:** list the photos on a connected L16 and import them (Linux only for now).
+- **Camera:** list the photos on a connected L16 and import them (Linux and Windows).
 - **Queue and settings:** all background work is listed in one place; thread counts, memory and the number of jobs at once are adjustable.
 
 The library, with captures grouped by folder and day:
@@ -47,7 +47,7 @@ A photo beside its depth map:
 
 ## Features
 - .DNG and .JPG outputs 1:1 with Lumen
-- MTP device connection for querying storage and pulling images (only tested on Linux right now)
+- MTP device connection for querying storage and pulling images (tested on Linux and Windows)
 - .HDR and .PPM export formats (contained in Lumen code but never used)
 - GDepth and stereo depth map export support
 - Individual module image export support (JPG only)
@@ -101,6 +101,7 @@ tar -xzf lux-light-<version>-linux-x64.tar.gz      # a .zip on Windows
 ./lux-light convert <file-or-dir> [--out-directory out] [--formats all] [-j threads]
 ```
 Camera import on Linux uses the system's `libgphoto2` (package `libgphoto2-6` or similar); without it the rest of Lux works.
+On Windows it uses the camera support that is part of Windows: connect the L16 in file-transfer mode, and install nothing.
 
 Build from source (needs the .NET 10 SDK):
 ```
@@ -117,7 +118,7 @@ with one thread per CPU by default, so on a batch pass `-j` with a count that ke
 - DNG and JPG are byte-exact to Lumen (excluding the dense-stereo race condition and assuming processed in Lumen with no pre-existing .lris). 
 - Performance needs some work, exports take 2-4 minutes to process all formats
 - The tool is heavily tested on Linux and checked on Windows; macOS and ARM builds are not published for now (untested)
-- The desktop app is new in 2.0. Camera import in the app works on Linux only for now.
+- The desktop app is new in 2.0. Camera import in the app works on Linux and Windows; it is not tested on macOS.
 
 ## Sample Images
 All samples are one capture, `L16_00049`, written by `lux-light convert` and checked in under
