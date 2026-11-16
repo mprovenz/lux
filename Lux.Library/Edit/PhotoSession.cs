@@ -196,6 +196,8 @@ internal sealed class PhotoEditImpl : IPhotoEdit
             new AdjustmentInfo(AdjustmentKey.Shadows, EditGroups.Tone, "Shadows", "", -100f, 100f, 0f, 1f, 0, true, note),
             new AdjustmentInfo(AdjustmentKey.Highlights, EditGroups.Tone, "Highlights", "", -100f, 100f, 0f, 1f, 0, true, note),
             new AdjustmentInfo(AdjustmentKey.Clarity, EditGroups.Tone, "Clarity", "", -100f, 100f, 0f, 1f, 0, true, note),
+            new AdjustmentInfo(AdjustmentKey.HighlightRecovery, EditGroups.Tone, "Highlight recovery", "", 0f, 100f, 0f, 1f, 0, true, note),
+            new AdjustmentInfo(AdjustmentKey.GamutCompress, EditGroups.Colour, "Keep saturated colors in gamut", "", 0f, 1f, 0f, 1f, 0, true, note),
         };
         var lri = s.Engine.Lri;
         var (levelDegrees, levelState) = Lux.Engine.Lri.CaptureMotion.LevelOf(lri.Header, Lux.Store.HeldTurn.Degrees(lri));
@@ -529,6 +531,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
         AdjustmentKey.Exposure => a.Exposure, AdjustmentKey.Contrast => a.Contrast, AdjustmentKey.Temperature => a.Temperature ?? float.NaN,
         AdjustmentKey.Tint => a.Tint ?? float.NaN, AdjustmentKey.Vibrance => a.Vibrance, AdjustmentKey.Saturation => a.Saturation,
         AdjustmentKey.Sharpening => a.Sharpening, AdjustmentKey.Shadows => a.Shadows, AdjustmentKey.Highlights => a.Highlights, AdjustmentKey.Clarity => a.Clarity,
+        AdjustmentKey.HighlightRecovery => a.HighlightRecovery, AdjustmentKey.GamutCompress => a.GamutCompress ? 1f : 0f,
         _ => throw new ArgumentOutOfRangeException(nameof(k)),
     };
 
@@ -539,6 +542,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
         AdjustmentKey.Vibrance => a with { Vibrance = v ?? 0f }, AdjustmentKey.Saturation => a with { Saturation = v ?? 0f },
         AdjustmentKey.Sharpening => a with { Sharpening = v ?? TAdj.GuiSharpening },
         AdjustmentKey.Shadows => a with { Shadows = v ?? 0f }, AdjustmentKey.Highlights => a with { Highlights = v ?? 0f }, AdjustmentKey.Clarity => a with { Clarity = v ?? 0f },
+        AdjustmentKey.HighlightRecovery => a with { HighlightRecovery = v ?? 0f }, AdjustmentKey.GamutCompress => a with { GamutCompress = v is float on && on >= 0.5f },
         _ => throw new ArgumentOutOfRangeException(nameof(k)),
     };
 
@@ -568,7 +572,8 @@ internal sealed class PhotoEditImpl : IPhotoEdit
     {
         AdjustmentKey.Exposure => "exposure", AdjustmentKey.Contrast => "contrast", AdjustmentKey.Temperature => "temperature", AdjustmentKey.Tint => "tint",
         AdjustmentKey.Vibrance => "vibrance", AdjustmentKey.Saturation => "saturation", AdjustmentKey.Sharpening => "sharpening", AdjustmentKey.Shadows => "shadows",
-        AdjustmentKey.Highlights => "highlights", _ => "clarity",
+        AdjustmentKey.Highlights => "highlights", AdjustmentKey.HighlightRecovery => "highlight recovery", AdjustmentKey.GamutCompress => "gamut compression",
+        _ => "clarity",
     };
 
     void Push(State before, string label, HistoryEntryKind kind = HistoryEntryKind.Adjustment)
@@ -644,8 +649,8 @@ internal sealed class PhotoEditImpl : IPhotoEdit
     static TAdj ResetAdj(TAdj a, EditGroups g)
     {
         var d = TAdj.Default;
-        if (g.HasFlag(EditGroups.Tone)) a = a with { Exposure = d.Exposure, Contrast = d.Contrast, Shadows = d.Shadows, Highlights = d.Highlights, Clarity = d.Clarity };
-        if (g.HasFlag(EditGroups.Colour)) a = a with { Temperature = null, Tint = null, Vibrance = d.Vibrance, Saturation = d.Saturation, WhiteBalancePushed = false };
+        if (g.HasFlag(EditGroups.Tone)) a = a with { Exposure = d.Exposure, Contrast = d.Contrast, Shadows = d.Shadows, Highlights = d.Highlights, Clarity = d.Clarity, HighlightRecovery = d.HighlightRecovery };
+        if (g.HasFlag(EditGroups.Colour)) a = a with { Temperature = null, Tint = null, Vibrance = d.Vibrance, Saturation = d.Saturation, GamutCompress = d.GamutCompress, WhiteBalancePushed = false };
         if (g.HasFlag(EditGroups.Sharpening)) a = a with { Sharpening = d.Sharpening };
         return a;
     }
@@ -719,8 +724,8 @@ internal sealed class PhotoEditImpl : IPhotoEdit
         }
         else
         {
-            if (g.HasFlag(EditGroups.Tone)) a = a with { Exposure = src.Exposure, Contrast = src.Contrast, Shadows = src.Shadows, Highlights = src.Highlights, Clarity = src.Clarity };
-            if (g.HasFlag(EditGroups.Colour)) a = a with { Temperature = src.Temperature, Tint = src.Tint, Vibrance = src.Vibrance, Saturation = src.Saturation };
+            if (g.HasFlag(EditGroups.Tone)) a = a with { Exposure = src.Exposure, Contrast = src.Contrast, Shadows = src.Shadows, Highlights = src.Highlights, Clarity = src.Clarity, HighlightRecovery = src.HighlightRecovery };
+            if (g.HasFlag(EditGroups.Colour)) a = a with { Temperature = src.Temperature, Tint = src.Tint, Vibrance = src.Vibrance, Saturation = src.Saturation, GamutCompress = src.GamutCompress };
             if (g.HasFlag(EditGroups.Sharpening)) a = a with { Sharpening = src.Sharpening };
         }
         s.Adj = a;

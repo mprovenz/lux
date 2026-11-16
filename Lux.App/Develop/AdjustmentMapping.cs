@@ -21,6 +21,8 @@ public static class AdjustmentMapping
             Shadows = V(AdjustmentKeys.Shadows),
             Highlights = V(AdjustmentKeys.Highlights),
             Clarity = V(AdjustmentKeys.Clarity),
+            HighlightRecovery = specs.Any(s => s.Key == AdjustmentKeys.HighlightRecovery) || values.ContainsKey(AdjustmentKeys.HighlightRecovery) ? V(AdjustmentKeys.HighlightRecovery) : 0f,
+            GamutCompress = values.TryGetValue(AdjustmentKeys.GamutCompress, out var gc) && gc >= 0.5,
         };
     }
 }

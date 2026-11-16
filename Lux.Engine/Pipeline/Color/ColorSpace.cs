@@ -23,6 +23,8 @@ public readonly record struct WhitePoint(float X, float Y, int Illuminant)
 /// <summary>
 /// Lumen's color space (`lt::ColorSpace`): the RGB→XYZ matrix (9 floats, row-major), the white point and the space enum
 /// (`output.color_space` table: 0 = custom matrix, 1 none, 2 srgb, 3 adobe_rgb, 4 linear_srgb, 5 linear_prophoto_rgb, 6 linear_adobe_rgb, 7–10 other).
+/// Lux adds two spaces that Lumen does not have: <see cref="DisplayP3"/> and <see cref="LinearDisplayP3"/>. The export writers use them.
+/// The output stage of the pipeline does not.
 /// </summary>
 public sealed class ColorSpace
 {
@@ -40,8 +42,33 @@ public sealed class ColorSpace
     static readonly float[] SrgbPrimaries = Bits(0x3ed32d7c, 0x3eb71437, 0x3e38c49c, 0x3e59c6ed, 0x3f371437, 0x3d93d07d, 0x3c9e6221, 0x3df41aef, 0x3f734721);
     static readonly float[] AdobePrimaries = Bits(0x3f13a4a3, 0x3e3e01de, 0x3e40b39f, 0x3e9841c9, 0x3f2099f3, 0x3d9a294f, 0x3cdd7709, 0x3d90c473, 0x3f7db949);
     static readonly float[] ProPhotoPrimaries = Bits(0x3f4c346c, 0x3e0a6fb1, 0x3d006c6c, 0x3e937a01, 0x3f363d62, 0x38b3b9d6, 0x0, 0x0, 0x3f5340f6);
-    /// <summary>The native illuminant of each standard space (2..10), indexed by `space − 2`.</summary>
-    static readonly int[] NativeIlluminant = { 7, 7, 7, 5, 7, 0, 0, 0, 7 };
+    /// <summary>The native illuminant of each standard space (2..12), indexed by `space − 2`.</summary>
+    static readonly int[] NativeIlluminant = { 7, 7, 7, 5, 7, 0, 0, 0, 7, 7, 7 };
+
+    /// <summary>Display P3 with the sRGB transfer function (a space of Lux; Lumen's table ends at 10).</summary>
+    public const int DisplayP3 = 11;
+    /// <summary>Display P3 primaries with linear values (a space of Lux).</summary>
+    public const int LinearDisplayP3 = 12;
+    /// <summary>The Display P3 primaries (RGB→XYZ, native white D65), from the chromaticities red (0.680, 0.320), green (0.265, 0.690) and
+    /// blue (0.150, 0.060) and the D65 white point of the illuminant table.</summary>
+    static readonly float[] DisplayP3Primaries = FromChromaticities(0.680, 0.320, 0.265, 0.690, 0.150, 0.060, WhitePoint.Of(7));
+
+    /// <summary>The RGB→XYZ matrix of a space from the chromaticities of its primaries and its white point. Each column is the XYZ of one
+    /// primary, scaled so that RGB (1, 1, 1) gives the white point with Y = 1.</summary>
+    public static float[] FromChromaticities(double rx, double ry, double gx, double gy, double bx, double by, WhitePoint white)
+    {
+        double[] Col(double x, double y) => new[] { x / y, 1.0, (1.0 - x - y) / y };
+        var r = Col(rx, ry); var g = Col(gx, gy); var b = Col(bx, by); var w = Col(white.X, white.Y);
+        // solve [r g b] · s = w by Cramer's rule
+        double Det(double[] a, double[] c, double[] d) => a[0] * (c[1] * d[2] - c[2] * d[1]) - c[0] * (a[1] * d[2] - a[2] * d[1]) + d[0] * (a[1] * c[2] - a[2] * c[1]);
+        double det = Det(r, g, b), sr = Det(w, g, b) / det, sg = Det(r, w, b) / det, sb = Det(r, g, w) / det;
+        return new[]
+        {
+            (float)(r[0] * sr), (float)(g[0] * sg), (float)(b[0] * sb),
+            (float)(r[1] * sr), (float)(g[1] * sg), (float)(b[1] * sb),
+            (float)(r[2] * sr), (float)(g[2] * sg), (float)(b[2] * sb),
+        };
+    }
     static float[] Bits(params uint[] b) { var f = new float[b.Length]; for (int i = 0; i < b.Length; i++) f[i] = BitConverter.Int32BitsToSingle(unchecked((int)b[i])); return f; }
 
     /// <summary>The standard space `space` adapted to the requested white point:
@@ -51,7 +78,7 @@ public sealed class ColorSpace
     {
         var cs = new ColorSpace { Wp = wp, Space = space };
         if (space == 1) { cs.M = new float[] { 1, 0, 0, 0, 1, 0, 0, 0, 1 }; return cs; }
-        int native = space - 2 >= 0 && space - 2 < 9 ? NativeIlluminant[space - 2] : 0;
+        int native = space - 2 >= 0 && space - 2 < NativeIlluminant.Length ? NativeIlluminant[space - 2] : 0;
         var nativeWp = WhitePoint.Of(native);
         var A = Adaptation(nativeWp, wp, adaptation);
         float[] P = space switch
@@ -60,6 +87,7 @@ public sealed class ColorSpace
             2 or 4 => SrgbPrimaries,
             3 or 6 => AdobePrimaries,
             5 => ProPhotoPrimaries,
+            DisplayP3 or LinearDisplayP3 => DisplayP3Primaries,
             _ => new float[] { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
         };
         var m = new float[9];
@@ -90,7 +118,7 @@ public sealed class ColorSpace
 
     /// <summary>The native illuminant of a standard space (0 outside 2..10). Lumen's pipeline factory substitutes it for
     /// `output.white_point = native` (enum 0).</summary>
-    public static int NativeIlluminantOf(int space) => space - 2 >= 0 && space - 2 < 9 ? NativeIlluminant[space - 2] : 0;
+    public static int NativeIlluminantOf(int space) => space - 2 >= 0 && space - 2 < NativeIlluminant.Length ? NativeIlluminant[space - 2] : 0;
 
     /// <summary>The chromatic adaptation matrix from <paramref name="from"/> to <paramref name="to"/>. Identity when either illuminant field is 0 (the int read as a float),
     /// when type == 0, or when the two white points are equal (illuminant, y, x); "invalid illuminant white-point!" when an x or y is 0; else with the cone matrix

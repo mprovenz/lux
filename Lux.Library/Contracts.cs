@@ -882,7 +882,7 @@ public enum ExistingFilePolicy
 public sealed record ExportOptions
 {
     /// <summary>Formats, as <c>lux-light convert --formats</c> spells them: <c>dng</c>, <c>jpg</c>, <c>jpg+depth</c>, <c>hdr</c>, <c>ppm</c>,
-    /// <c>depth</c>.</summary>
+    /// <c>tiff16</c>, <c>tiff-linear</c>, <c>jpg-hdr</c>, <c>depth</c>.</summary>
     public IReadOnlyList<string> Formats { get; init; } = new[] { "dng", "jpg" };
     /// <summary>Export level: 0 = full size (Lumen's own export window) … 4; 1 = 13 MP.</summary>
     public int Level { get; init; }
@@ -904,7 +904,8 @@ public sealed record ExportOptions
     public float? FocusDepthMm { get; init; }
     /// <summary>Tone and color (JPG only; overrides every saved tone setting); null = as saved (or none).</summary>
     public Adjustments? Adjustments { get; init; }
-    /// <summary>JPG quality (1–100); null = Lumen's.</summary>
+    /// <summary>JPG quality (1–100), for each format that is a JPG. The primary image of <c>jpg-hdr</c> uses it too, and its gain map does
+    /// not. Null = Lumen's (98).</summary>
     public int? JpegQuality { get; init; }
     /// <summary>Read the capture's analysis cache (and keep the geometry it computes, as <c>convert</c> does). The cache never changes a pixel.</summary>
     public bool UseCache { get; init; } = true;
@@ -922,6 +923,13 @@ public sealed record ExportOptions
     /// <summary>Embeds the color profile (sRGB) in JPG files. The default is off. Lumen's JPGs have no profile, and the default JPG does not
     /// change.</summary>
     public bool EmbedColorProfile { get; init; }
+    /// <summary>The color space of the 16-bit TIFF, as <c>convert --tiff-cs</c> spells it: <c>srgb</c>, <c>p3</c> or <c>adobergb</c>.
+    /// Null = sRGB.</summary>
+    public string? TiffColorSpace { get; init; }
+    /// <summary>Keeps the highlights of the DNG above white, as <c>convert --dng-highlights keep</c> does: the samples have half their
+    /// value and BaselineExposure is one stop higher, so that a raw developer does not clip them. Some raw developers then open the
+    /// picture one stop darker. The default is off, and the default DNG is Lumen's.</summary>
+    public bool DngKeepHighlights { get; init; }
 }
 
 /// <summary>A Lumen session beside a capture.</summary>

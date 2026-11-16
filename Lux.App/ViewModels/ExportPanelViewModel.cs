@@ -66,6 +66,9 @@ public sealed partial class ExportPanelViewModel : ObservableObject
             new("dng", "DNG", "Raw-style file for other editors", On("dng", true), true, Recalc),
             new("jpg", "JPG", "With tone and color adjustments", On("jpg", true), true, Recalc),
             new("jpg+depth", "JPG + depth", "Depth map embedded for apps that read it", On("jpg+depth", false), true, Recalc),
+            new("jpg-hdr", "JPG + HDR gain map", "Brighter highlights on HDR displays", On("jpg-hdr", false), true, Recalc),
+            new("tiff16", "TIFF 16-bit", "With tone and color adjustments, for editors", On("tiff16", false), true, Recalc),
+            new("tiff-linear", "TIFF linear (HDR)", "Before the tone curve, keeps the highlights", On("tiff-linear", false), true, Recalc),
             new("hdr", "HDR", "Radiance, linear, for HDR tools", On("hdr", false), true, Recalc),
             new("ppm", "PPM", "8-bit image before tone and color, uncompressed", On("ppm", false), true, Recalc),
             new("depth", "Depth map", "Separate depth image (millimeters + preview)", On("depth", false), true, Recalc),
@@ -82,6 +85,9 @@ public sealed partial class ExportPanelViewModel : ObservableObject
         _orientation = OrientationChoices[(last?.Unturned ?? s.Library.Settings.ExportUnturned) ? 1 : 0];
         _fileName = last?.FileNamePattern ?? "{name}";
         _embedColorProfile = last?.EmbedColorProfile ?? false;
+        _tiffColorSpace = TiffColorChoices[last?.TiffColorSpace switch { "p3" => 1, "adobergb" => 2, _ => 0 }];
+        _keepDngHighlights = last?.DngKeepHighlights ?? false;
+        _jpegQuality = last?.JpegQuality ?? LumenJpegQuality;
         _loading = false;
         Recalc();
     }
@@ -170,7 +176,7 @@ public sealed partial class ExportPanelViewModel : ObservableObject
     public bool IsSetAperture => DepthEffect.Value == 2;
     public bool IsCustomSize => Size.Value == -1;
     public string FNumberText => Text.FNumber((float)FNumber);
-    public static string Note => "Tone and color adjustments are applied to JPG files. DNG and HDR keep the unadjusted image, as in Lumen, so they can be developed later.";
+    public static string Note => "Tone and color adjustments are applied to JPG and TIFF files. DNG and HDR keep the unadjusted image, as in Lumen, so they can be developed later.";
     public string CollisionNote => _s.Library.Settings.ExportIfExists switch
     {
         ExportCollisionSetting.Ask => "If a file already exists you are asked first (Settings → Export).",
@@ -199,7 +205,7 @@ public sealed partial class ExportPanelViewModel : ObservableObject
     void Recalc()
     {
         if (_loading) return;
-        var bpp = new Dictionary<string, double> { ["dng"] = 2.4, ["jpg"] = 0.35, ["jpg+depth"] = 0.5, ["hdr"] = 4, ["ppm"] = 3, ["depth"] = 4.1 };
+        var bpp = new Dictionary<string, double> { ["dng"] = 2.4, ["jpg"] = 0.35, ["jpg+depth"] = 0.5, ["jpg-hdr"] = 0.36, ["tiff16"] = 4.4, ["tiff-linear"] = 9, ["hdr"] = 4, ["ppm"] = 3, ["depth"] = 4.1 };
         var on = Formats.Where(f => f.IsOn && bpp.ContainsKey(f.Key)).Select(f => f.Key).ToList();
         double bytes = 0, secs = 0;
         bool depthRead = on.Contains("jpg+depth") || on.Contains("depth") || DepthEffect.Value == 2;
@@ -234,10 +240,11 @@ public sealed partial class ExportPanelViewModel : ObservableObject
         {
             string stem = FileName.Replace("{name}", first.Name).Replace("{date}", first.CaptureTime?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) ?? "nodate")
                                   .Replace("{time}", first.CaptureTime?.ToString("HHmmss", System.Globalization.CultureInfo.InvariantCulture) ?? "000000");
-            string ext = on.FirstOrDefault() switch { "dng" => ".dng", "hdr" => ".hdr", "ppm" => ".ppm", "jpg+depth" => "_gdepth.jpg", "depth" => "_depth.f32", _ => ".jpg" };
+            string ext = on.FirstOrDefault() switch { "dng" => ".dng", "hdr" => ".hdr", "ppm" => ".ppm", "jpg+depth" => "_gdepth.jpg", "depth" => "_depth.f32", "jpg-hdr" => "_hdr.jpg", "tiff16" => ".tif", "tiff-linear" => "_linear.tif", _ => ".jpg" };
             FileNamePreview = string.IsNullOrWhiteSpace(stem) ? "" : $"e.g. {stem}{ext}";
         }
-        OnPropertyChanged(nameof(CanAdd)); OnPropertyChanged(nameof(JpgChosen));
+        OnPropertyChanged(nameof(CanAdd)); OnPropertyChanged(nameof(JpgChosen)); OnPropertyChanged(nameof(Tiff16Chosen));
+        OnPropertyChanged(nameof(DngChosen)); OnPropertyChanged(nameof(JpegFormatChosen));
     }
 
     [RelayCommand]
@@ -262,6 +269,9 @@ public sealed partial class ExportPanelViewModel : ObservableObject
         if (Edits.Value == 0) parts.Add("clean");
         if (Orientation.Value == 1 && HasTurnedPhotos) parts.Add("as captured");
         if (EmbedColorProfile && JpgChosen) parts.Add("color profile");
+        if (Tiff16Chosen && TiffColorSpace.Value != 0) parts.Add($"TIFF in {TiffColorSpace.Label}");
+        if (KeepDngHighlights && DngChosen) parts.Add("DNG keeps highlights");
+        if (JpegFormatChosen && JpegQualityValue != LumenJpegQuality) parts.Add($"JPEG quality {JpegQualityText}");
         if (ToneStyle.Value == 1) parts.Add("newer tone style");
         else if (ToneStyle.Value == 2) parts.Add("standard tone style");
         return string.Join(" · ", parts);
@@ -279,7 +289,33 @@ public sealed partial class ExportPanelViewModel : ObservableObject
         NewerToneStyle = ToneStyle.Value switch { 1 => true, 2 => false, _ => null },
         Unturned = Orientation.Value == 1,
         EmbedColorProfile = EmbedColorProfile && JpgChosen,
+        TiffColorSpace = Tiff16Chosen ? TiffColorSpace.Value switch { 1 => "p3", 2 => "adobergb", _ => "srgb" } : null,
+        DngKeepHighlights = KeepDngHighlights && DngChosen,
+        JpegQuality = JpegFormatChosen && JpegQualityValue != LumenJpegQuality ? JpegQualityValue : null,
     };
+
+    /// <summary>Keeps the highlights of the DNG above white. The default is off. The panel remembers the last choice.</summary>
+    [ObservableProperty] bool _keepDngHighlights;
+    /// <summary>DNG is ticked. The highlights option applies to that file only.</summary>
+    public bool DngChosen => Formats.Any(f => f.IsOn && f.IsAvailable && f.Key == "dng");
+
+    /// <summary>The JPEG quality of Lumen. An export with this value sends no quality, so its request is the default one.</summary>
+    public const int LumenJpegQuality = 98;
+    /// <summary>The JPEG quality, 1 to 100. The slider can give a fraction, so use <see cref="JpegQualityValue"/> to read it. The panel
+    /// remembers the last choice.</summary>
+    [ObservableProperty] double _jpegQuality;
+    partial void OnJpegQualityChanged(double value) => OnPropertyChanged(nameof(JpegQualityText));
+    /// <summary>The JPEG quality as a whole number from 1 to 100.</summary>
+    public int JpegQualityValue => (int)Math.Clamp(Math.Round(JpegQuality), 1, 100);
+    public string JpegQualityText => JpegQualityValue.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    /// <summary>A format that is a JPEG is ticked: JPG, JPG + depth, or JPG + HDR gain map. The quality applies to each of them.</summary>
+    public bool JpegFormatChosen => Formats.Any(f => f.IsOn && f.IsAvailable && f.Key is "jpg" or "jpg+depth" or "jpg-hdr");
+
+    /// <summary>The color spaces of the 16-bit TIFF. The panel remembers the last choice.</summary>
+    public IReadOnlyList<ChoiceOption> TiffColorChoices { get; } = new ChoiceOption[] { new("sRGB", 0), new("Display P3", 1), new("Adobe RGB", 2) };
+    [ObservableProperty] ChoiceOption _tiffColorSpace;
+    /// <summary>The 16-bit TIFF is ticked. The color space choice applies to that file only.</summary>
+    public bool Tiff16Chosen => Formats.Any(f => f.IsOn && f.IsAvailable && f.Key == "tiff16");
 
     /// <summary>Embeds the sRGB color profile in JPG files. The default is off. The panel remembers the last choice.</summary>
     [ObservableProperty] bool _embedColorProfile;

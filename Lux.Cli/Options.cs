@@ -68,9 +68,14 @@ public sealed class Options
     public float? Shadows { get; private set; }
     public float? Highlights { get; private set; }
     public float? Clarity { get; private set; }
+    /// <summary>`--highlight-recovery`: the amount of the highlight shoulder of Lux, 0 to 100 (0 = Lumen's tone curve).</summary>
+    public float? HighlightRecovery { get; private set; }
+    /// <summary>`--gamut-compress`: compress colors outside the output color space to its boundary.</summary>
+    public bool GamutCompress { get; private set; }
     /// <summary>True when any tone & color control was given.</summary>
     public bool HasToneAdjustments => Exposure is not null || Contrast is not null || Temperature is not null || Tint is not null || Vibrance is not null
-                                      || Saturation is not null || Sharpening is not null || Shadows is not null || Highlights is not null || Clarity is not null;
+                                      || Saturation is not null || Sharpening is not null || Shadows is not null || Highlights is not null || Clarity is not null
+                                      || HighlightRecovery is not null || GamutCompress;
 
     // ---- NOISE (convert: Lux controls of the module ISP, every raster format) -------------------------------------
     /// <summary>`--grain-strength`: scale of the grain that is added after the denoiser (1 = Lumen, 0 = none).</summary>
@@ -82,6 +87,8 @@ public sealed class Options
     public int? DngCs { get; private set; }
     public string? DngTone { get; private set; }
     public int? DngComp { get; private set; }
+    /// <summary>`--dng-highlights`: "clip" (Lumen's file) or "keep" (half-scale samples, BaselineExposure one stop higher).</summary>
+    public string? DngHighlights { get; private set; }
 
     // ---- JPEG -----------------------------------------------------------------------------------------------
     public int? JpegCs { get; private set; }
@@ -96,6 +103,20 @@ public sealed class Options
     // ---- HDR ------------------------------------------------------------------------------------------------
     public int? HdrCs { get; private set; }
     // (no --ppm-cs: the property has no effect on fmt 1 — the `(fmt|4)==4` gate means a PPM never reads the output tuning.)
+
+    // ---- TIFF (tiff16, tiff-linear) and the HDR gain-map JPEG (jpg-hdr) -------------------------------------
+    /// <summary>`--tiff-cs`: srgb, p3 or adobergb.</summary>
+    public string? TiffCs { get; private set; }
+    /// <summary>`--tiff-compression`: deflate, lzw or none.</summary>
+    public string? TiffCompression { get; private set; }
+    /// <summary>`--tiff-depth`: f32 or f16.</summary>
+    public string? TiffDepth { get; private set; }
+    /// <summary>`--gainmap`: rgb or luminance.</summary>
+    public string? GainMap { get; private set; }
+    public int? GainMapScale { get; private set; }
+    public int? GainMapQuality { get; private set; }
+    /// <summary>`--hdr-max-size`: the largest width and height of the jpg-hdr file, in pixels.</summary>
+    public int? HdrMaxSize { get; private set; }
 
     // ---- LENS-FRAMES (convert) ------------------------------------------------------------------------------
     public int LensQuality { get; private set; } = 92;
@@ -265,11 +286,14 @@ public sealed class Options
                     case "--shadows": o.Shadows = float.Parse(Need("-100..100"), CultureInfo.InvariantCulture); break;
                     case "--highlights": o.Highlights = float.Parse(Need("-100..100"), CultureInfo.InvariantCulture); break;
                     case "--clarity": o.Clarity = float.Parse(Need("-100..100"), CultureInfo.InvariantCulture); break;
+                    case "--highlight-recovery": o.HighlightRecovery = float.Parse(Need("0..100"), CultureInfo.InvariantCulture); break;
+                    case "--gamut-compress": o.GamutCompress = true; break;
 
                     // ---- dng
                     case "--dng-cs": o.DngCs = int.Parse(Need("a color space setting"), CultureInfo.InvariantCulture); break;
                     case "--dng-tone": o.DngTone = Need("a tone-mapping profile"); break;
                     case "--dng-comp": o.DngComp = int.Parse(Need("0 or 1"), CultureInfo.InvariantCulture); break;
+                    case "--dng-highlights": o.DngHighlights = Need("clip or keep").ToLowerInvariant(); break;
 
                     // ---- jpeg
                     case "--jpeg-cs": o.JpegCs = int.Parse(Need("a color space setting"), CultureInfo.InvariantCulture); break;
@@ -287,6 +311,15 @@ public sealed class Options
 
                     // ---- hdr
                     case "--hdr-cs": o.HdrCs = int.Parse(Need("a color space setting"), CultureInfo.InvariantCulture); break;
+
+                    // ---- tiff / jpg-hdr
+                    case "--tiff-cs": o.TiffCs = Need("srgb, p3 or adobergb").ToLowerInvariant(); break;
+                    case "--tiff-compression": o.TiffCompression = Need("deflate, lzw or none").ToLowerInvariant(); break;
+                    case "--tiff-depth": o.TiffDepth = Need("f32 or f16").ToLowerInvariant(); break;
+                    case "--gainmap": o.GainMap = Need("rgb or luminance").ToLowerInvariant(); break;
+                    case "--gainmap-scale": o.GainMapScale = int.Parse(Need("4, 2 or 1"), CultureInfo.InvariantCulture); break;
+                    case "--gainmap-quality": o.GainMapQuality = int.Parse(Need("1-100"), CultureInfo.InvariantCulture); break;
+                    case "--hdr-max-size": o.HdrMaxSize = int.Parse(Need("a size in pixels"), CultureInfo.InvariantCulture); break;
 
                     // ---- lens-frames
                     case "--lens-quality": o.LensQuality = Math.Clamp(int.Parse(Need("1-100"), CultureInfo.InvariantCulture), 1, 100); break;

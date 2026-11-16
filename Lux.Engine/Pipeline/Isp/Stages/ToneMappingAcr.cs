@@ -16,9 +16,20 @@ namespace Lux.Engine.Pipeline.Isp.Stages;
 /// index and no output clamp, and a hue-preserving `RGBTone` whose middle channel is rebuilt with a raw `rcpss`
 /// (no Newton step). Lane 3 is the untouched source alpha. Finally, unless the output `ColorSpace` equals linear
 /// ProPhoto D50 field-for-field, the tile is converted ProPhoto → `output.color_space`.
+///
+/// <para>Two Lux keys change the stage. Lumen's tuning does not have them. When they are absent, the stage gives Lumen's result.
+/// <see cref="HighlightRecoveryKey"/> replaces the tone table with a curve that has a shoulder (<see cref="HighlightRecovery"/>) and
+/// desaturates the brightest tones toward white. <see cref="GamutCompressKey"/> compresses colors outside the output color space to
+/// its boundary (<see cref="GamutCompression"/>), where Lumen clips each channel.</para>
 /// </summary>
 public sealed class ToneMappingAcrStage : IStage
 {
+    /// <summary>The tuning key of the highlight recovery amount, 0 to 100 (<see cref="HighlightRecovery.Curve"/>). Absent or 0 = Lumen's
+    /// tone curve.</summary>
+    public const string HighlightRecoveryKey = "tone_mapping.highlight_recovery";
+    /// <summary>The tuning key that turns on the gamut compression (a value other than 0). Absent or 0 = Lumen's clip.</summary>
+    public const string GamutCompressKey = "tone_mapping.gamut_compress";
+
     readonly string _type; readonly int _mode;
     public ToneMappingAcrStage(string type) { _type = type; _mode = StageEnums.Enum("tone_mapping", type) - 3; }
     public StageName Stage => StageName.ToneMapping;
@@ -39,6 +50,11 @@ public sealed class ToneMappingAcrStage : IStage
         var img = p.Rgb ?? throw new InvalidOperationException("ToneMapping needs the RGB working image");
         float ev = 0f; try { ev = (float)p.Context.Tuning.Num("tone_mapping.ev_offset"); } catch (KeyNotFoundException) { }
         var lut = TmoAcrLuts.ForMode(_mode);
+        float recovery = 0f; try { recovery = (float)p.Context.Tuning.Num(HighlightRecoveryKey); } catch (KeyNotFoundException) { }
+        bool gamut = false; try { gamut = p.Context.Tuning.Num(GamutCompressKey) != 0.0; } catch (KeyNotFoundException) { }
+        // With highlight recovery the table is longer (it covers the inputs above Lumen's white), and its entries up to the knee are Lumen's.
+        if (recovery > 0f) lut = HighlightRecovery.Curve(lut, recovery);
+        float desaturation = recovery > 0f ? Math.Min(recovery, HighlightRecovery.AmountMax) / HighlightRecovery.AmountMax : 0f;
         var from = ColorSpace.ProPhotoD50; var to = p.Stats.OutSpace;
         bool convert = !from.SameAs(to);
         // The 256×256 tiles are independent (pointwise, in place) — spread over threads when few stage runs are in progress; inside a tile
@@ -55,24 +71,27 @@ public sealed class ToneMappingAcrStage : IStage
                 int x = tile.X0;
                 if (Soa8.Supported) x = Pixel8Row(row, tile.X0, tile.X1, gain, lut);
                 for (; x < tile.X1; x++) row[x] = Pixel(row[x], gain, lut);
+                if (desaturation > 0f) HighlightRecovery.DesaturateRow(row.Slice(tile.X0, tile.X1 - tile.X0), desaturation);
             }
-            if (convert)
+            if (convert || gamut)
             {
                 var view = img.View(new RectI(img.Rect.X0 + tile.X0, img.Rect.Y0 + tile.Y0, img.Rect.X0 + tile.X1, img.Rect.Y0 + tile.Y1));
-                ColorSpaceConvert.Convert(view, view, from, to, 1);
+                if (gamut) GamutCompression.ConvertCompressed(view, from, to, 1, convert);
+                else ColorSpaceConvert.Convert(view, view, from, to, 1);
             }
         }
         if (tiles.Length > 1 && StageParallel.Spread) Parallel.For(0, tiles.Length, Tile);
         else for (int ti = 0; ti < tiles.Length; ti++) Tile(ti);
     }
 
-    /// <summary><see cref="Curve"/> on eight lanes: f = t·1024, i = (int)f clamped to [0, 1023], (f − i)·(lut[i+1] − lut[i]) + lut[i].</summary>
+    /// <summary><see cref="Curve"/> on eight lanes: f = t·1024, i = (int)f clamped to [0, top], (f − i)·(lut[i+1] − lut[i]) + lut[i].
+    /// <paramref name="top"/> is the index of the last table segment (1023 for Lumen's table).</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static unsafe Vector256<float> Curve8(float* lp, Vector256<float> t)
+    static unsafe Vector256<float> Curve8(float* lp, Vector256<float> t, Vector256<int> top)
     {
         var f = t * Vector256.Create(LutScale);
         var i = Vector256.ConvertToInt32(f);
-        i = Vector256.Max(i, Vector256<int>.Zero); i = Vector256.Min(i, Vector256.Create(1023));
+        i = Vector256.Max(i, Vector256<int>.Zero); i = Vector256.Min(i, top);
         var a = Simd.GatherVector256(lp, i, 4); var b = Simd.GatherVector256(lp, i + Vector256.Create(1), 4);
         return ((f - Vector256.ConvertToSingle(i)) * (b - a)) + a;
     }
@@ -85,7 +104,7 @@ public sealed class ToneMappingAcrStage : IStage
         ref float rb = ref Unsafe.As<Vec4F, float>(ref MemoryMarshal.GetReference(row));
         var G = Vector256.Create(gain); var toe = Vector256.Create(ToeOffset); var qs = Vector256.Create(QScale); var lk = Vector256.Create(LowerKnee);
         var bp = Vector256.Create(BlackPoint); var sl = Vector256.Create(Slope); var uk = Vector256.Create(UpperKnee); var ls = Vector256.Create(LutScale);
-        var zero = Vector256<float>.Zero; var izero = Vector256<int>.Zero; var top = Vector256.Create(1023); var one = Vector256.Create(1);
+        var zero = Vector256<float>.Zero; var izero = Vector256<int>.Zero; var top = Vector256.Create(lut.Length - 2); var one = Vector256.Create(1);
         fixed (float* lp = lut)
         for (; x + 8 <= x1; x += 8)
         {
@@ -98,7 +117,7 @@ public sealed class ToneMappingAcrStage : IStage
                 return Vector256.ConditionalSelect(Vector256.LessThanOrEqual(uk, v), (v + bp) * sl, q);
             }
             var tr = Ramp8(sR * G); var tg = Ramp8(sG * G); var tb = Ramp8(sB * G);
-            var R = Curve8(lp, tr); var Gc = Curve8(lp, tg); var B = Curve8(lp, tb);
+            var R = Curve8(lp, tr, top); var Gc = Curve8(lp, tg, top); var B = Curve8(lp, tb, top);
             // RGBTone: the six orderings as masks; the rebuilt middle channel M = ((rcp(hi − lo)·(mid − lo))·(C_hi − C_lo)) + C_lo
             var gr = Vector256.GreaterThan(tg, tr); var br = Vector256.GreaterThan(tb, tr); var bg = Vector256.GreaterThan(tb, tg); var gb = Vector256.GreaterThan(tg, tb);
             var c1 = gr & br & bg; var c2 = gr & br & ~bg; var c3 = gr & ~br;
@@ -130,13 +149,14 @@ public sealed class ToneMappingAcrStage : IStage
 
     /// <summary>Scalar LUT lookup: `f = t·1024`, `i = cvttss2si(f)` (truncate), clamp to [0, 1023],
     /// `out = (f − (float)i)·(lut[i+1] − lut[i]) + lut[i]` — the fraction is taken against the CLAMPED index,
-    /// so `t &gt; 1` extrapolates along the last segment.</summary>
+    /// so `t &gt; 1` extrapolates along the last segment. The last segment of Lumen's table has the index 1023. A curve with highlight
+    /// recovery is longer (<see cref="HighlightRecovery.Curve"/>).</summary>
     static float Curve(float t, float[] lut)
     {
         float f = t * LutScale;
-        int i = (int)f;
+        int i = (int)f, top = lut.Length - 2;
         if (i < 0) i = 0;
-        if (i >= 1024) i = 1023;
+        if (i > top) i = top;
         float a = lut[i], b = lut[i + 1];
         float d = b - a;
         float fr = f - (float)i;

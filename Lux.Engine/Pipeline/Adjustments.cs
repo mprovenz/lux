@@ -60,6 +60,16 @@ public sealed record Adjustments
     public float Highlights { get; init; }
     /// <summary>ParamFloat 10 (`clarity`), [−100, 100]. `tone_adjust.lpyr_clarity` = value · 0.01 (slot 13).</summary>
     public float Clarity { get; init; }
+    /// <summary>Highlight recovery of Lux, [0, 100]. 0 = Lumen's tone curve, which clips each tone above its white. A larger value moves
+    /// the white point up: the input that reaches white is <c>2^(value / 100)</c> times Lumen's, thus one stop more at 100. The curve does
+    /// not change below the knee, so midtones and shadows stay as they are. The brightest tones also lose saturation toward white, in
+    /// proportion to the value. See <see cref="Isp.HighlightRecovery"/>. The stage reads the value from
+    /// <see cref="Isp.Stages.ToneMappingAcrStage.HighlightRecoveryKey"/>.</summary>
+    public float HighlightRecovery { get; init; }
+    /// <summary>Gamut compression of Lux. False = Lumen's rendering, which clips each channel of a color outside the output color space.
+    /// True = such colors move to the gamut boundary and keep their hue and gradation. See <see cref="Color.GamutCompression"/>. The stage
+    /// reads the setting from <see cref="Isp.Stages.ToneMappingAcrStage.GamutCompressKey"/>.</summary>
+    public bool GamutCompress { get; init; }
 
     /// <summary>The value `CIAPI::ApplyTuning(0)` writes into ParamFloat 13 (`setProperty(0xd, 5.0f)`), which every Lumen renderer carries.</summary>
     public const float GuiSharpening = 5f;
@@ -82,6 +92,7 @@ public sealed record Adjustments
         R(nameof(Shadows), Shadows, PercentMin, PercentMax);
         R(nameof(Highlights), Highlights, PercentMin, PercentMax);
         R(nameof(Clarity), Clarity, PercentMin, PercentMax);
+        R(nameof(HighlightRecovery), HighlightRecovery, Isp.HighlightRecovery.AmountMin, Isp.HighlightRecovery.AmountMax);
         return this;
     }
 
@@ -153,6 +164,9 @@ public sealed record Adjustments
         if (Clarity != 0f) t.Set("tone_adjust.lpyr_clarity", (double)ClarityKey(Clarity));
         t.Set("tone_mapping.sharpening", (double)SharpeningKey(Sharpening));
         if (MonotoneSharpening) t.Set(Isp.Stages.PostProcessingStage.MonotoneSharpeningKey, 1.0);   // a Lux key; absent = Lumen's response
+        // Two more Lux keys. When they are absent, the tone stage gives Lumen's result.
+        if (HighlightRecovery != 0f) t.Set(Isp.Stages.ToneMappingAcrStage.HighlightRecoveryKey, (double)HighlightRecovery);
+        if (GamutCompress) t.Set(Isp.Stages.ToneMappingAcrStage.GamutCompressKey, 1.0);
         if (neutral is not null) t.Set("auto_white_balance.neutral_color", neutral.Select(v => (double)v).ToArray());
         return t;
     }
@@ -211,7 +225,7 @@ public sealed record Adjustments
         if (a.Saturation != b.Saturation || a.Vibrance != b.Vibrance || SharpeningKey(a.Sharpening) != SharpeningKey(b.Sharpening) || a.MonotoneSharpening != b.MonotoneSharpening) return 2;   // slot 11
         if (a.Shadows != b.Shadows || a.Highlights != b.Highlights || a.Clarity != b.Clarity) return 4;   // slot 13
         if (a.Contrast != b.Contrast) return 5;   // slot 14
-        if (a.Exposure != b.Exposure) return 6;   // slot 15
+        if (a.Exposure != b.Exposure || a.HighlightRecovery != b.HighlightRecovery || a.GamutCompress != b.GamutCompress) return 6;   // slot 15
         return int.MaxValue;
     }
 
@@ -219,7 +233,8 @@ public sealed record Adjustments
     {
         static string F(float v) => v.ToString("R", CultureInfo.InvariantCulture);
         return $"exposure {F(Exposure)} contrast {F(Contrast)} temperature {(Temperature is float t ? F(t) : "as shot")} tint {(Tint is float u ? F(u) : "as shot")}{(WhiteBalancePushed ? " (white balance pushed)" : "")} " +
-               $"vibrance {F(Vibrance)} saturation {F(Saturation)} sharpening {F(Sharpening)}{(MonotoneSharpening ? " (monotone)" : "")} shadows {F(Shadows)} highlights {F(Highlights)} clarity {F(Clarity)}";
+               $"vibrance {F(Vibrance)} saturation {F(Saturation)} sharpening {F(Sharpening)}{(MonotoneSharpening ? " (monotone)" : "")} shadows {F(Shadows)} highlights {F(Highlights)} clarity {F(Clarity)}" +
+               (HighlightRecovery != 0f ? $" highlight recovery {F(HighlightRecovery)}" : "") + (GamutCompress ? " gamut compression" : "");
     }
 
     /// <summary>Parse "exposure=1,contrast=-20,temperature=4500,…" (the names of the properties, case-insensitive; also the
@@ -237,6 +252,8 @@ public sealed record Adjustments
                 "shadows" or "5" => a with { Shadows = v }, "highlights" or "6" => a with { Highlights = v }, "contrast" or "7" => a with { Contrast = v },
                 "saturation" or "8" => a with { Saturation = v }, "vibrance" or "9" => a with { Vibrance = v }, "clarity" or "10" => a with { Clarity = v },
                 "sharpening" or "13" => a with { Sharpening = v },
+                "highlight-recovery" or "highlight_recovery" => a with { HighlightRecovery = v },
+                "gamut-compress" or "gamut_compress" => a with { GamutCompress = v != 0f },
                 _ => throw new FormatException($"unknown adjustment '{k}'"),
             };
         }

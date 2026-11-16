@@ -70,7 +70,10 @@ public sealed class IspStats
     public Color.ColorSpace CcSpace { get; init; } = Color.ColorSpace.None();
     /// <summary>The output `lt::ColorSpace` (`output.color_space`/`output.white_point`,
     /// or the CC space / ProPhoto-D50 when one of them is `none`).</summary>
-    public Color.ColorSpace OutSpace { get; init; } = Color.ColorSpace.None();
+    public Color.ColorSpace OutSpace { get => _outSpace; init => _outSpace = value; }
+    Color.ColorSpace _outSpace = Color.ColorSpace.None();
+    /// <summary>A copy of these stats with another output color space. All other values stay the same.</summary>
+    public IspStats WithOutSpace(Color.ColorSpace outSpace) { var c = (IspStats)MemberwiseClone(); c._outSpace = outSpace; return c; }
     /// <summary>The CCT-interpolated `lt::HSVMap` that the
     /// `color_correction = optimized` Stats functor builds from the profile's two
     /// HueSatMaps. Null/empty for every other `color_correction` type, in which case `optimized` degenerates to `default`.</summary>

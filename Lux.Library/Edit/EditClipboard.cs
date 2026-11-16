@@ -179,8 +179,8 @@ internal sealed class EditClipboard : IEditClipboard
     {
         var s = s0.Clone();
         var d = Adjustments.Default; var a = s.Adj;
-        if (g.HasFlag(EditGroups.Tone)) a = a with { Exposure = d.Exposure, Contrast = d.Contrast, Shadows = d.Shadows, Highlights = d.Highlights, Clarity = d.Clarity };
-        if (g.HasFlag(EditGroups.Colour)) a = a with { Temperature = null, Tint = null, Vibrance = d.Vibrance, Saturation = d.Saturation, WhiteBalancePushed = false };
+        if (g.HasFlag(EditGroups.Tone)) a = a with { Exposure = d.Exposure, Contrast = d.Contrast, Shadows = d.Shadows, Highlights = d.Highlights, Clarity = d.Clarity, HighlightRecovery = d.HighlightRecovery };
+        if (g.HasFlag(EditGroups.Colour)) a = a with { Temperature = null, Tint = null, Vibrance = d.Vibrance, Saturation = d.Saturation, GamutCompress = d.GamutCompress, WhiteBalancePushed = false };
         if (g.HasFlag(EditGroups.Sharpening)) a = a with { Sharpening = d.Sharpening };
         s.Adj = a;
         if ((g & EditGroups.Geometry) == EditGroups.Geometry) { s.Geo.ResetGeometry(); s.Decided = false; }
@@ -308,7 +308,7 @@ internal static class EditValuesCodec
     public static string ToJson(EditValues v)
     {
         var a = v.Adjustments; var t = v.Transform;
-        return new JsonObject
+        var o = new JsonObject
         {
             ["version"] = 1, ["groups"] = (int)v.Groups,
             ["adjustments"] = new JsonObject
@@ -324,7 +324,13 @@ internal static class EditValuesCodec
             },
             ["fnumber"] = v.FNumber is float f ? JsonValue.Create(B(f)) : null, ["focus"] = v.FocusMm is float fo ? JsonValue.Create(B(fo)) : null,
             ["sliders"] = v.Sliders is { } sl ? new JsonArray(sl.OrderBy(k => k).Select(k => (JsonNode)JsonValue.Create((int)k)).ToArray()) : null,
-        }.ToJsonString();
+        };
+        // The two Lux settings are written only when they are set. A preset without them has the same text as before, and a preset
+        // from an earlier version reads as "not set".
+        var ao = o["adjustments"]!.AsObject();
+        if (a.HighlightRecovery != 0f) ao["highlight_recovery"] = B(a.HighlightRecovery);
+        if (a.GamutCompress) ao["gamut_compress"] = 1;
+        return o.ToJsonString();
     }
 
     public static EditValues FromJson(string json)
@@ -343,6 +349,7 @@ internal static class EditValuesCodec
                 Exposure = F(a["exposure"]), Contrast = F(a["contrast"]), Temperature = a["temperature"] is { } tt ? F(tt) : null, Tint = a["tint"] is { } tn ? F(tn) : null,
                 Vibrance = F(a["vibrance"]), Saturation = F(a["saturation"]), Sharpening = F(a["sharpening"]), Shadows = F(a["shadows"]),
                 Highlights = F(a["highlights"]), Clarity = F(a["clarity"]),
+                HighlightRecovery = a["highlight_recovery"] is { } hr ? F(hr) : 0f, GamutCompress = a["gamut_compress"] is { } gc && gc.GetValue<int>() != 0,
             },
             Transform = PhotoEditImpl.Describe(lt),
             FNumber = o["fnumber"] is { } fn ? F(fn) : null, FocusMm = o["focus"] is { } fo ? F(fo) : null,

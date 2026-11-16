@@ -61,6 +61,7 @@ A photo beside its depth map:
 - .DNG and .JPG outputs 1:1 with Lumen
 - MTP device connection for querying storage and pulling images (tested on Linux and Windows)
 - .HDR and .PPM export formats (the Lumen code contains them but never uses them)
+- 16-bit TIFF, scene-linear floating-point TIFF and HDR gain-map JPG export formats (Lux formats; Lumen does not have them)
 - GDepth and stereo depth map export
 - Individual module image export (JPG only)
 - Parallax effect animations and stills
@@ -82,8 +83,8 @@ A photo beside its depth map:
   `pull`, `version`, `edits-info`, `import-lumen-edits`, `cache`, `animate`. `convert` produces pictures and `animate` produces
   animations. `convert` writes:
   - Lumen's formats: DNG, JPG, HDR, PPM and JPEG+GDepth.
-  - The Lux formats that use the same render: the stereo depth pair, `lens-frames` and the
-    experimental `parallax-*` animations and stills.
+  - The Lux formats that use the same render: the 16-bit TIFF, the scene-linear TIFF, the HDR gain-map JPG, the stereo depth
+    pair, `lens-frames` and the experimental `parallax-*` animations and stills.
 - **Lux.Library** — the photo library that the app uses: folders, albums, ratings, the job queue, edit sessions and camera import.
 - **Lux.App** — the desktop app (Avalonia).
 - **Lux.Store** — what Lux keeps per capture on disk (the `LuxImageContext` folder): the depth-edit database and the
@@ -475,7 +476,7 @@ Inverse mapping, for consumers: `d = far·near / (far − u·(far − near))` wi
 | compression | DNG: uncompressed strips or lossless JPEG tiles |
 | color space | the color space setting of Lumen's export (§6.4); only the JPEG path uses it |
 | exposure / f-number / ISO / focal | Exif values; `AllInFocusFNumber` is computed as `aperture · equiv35 / physical` |
-| tone & color | the editor's sliders (exposure, contrast, temperature, tint, vibrance, saturation, sharpening) and shadows / highlights / clarity, each mapped onto the output-ISP stage it drives (§6.3); JPEG path only |
+| tone & color | the editor's sliders (exposure, contrast, temperature, tint, vibrance, saturation, sharpening) and shadows / highlights / clarity, each mapped onto the output-ISP stage it drives (§6.3); also highlight recovery and gamut compression, which are Lux processing in the tone stage; JPEG path only |
 
 
 ## Where Lux keeps a photo's data
@@ -669,7 +670,7 @@ With no options, `convert` replicates Lumen's output pixel for pixel: DNG (fmt 2
 | `--out-file <path>` | Name the output file (only when the run makes exactly one file) |
 | `-j, --threads <n>` | Number of inputs converted in parallel (default: CPU count) |
 | `--render-threads <n>` | Threads per input for the tile render (default: CPU count ÷ the inputs converted at once; 1 = sequential) |
-| `--formats <list>` | Comma-separated list of formats (default dng,jpg)<br>Lumen formats: dng, jpg, hdr, ppm, jpg+depth<br>Lux formats: depth, lens-frames, parallax-wiggle, parallax-wiggle-interp, parallax-orbit, parallax-single, parallax-rack, parallax-dolly, parallax-dof, parallax-anaglyph, parallax-crosseye, parallax-sbs, parallax-still<br>all: every format above except hdr and ppm<br>`depth` is the stereo depth pair in metric millimeters (`<stem>_depth.f32` + `<stem>_depth.jpg`) on the exported grid. The Lux formats are named `<stem>_<format>.<ext>`. lens-frames writes `<stem>_<module>.jpg` |
+| `--formats <list>` | Comma-separated list of formats (default dng,jpg)<br>Lumen formats: dng, jpg, hdr, ppm, jpg+depth<br>Lux formats: tiff16, tiff-linear, jpg-hdr, depth, lens-frames, parallax-wiggle, parallax-wiggle-interp, parallax-orbit, parallax-single, parallax-rack, parallax-dolly, parallax-dof, parallax-anaglyph, parallax-crosseye, parallax-sbs, parallax-still<br>all: every format above except hdr, ppm, tiff16, tiff-linear and jpg-hdr<br>`depth` is the stereo depth pair in metric millimeters (`<stem>_depth.f32` + `<stem>_depth.jpg`) on the exported grid. The Lux formats are named `<stem>_<format>.<ext>`. lens-frames writes `<stem>_<module>.jpg`. tiff16 writes `<stem>.tif`, tiff-linear writes `<stem>_linear.tif` and jpg-hdr writes `<stem>_hdr.jpg` |
 
 #### GRID (picks the pixel grid; leaves tone and color alone)
 
@@ -722,9 +723,12 @@ These are the controls of Lumen's editor. They change how the picture is rendere
 | \* | `--shadows <v>` | Lift (+) or deepen (−) the shadows, −100 to 100 |
 | \* | `--highlights <v>` | Darken (+) or brighten (−) the brightest tones, −100 to 100. The effect is small: Lumen's curve acts mainly on values above white, which the JPG clips. At +100 a tone at white becomes about 2 % darker and a tone at 60 % of white does not change. Clipped areas stay clipped: this control does not recover highlights |
 | \* | `--clarity <v>` | More (+) or less (−) local contrast in the midtones, −100 to 100 |
+| \* | `--highlight-recovery <v>` | Bring back highlights that Lumen's tone curve clips, 0 to 100 (default 0 = Lumen's rendering). The picture holds about one stop of tones above Lumen's white. A larger value moves the white point up: the input that reaches white is 2^(v/100) times Lumen's, one stop more at 100. Tones below 80 % of white do not change. The brightest tones lose color toward white. Areas that the sensors clipped stay white |
+| \* | `--gamut-compress` | Keep colors outside the output color space at its boundary, with their hue and gradation. Without this option each channel clips, as in Lumen. Very saturated colors inside the color space become slightly less saturated. Other colors do not change |
 
 `--shadows`, `--highlights` and `--clarity` are Lux controls. The processing is part of Lumen's software, but Lumen never offered
 it as controls.
+`--highlight-recovery` and `--gamut-compress` are Lux processing that Lumen does not have.
 
 #### NOISE
 
@@ -778,6 +782,7 @@ a `LuxImageContext` folder, convert also keeps the geometry and depth that it co
 | \* | `--dng-cs <n>` | Color space setting of Lumen's export, for the Exif ColorSpace tag (default 0 = none, Lumen's value for a DNG) |
 | \* | `--dng-tone <profile>` | Tone curve written to the DNG: acr \| light_v1 \| light_v1_lowlight \| light_v2 |
 | \* | `--dng-comp <0\|1>` | 0 = uncompressed, 1 = lossless JPEG (default) |
+| \* | `--dng-highlights <clip\|keep>` | keep = write the samples at half their value and BaselineExposure one stop higher, so that a raw developer does not clip the tones up to one stop above white. A developer that reads BaselineExposure shows the same brightness. A developer that ignores it shows the picture one stop darker. clip = Lumen's file (default) |
 
 #### JPEG
 
@@ -799,6 +804,27 @@ Each of these options also applies to jpg+depth.
 | | Option | Description |
 |---|---|---|
 | \* | `--hdr-cs <n>` | Color space setting of Lumen's export (default 1 = linear_srgb). The .hdr file does not depend on it |
+
+#### TIFF
+
+tiff16 is the picture of the JPG with 16 bits per channel. tiff-linear is the picture before the tone curve, as floating-point values in linear ProPhoto RGB. In tiff-linear a value of 1 is the level that the JPG shows as white. Brighter values are kept, so an editor can bring back highlights that the JPG clips. Both files are classic TIFF with an ICC profile and Exif data. Both come from the render of the JPG: the tone and color adjustments, the depth effect, the noise controls, `--rotate`, `--transform`, `--upright`, `--jpeg-v2` and `--jpeg-sharpening` apply to them as they apply to the JPG.
+
+| Option | Description |
+|---|---|
+| `--tiff-cs <name>` | Color space of tiff16: srgb (default), p3 (Display P3) or adobergb (Adobe RGB) |
+| `--tiff-compression <c>` | deflate (default), lzw or none. The bytes of a Deflate-compressed file can differ between platforms. The pixels are the same |
+| `--tiff-depth <d>` | Sample type of tiff-linear: f32 (32-bit floating point, default) or f16 (16-bit floating point) |
+
+#### JPG-HDR
+
+jpg-hdr is the JPG with a gain map. An HDR display shows brighter highlights. Other displays and programs show the JPG. The compressed picture data of the JPG is the same, byte for byte. The file follows the Ultra HDR Image Format v1.1 and ISO 21496-1 and has an sRGB ICC profile. Each option that applies to the JPG also applies to jpg-hdr, except `--jpeg-cs`.
+
+| Option | Description |
+|---|---|
+| `--gainmap <kind>` | rgb (default): one gain for each color channel. luminance: one gain for the brightness, which gives a smaller file and less accurate highlight colors |
+| `--gainmap-scale <n>` | The gain map has 1/n of the width and height of the picture: 4 (default), 2 or 1 |
+| `--gainmap-quality <n>` | JPEG quality of the gain map, 1-100 (default 90) |
+| `--hdr-max-size <px>` | Scale the picture down so that neither side is larger than this (default: no limit). Some decoders refuse a gain-map JPEG with a side above 8192 px, and a full-size export is up to 10432 px wide |
 
 #### PPM
 
@@ -1032,3 +1058,7 @@ The release page is https://github.com/mprovenz/lux/releases.
 
 ## License
 Lux is released under the GNU General Public License, version 3. See [LICENSE](LICENSE).
+
+This product includes DNG technology under license by Adobe.
+
+This product includes Gain Map technology under license by Adobe.

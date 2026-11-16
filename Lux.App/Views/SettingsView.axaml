@@ -221,6 +221,11 @@
             <Button Grid.Column="1" Content="Check now" Command="{Binding CheckNowCommand}" IsEnabled="{Binding CanCheck}" IsVisible="{Binding IsAvailable}" />
             <Button Grid.Column="2" Classes="accent" Content="Restart to update" Command="{Binding RestartCommand}" IsVisible="{Binding CanRestart}" />
           </Grid>
+          <StackPanel x:Name="FileFormatsNote" Spacing="2">
+            <TextBlock Classes="strong" Text="File formats" />
+            <TextBlock Classes="secondary small wrap" Text="This product includes DNG technology under license by Adobe." />
+            <TextBlock Classes="secondary small wrap" Text="This product includes Gain Map technology under license by Adobe." />
+          </StackPanel>
         </StackPanel>
       </Border>
 

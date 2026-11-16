@@ -14,14 +14,15 @@ namespace Lux.App.Develop;
 public static class AdjustmentKeys
 {
     public const string Exposure = "exposure", Contrast = "contrast", Highlights = "highlights", Shadows = "shadows", Clarity = "clarity",
+        HighlightRecovery = "highlight-recovery", GamutCompress = "gamut-compress",
         Temperature = "temperature", Tint = "tint", Vibrance = "vibrance", Saturation = "saturation", Sharpening = "sharpening";
 
-    public static readonly IReadOnlyList<string> All = new[] { Exposure, Contrast, Highlights, Shadows, Clarity, Temperature, Tint, Vibrance, Saturation, Sharpening };
+    public static readonly IReadOnlyList<string> All = new[] { Exposure, Contrast, Highlights, HighlightRecovery, Shadows, Clarity, Temperature, Tint, Vibrance, Saturation, GamutCompress, Sharpening };
 
     /// <summary>The copy / paste group of a key (the library's groups: tone, color, sharpening).</summary>
     public static EditGroups GroupOf(string key) => key switch
     {
-        Temperature or Tint or Vibrance or Saturation => EditGroups.Colour,
+        Temperature or Tint or Vibrance or Saturation or GamutCompress => EditGroups.Colour,
         Sharpening => EditGroups.Sharpening,
         _ => EditGroups.Tone,
     };
@@ -31,6 +32,7 @@ public static class AdjustmentKeys
         Exposure => AdjustmentKey.Exposure, Contrast => AdjustmentKey.Contrast, Temperature => AdjustmentKey.Temperature, Tint => AdjustmentKey.Tint,
         Vibrance => AdjustmentKey.Vibrance, Saturation => AdjustmentKey.Saturation, Sharpening => AdjustmentKey.Sharpening,
         Shadows => AdjustmentKey.Shadows, Highlights => AdjustmentKey.Highlights, Clarity => AdjustmentKey.Clarity,
+        HighlightRecovery => AdjustmentKey.HighlightRecovery, GamutCompress => AdjustmentKey.GamutCompress,
         _ => throw new ArgumentOutOfRangeException(nameof(key), key, "unknown adjustment"),
     };
 
@@ -39,6 +41,7 @@ public static class AdjustmentKeys
         AdjustmentKey.Exposure => Exposure, AdjustmentKey.Contrast => Contrast, AdjustmentKey.Temperature => Temperature, AdjustmentKey.Tint => Tint,
         AdjustmentKey.Vibrance => Vibrance, AdjustmentKey.Saturation => Saturation, AdjustmentKey.Sharpening => Sharpening,
         AdjustmentKey.Shadows => Shadows, AdjustmentKey.Highlights => Highlights, AdjustmentKey.Clarity => Clarity,
+        AdjustmentKey.HighlightRecovery => HighlightRecovery, AdjustmentKey.GamutCompress => GamutCompress,
         _ => key.ToString().ToLowerInvariant(),
     };
 }
@@ -46,14 +49,23 @@ public static class AdjustmentKeys
 public enum SliderScale { Linear, Log }
 
 /// <summary>One adjustment: its plain name, range, default and how its value is written.</summary>
+/// <param name="Toggle">The adjustment is a switch: the value is 0 (off) or 1 (on), and the panel shows a check box.</param>
 public sealed record AdjustmentSpec(string Key, string Name, double Min, double Max, double Default, double Step, int Decimals,
-                                    string Unit = "", bool Signed = true, SliderScale Scale = SliderScale.Linear, string? Tip = null)
+                                    string Unit = "", bool Signed = true, SliderScale Scale = SliderScale.Linear, string? Tip = null, bool Toggle = false)
 {
+    /// <summary>The name of the highlight recovery slider and its tip.</summary>
+    public const string HighlightRecoveryName = "Highlight recovery",
+        HighlightRecoveryTip = "Bring back highlights that Lumen's tone curve clips. 100 moves the white point up by one stop. Midtones and shadows do not change";
+    /// <summary>The name of the gamut compression check box and its tip.</summary>
+    public const string GamutCompressName = "Keep saturated colors in gamut",
+        GamutCompressTip = "Colors that the screen cannot show keep their hue and gradation. Without it they clip, as in Lumen";
+
     static readonly CultureInfo En = CultureInfo.InvariantCulture;
 
     /// <summary>"+0.30", "−20", "0", "5600 K".</summary>
     public string Format(double v)
     {
+        if (Toggle) return v >= 0.5 ? "on" : "off";
         double r = Math.Round(v, Decimals);
         if (Math.Abs(r) < Math.Pow(10, -Decimals) / 2) r = 0;
         string n = Math.Abs(r).ToString("F" + Decimals, En);
@@ -91,6 +103,7 @@ public sealed record AdjustmentSpec(string Key, string Name, double Min, double 
         new AdjustmentSpec(AdjustmentKeys.Exposure, "Exposure", -3, 3, 0, 0.01, 2, Tip: "Brightness in stops"),
         new AdjustmentSpec(AdjustmentKeys.Contrast, "Contrast", -100, 100, 0, 1, 0),
         new AdjustmentSpec(AdjustmentKeys.Highlights, "Highlights", -100, 100, 0, 1, 0, Tip: "Darker or brighter highlights (a Lux control; Lumen never offered it)"),
+        new AdjustmentSpec(AdjustmentKeys.HighlightRecovery, HighlightRecoveryName, 0, 100, 0, 1, 0, Signed: false, Tip: HighlightRecoveryTip),
         new AdjustmentSpec(AdjustmentKeys.Shadows, "Shadows", -100, 100, 0, 1, 0, Tip: "Lift or deepen the shadows (a Lux control; Lumen never offered it)"),
         new AdjustmentSpec(AdjustmentKeys.Clarity, "Clarity", -100, 100, 0, 1, 0, Tip: "Local contrast (a Lux control; Lumen never offered it)"),
         new AdjustmentSpec(AdjustmentKeys.Temperature, "Temp", 2000, 20000, temperature, 10, 0, " K", Signed: false, Scale: SliderScale.Log,
@@ -98,6 +111,7 @@ public sealed record AdjustmentSpec(string Key, string Name, double Min, double 
         new AdjustmentSpec(AdjustmentKeys.Tint, "Tint", -150, 150, tint, 1, 0, Tip: "White balance: green (−) to magenta (+)"),
         new AdjustmentSpec(AdjustmentKeys.Vibrance, "Vibrance", -100, 100, 0, 1, 0),
         new AdjustmentSpec(AdjustmentKeys.Saturation, "Saturation", -100, 100, 0, 1, 0),
+        new AdjustmentSpec(AdjustmentKeys.GamutCompress, GamutCompressName, 0, 1, 0, 1, 0, Signed: false, Tip: GamutCompressTip, Toggle: true),
         new AdjustmentSpec(AdjustmentKeys.Sharpening, "Sharpen", -100, 100, 5, 1, 0),
     };
 }

@@ -1,3 +1,5 @@
+// This product includes DNG technology under license by Adobe.
+
 using Lux.Engine.Imaging;
 using System.Buffers.Binary;
 using System.Text;
@@ -95,6 +97,10 @@ public sealed class DngExportTags
     public float[]? HueSatMap1, HueSatMap2;            // the HueSatMap encoding (h outer, s inner, (hue°, sat, val))
     public string ToneMappingType = "light_v2";
     public float BaselineExposure;
+    /// <summary>False = Lumen's file. True = the samples are written at half their value and BaselineExposure is one stop higher, with the
+    /// same WhiteLevel. The tones up to one stop above white then stay below WhiteLevel, where a raw developer does not clip them. A
+    /// developer that reads BaselineExposure renders the picture at the same brightness.</summary>
+    public bool KeepHighlights;
     public float[] Neutral = { -1f, -1f, -1f };       // written only when all > 0
     // Exif fields
     public bool CameraIsLight = true;                  // true → Make/Model/UniqueCameraModel/Software
@@ -171,7 +177,8 @@ public static class DngWriter
                 var (rect, px) = generator(new RectI(bx, by, bx + BlockSize, by + BlockSize));
                 int w = rect.Width, h = rect.Height;
                 int lw = Math.Min(width - bx, w), lh = Math.Min(height - by, h);
-                var u16 = ToU16(px, w, h, threads);   // the whole block once
+                float gain = t.KeepHighlights ? 0.5f : 1f;
+                var u16 = ToU16(px, w, h, threads, gain);   // the whole block once
                 var jobs = new List<(int X, int Y, int Idx)>();
                 for (int y = 0; y < lh; y += th)
                     for (int x = 0; x < lw; x += tw)
@@ -228,7 +235,7 @@ public static class DngWriter
                                 for (int xx = 0; xx < vw; xx++)
                                     for (int c = 0; c < 3; c++)
                                     {
-                                        float v = px[((y + yy) * w + x + xx) * 4 + c] + 0.5f; if (v <= 0f) v = 0f; if (65535f <= v) v = 65535f;
+                                        float v = px[((y + yy) * w + x + xx) * 4 + c] * gain + 0.5f; if (v <= 0f) v = 0f; if (65535f <= v) v = 65535f;
                                         BinaryPrimitives.WriteUInt16LittleEndian(row.AsSpan(xx * 6 + c * 2), (ushort)(short)(int)v);
                                     }
                             s.Write(row);
@@ -254,15 +261,16 @@ public static class DngWriter
         ifd0.Write(s);
     }
 
-    /// <summary>The vec4x32f → Vec4&lt;u16&gt; conversion: `u16 = (int)clamp(v + copysign(0.5, v), 0, 65535)`.</summary>
-    public static ushort[] ToU16(float[] px, int w, int h, int threads = 1)
+    /// <summary>The vec4x32f → Vec4&lt;u16&gt; conversion: `u16 = (int)clamp(v + copysign(0.5, v), 0, 65535)`, with v the sample times
+    /// <paramref name="gain"/> (1 = Lumen's file; a multiplication by 1 changes no bit).</summary>
+    public static ushort[] ToU16(float[] px, int w, int h, int threads = 1, float gain = 1f)
     {
         var o = new ushort[w * h * 4];
         void Row(int y)
         {
             for (int i = y * w * 4, e = i + w * 4; i < e; i++)
             {
-                float v = px[i];
+                float v = px[i] * gain;
                 float r = BitConverter.Int32BitsToSingle((int)((BitConverter.SingleToInt32Bits(v) & unchecked((int)0x80000000)) | 0x3f000000)) + v;
                 if (r <= 0f) r = 0f; if (65535f <= r) r = 65535f;
                 o[i] = (ushort)((int)r & 0xffff);
@@ -380,7 +388,7 @@ public static class DngWriter
         ifd0.Bytes(0xc612, 1, 3, 0, 0);         // DNGVersion
         ifd0.Bytes(0xc613, 1, 2, 0, 0);         // DNGBackwardVersion
         ifd0.Short(0xc619, 1, 1);               // BlackLevelRepeatDim
-        ifd0.SRational(0xc62a, TiffDirectory.SRat24(t.BaselineExposure));
+        ifd0.SRational(0xc62a, TiffDirectory.SRat24(t.KeepHighlights ? t.BaselineExposure + 1f : t.BaselineExposure));
     }
 }
 

@@ -140,9 +140,13 @@ internal static class FakeScene
         double D(string key) => specs.First(s => s.Key == key).Default;
         double ev = V(AdjustmentKeys.Exposure), con = V(AdjustmentKeys.Contrast) / 100, hi = V(AdjustmentKeys.Highlights) / 100, sh = V(AdjustmentKeys.Shadows) / 100;
         double cla = V(AdjustmentKeys.Clarity) / 100, sat = V(AdjustmentKeys.Saturation) / 100, vib = V(AdjustmentKeys.Vibrance) / 100;
+        // the two Lux settings: stand-ins that change the picture (a lower top of the curve; slightly less saturation)
+        double rec = values.TryGetValue(AdjustmentKeys.HighlightRecovery, out var hr) ? hr / 100 : 0;
+        bool gamut = values.TryGetValue(AdjustmentKeys.GamutCompress, out var gcv) && gcv >= 0.5;
+        if (gamut) sat -= 0.08;
         double temp = V(AdjustmentKeys.Temperature), tint = V(AdjustmentKeys.Tint) - D(AdjustmentKeys.Tint);
         double warm = Math.Log2(temp / D(AdjustmentKeys.Temperature));
-        bool tone = Math.Abs(ev) > 1e-6 || Math.Abs(con) > 1e-6 || Math.Abs(hi) > 1e-6 || Math.Abs(sh) > 1e-6 || Math.Abs(cla) > 1e-6;
+        bool tone = Math.Abs(ev) > 1e-6 || Math.Abs(con) > 1e-6 || Math.Abs(hi) > 1e-6 || Math.Abs(sh) > 1e-6 || Math.Abs(cla) > 1e-6 || rec > 1e-6;
         bool colour = Math.Abs(warm) > 1e-6 || Math.Abs(tint) > 1e-6 || Math.Abs(sat) > 1e-6 || Math.Abs(vib) > 1e-6;
         if (!tone && !colour) return null;
 
@@ -153,6 +157,7 @@ internal static class FakeScene
             double x = i / 255.0 * gain;
             x += sh * 0.35 * Math.Pow(Math.Max(0, 1 - x), 3);            // lift / deepen the shadows
             x -= hi * 0.35 * Math.Pow(Math.Clamp(x, 0, 1), 3);           // recover / push the highlights
+            if (x > 0.8) x = 0.8 + (x - 0.8) / (1 + rec);                // highlight recovery: a shoulder above 80 %
             x = (x - 0.5) * k + 0.5;
             lut[i] = (byte)Math.Clamp(Math.Round(x * 255), 0, 255);
         }

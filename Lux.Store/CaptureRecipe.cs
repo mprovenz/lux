@@ -57,6 +57,13 @@ public sealed class CaptureRecipe
                 ["highlights"] = B(a.Highlights), ["clarity"] = B(a.Clarity),
             };
         else o["adjustments"] = null;
+        // The two Lux settings are written only when they are set: a recipe without them keeps its bytes, and a recipe from an earlier
+        // version reads as "not set".
+        if (Adjustments is { } lux && o["adjustments"] is JsonObject ao)
+        {
+            if (lux.HighlightRecovery != 0f) ao["highlight_recovery"] = B(lux.HighlightRecovery);
+            if (lux.GamutCompress) ao["gamut_compress"] = 1;
+        }
         o["transform"] = Transform is { } t
             ? new JsonObject
             {
@@ -83,6 +90,7 @@ public sealed class CaptureRecipe
                 Exposure = F(a["exposure"]), Contrast = F(a["contrast"]), Temperature = OptF(a["temperature"]), Tint = OptF(a["tint"]),
                 Vibrance = F(a["vibrance"]), Saturation = F(a["saturation"]), Sharpening = F(a["sharpening"]), Shadows = F(a["shadows"]),
                 Highlights = F(a["highlights"]), Clarity = F(a["clarity"]),
+                HighlightRecovery = a["highlight_recovery"] is { } hr ? F(hr) : 0f, GamutCompress = a["gamut_compress"] is { } gc && gc.GetValue<int>() != 0,
             };
         ExportTransform? tr = null;
         if (o["transform"] is JsonObject t)

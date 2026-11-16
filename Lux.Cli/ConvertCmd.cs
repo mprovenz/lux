@@ -29,13 +29,15 @@ public static class ConvertCmd
     /// <summary>The parsed `--formats` list: the Lumen rasters, the depth pair, and the Lux formats.</summary>
     public sealed record FormatSet(ExportImageFormat[] Raster, bool Depth, bool LensFrames, ParallaxFormat[] Parallax)
     {
-        public int Count => Raster.Length + (Depth ? 1 : 0) + (LensFrames ? 1 : 0) + Parallax.Length;
+        /// <summary>The still formats of Lux: tiff16, tiff-linear, jpg-hdr.</summary>
+        public StillFormat[] Still { get; init; } = Array.Empty<StillFormat>();
+        public int Count => Raster.Length + Still.Length + (Depth ? 1 : 0) + (LensFrames ? 1 : 0) + Parallax.Length;
         /// <summary>Every name, in the `--formats` spelling.</summary>
-        public IEnumerable<string> Names => Raster.Select(NameOf).Concat(Depth ? new[] { "depth" } : Array.Empty<string>())
+        public IEnumerable<string> Names => Raster.Select(NameOf).Concat(Still.Select(StillFormats.NameOf)).Concat(Depth ? new[] { "depth" } : Array.Empty<string>())
             .Concat(LensFrames ? new[] { "lens-frames" } : Array.Empty<string>()).Concat(Parallax.Select(ParallaxFormats.Name));
     }
 
-    public const string KnownFormats = "dng, jpg, hdr, ppm, jpg+depth, depth, all, lens-frames, parallax-wiggle, parallax-wiggle-interp, "
+    public const string KnownFormats = "dng, jpg, hdr, ppm, jpg+depth, tiff16, tiff-linear, jpg-hdr, depth, all, lens-frames, parallax-wiggle, parallax-wiggle-interp, "
                                      + "parallax-orbit, parallax-single, parallax-rack, parallax-dolly, parallax-dof, parallax-anaglyph, "
                                      + "parallax-crosseye, parallax-sbs, parallax-still";
 
@@ -45,7 +47,7 @@ public static class ConvertCmd
     public static FormatSet ParseFormats(string list)
     {
         var outp = new List<ExportImageFormat>(); bool depth = false, lens = false;
-        var px = new List<ParallaxFormat>();
+        var px = new List<ParallaxFormat>(); var still = new List<StillFormat>();
         foreach (var raw in list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             string t = raw.ToLowerInvariant();
@@ -58,6 +60,7 @@ public static class ConvertCmd
             }
             if (t == "depth") { depth = true; continue; }
             if (t == "lens-frames") { lens = true; continue; }
+            if (StillFormats.TryParse(t, out StillFormat sf)) { if (!still.Contains(sf)) still.Add(sf); continue; }
             if (ParallaxFormats.TryParse(t, out var pf)) { if (!px.Contains(pf)) px.Add(pf); continue; }
             ExportImageFormat v = t switch
             {
@@ -70,7 +73,7 @@ public static class ConvertCmd
             };
             if (!outp.Contains(v)) outp.Add(v);
         }
-        var set = new FormatSet(outp.ToArray(), depth, lens, px.ToArray());
+        var set = new FormatSet(outp.ToArray(), depth, lens, px.ToArray()) { Still = still.ToArray() };
         if (set.Count == 0) throw new FormatException("--formats needs at least one format");
         return set;
     }
@@ -88,6 +91,7 @@ public static class ConvertCmd
         ("--dng-cs",        new[] { ExportImageFormat.Dng }),
         ("--dng-tone",      new[] { ExportImageFormat.Dng }),
         ("--dng-comp",      new[] { ExportImageFormat.Dng }),
+        ("--dng-highlights", new[] { ExportImageFormat.Dng }),
         ("--jpeg-cs",       new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-quality",  new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-sub",      new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
@@ -105,6 +109,8 @@ public static class ConvertCmd
         ("--shadows",       new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--highlights",    new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--clarity",       new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
+        ("--highlight-recovery", new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
+        ("--gamut-compress", new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-comment",  new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-software", new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         // the noise controls change the merged image, which every raster format is written from
@@ -123,6 +129,27 @@ public static class ConvertCmd
         ("--rotate",        new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth, ExportImageFormat.Hdr, ExportImageFormat.Ppm }),
         ("--transform",     new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth, ExportImageFormat.Hdr, ExportImageFormat.Ppm }),
         ("--upright",       new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth, ExportImageFormat.Hdr, ExportImageFormat.Ppm }),
+    };
+
+    /// <summary>Whether a flag of <see cref="Scoped"/> also applies to a still format of Lux. These formats are written from the render
+    /// of the JPG, so they take each flag of the JPG that changes the render or the Exif values. `jpg-hdr` holds the JPG itself and also
+    /// takes the flags of its encoder. `--jpeg-cs` applies to none: `jpg-hdr` needs sRGB, and the TIFF formats have `--tiff-cs`.</summary>
+    static bool AppliesToStill(string flag, ExportImageFormat[] needs, StillFormat f)
+    {
+        if (!needs.Contains(ExportImageFormat.Jpeg) || flag == "--jpeg-cs") return false;
+        return f == StillFormat.JpegHdr || flag is not ("--jpeg-quality" or "--jpeg-sub" or "--jpeg-comment");
+    }
+
+    /// <summary>The flags of the still formats of Lux, and the formats that read each.</summary>
+    static readonly (string Flag, StillFormat[] Needs)[] StillScoped =
+    {
+        ("--tiff-cs",          new[] { StillFormat.Tiff16 }),
+        ("--tiff-compression", new[] { StillFormat.Tiff16, StillFormat.TiffLinear }),
+        ("--tiff-depth",       new[] { StillFormat.TiffLinear }),
+        ("--gainmap",          new[] { StillFormat.JpegHdr }),
+        ("--gainmap-scale",    new[] { StillFormat.JpegHdr }),
+        ("--gainmap-quality",  new[] { StillFormat.JpegHdr }),
+        ("--hdr-max-size",     new[] { StillFormat.JpegHdr }),
     };
 
     static readonly string[] LensFlags = { "--lens-quality", "--lens-ev", "--lens-level", "--lens-profile", "--lens-modules", "--lens-stack" };
@@ -190,10 +217,42 @@ public static class ConvertCmd
         {
             if (!o.Given.Contains(flag)) continue;
             if (needs.Any(formats.Contains)) continue;
+            if (set.Still.Any(f => AppliesToStill(flag, needs, f))) continue;
             error = $"{flag} configures a format this run does not write (--formats {label}). "
-                  + $"It applies to: {string.Join(", ", needs.Select(NameOf).Distinct())}";
+                  + $"It applies to: {string.Join(", ", needs.Select(NameOf).Distinct().Concat(StillFormats.All.Where(f => AppliesToStill(flag, needs, f)).Select(StillFormats.NameOf)))}";
             return null;
         }
+        foreach (var (flag, needs) in StillScoped)
+        {
+            if (!o.Given.Contains(flag) || needs.Any(set.Still.Contains)) continue;
+            error = $"{flag} configures a format this run does not write (--formats {label}). It applies to: {string.Join(", ", needs.Select(StillFormats.NameOf))}";
+            return null;
+        }
+
+        // ---- the values of the TIFF and gain-map flags
+        var tiff = new TiffOptions(); var gainMap = new GainMapOptions();
+        if (o.TiffCs is not null)
+        {
+            if (!StillFormats.TryParseColorSpace(o.TiffCs, out var tcs)) { error = "--tiff-cs must be srgb, p3 or adobergb"; return null; }
+            tiff = tiff with { ColorSpace = tcs };
+        }
+        if (o.TiffCompression is not null)
+        {
+            if (o.TiffCompression is not ("deflate" or "lzw" or "none")) { error = "--tiff-compression must be deflate, lzw or none"; return null; }
+            tiff = tiff with { Compression = o.TiffCompression switch { "lzw" => TiffCompression.Lzw, "none" => TiffCompression.None, _ => TiffCompression.Deflate } };
+        }
+        if (o.TiffDepth is not null)
+        {
+            if (o.TiffDepth is not ("f32" or "f16")) { error = "--tiff-depth must be f32 or f16"; return null; }
+            tiff = tiff with { LinearDepth = o.TiffDepth == "f16" ? TiffFloatDepth.Float16 : TiffFloatDepth.Float32 };
+        }
+        if (o.GainMap is not null and not ("rgb" or "luminance")) { error = "--gainmap must be rgb or luminance"; return null; }
+        if (o.GainMapScale is not null and not (4 or 2 or 1)) { error = "--gainmap-scale must be 4, 2 or 1"; return null; }
+        if (o.GainMapQuality is int gq && gq is < 1 or > 100) { error = "--gainmap-quality must be between 1 and 100"; return null; }
+        if (o.HdrMaxSize is int hm && hm < 16) { error = "--hdr-max-size must be at least 16 (pixels)"; return null; }
+        gainMap = gainMap with { Rgb = o.GainMap != "luminance", Scale = o.GainMapScale ?? gainMap.Scale, Quality = o.GainMapQuality ?? gainMap.Quality, MaxSize = o.HdrMaxSize };
+        if (set.Still.Contains(StillFormat.JpegHdr) && o.JpegCs is not null and not 4)
+        { error = "jpg-hdr needs the sRGB color space for the JPG; it cannot be combined with another --jpeg-cs"; return null; }
         foreach (var flag in LensFlags)
         {
             if (!o.Given.Contains(flag) || set.LensFrames) continue;
@@ -241,7 +300,7 @@ public static class ConvertCmd
         }
 
         // ---- --out-file: one input × one format × that format emitting one file
-        int fileCount = formats.Length + (depth ? 2 : 0) + px.Length;   // `depth` writes the .f32 AND the .jpg preview
+        int fileCount = formats.Length + set.Still.Length + (depth ? 2 : 0) + px.Length;   // `depth` writes the .f32 AND the .jpg preview
         if (o.OutFile is not null)
         {
             if (o.OutDirectory is not null) { error = "--out-file and --out-directory are alternatives; pass one"; return null; }
@@ -270,6 +329,8 @@ public static class ConvertCmd
         { error = "--focus-point is given in the unrotated image; it cannot be combined with --rotate"; return null; }
 
         if (o.MemoryBudgetGb is double mb && !(mb > 0)) { error = "--memory-budget takes a size in GB greater than 0"; return null; }
+        if (o.DngHighlights is not null and not ("clip" or "keep")) { error = "--dng-highlights takes clip or keep"; return null; }
+        bool keepDngHighlights = o.DngHighlights == "keep";
         // ---- tone & color
         if (o.Sharpening is not null && o.JpegSharpening is not null) { error = "--sharpening and --jpeg-sharpening set the same thing — give one"; return null; }
         Adjustments? adjustments = null;
@@ -286,13 +347,15 @@ public static class ConvertCmd
                  ?? Range("--sharpening", o.Sharpening, Adjustments.PercentMin, Adjustments.PercentMax)
                  ?? Range("--shadows", o.Shadows, Adjustments.PercentMin, Adjustments.PercentMax)
                  ?? Range("--highlights", o.Highlights, Adjustments.PercentMin, Adjustments.PercentMax)
-                 ?? Range("--clarity", o.Clarity, Adjustments.PercentMin, Adjustments.PercentMax);
+                 ?? Range("--clarity", o.Clarity, Adjustments.PercentMin, Adjustments.PercentMax)
+                 ?? Range("--highlight-recovery", o.HighlightRecovery, HighlightRecovery.AmountMin, HighlightRecovery.AmountMax);
             if (error is not null) return null;
             adjustments = new Adjustments
             {
                 Exposure = o.Exposure ?? 0f, Contrast = o.Contrast ?? 0f, Temperature = o.Temperature, Tint = o.Tint,
                 Vibrance = o.Vibrance ?? 0f, Saturation = o.Saturation ?? 0f, Sharpening = o.Sharpening ?? o.JpegSharpening ?? Adjustments.GuiSharpening,
                 Shadows = o.Shadows ?? 0f, Highlights = o.Highlights ?? 0f, Clarity = o.Clarity ?? 0f,
+                HighlightRecovery = o.HighlightRecovery ?? 0f, GamutCompress = o.GamutCompress,
                 // --sharpening is the monotone control of Lux. --jpeg-sharpening is Lumen's renderer property with Lumen's response.
                 MonotoneSharpening = o.Sharpening is not null,
             }.Validate();
@@ -321,6 +384,8 @@ public static class ConvertCmd
         Say("--exposure", o.Exposure); Say("--contrast", o.Contrast); Say("--temperature", o.Temperature); Say("--tint", o.Tint);
         Say("--vibrance", o.Vibrance); Say("--saturation", o.Saturation); Say("--sharpening", o.Sharpening);
         Say("--shadows", o.Shadows); Say("--highlights", o.Highlights); Say("--clarity", o.Clarity);
+        Say("--highlight-recovery", o.HighlightRecovery); if (o.GamutCompress) applied.Add("--gamut-compress");
+        if (keepDngHighlights) applied.Add("--dng-highlights keep");
         Say("--jpeg-modify", o.JpegModify?.ToString("yyyy-MM-ddTHH:mm:ss")); Say("--jpeg-comment", o.JpegComment); Say("--jpeg-software", o.JpegSoftware);
         Say("--grain-strength", o.GrainStrength?.ToString(System.Globalization.CultureInfo.InvariantCulture)); Say("--denoise-threshold", o.DenoiseThreshold?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Say("--hdr-cs", o.HdrCs);
@@ -328,7 +393,7 @@ public static class ConvertCmd
         if (applied.Count > 0)
             notes.Add($"adjustments: {string.Join(", ", applied)} — these depart from the values the .lri and Lumen's own rules supply");
 
-        var extras = (set.LensFrames ? new[] { "lens-frames" } : Array.Empty<string>()).Concat(px.Select(ParallaxFormats.Name)).ToList();
+        var extras = set.Still.Select(StillFormats.NameOf).Concat(set.LensFrames ? new[] { "lens-frames" } : Array.Empty<string>()).Concat(px.Select(ParallaxFormats.Name)).ToList();
         if (extras.Count > 0)
             notes.Add($"Lux formats: {string.Join(", ", extras)} — additive outputs beside the Lumen ones, which they never change"
                     + (px.Length > 0 ? "; the parallax formats are experimental and not held to the 1:1 bar" : ""));
@@ -353,6 +418,8 @@ public static class ConvertCmd
         foreach (var (v, id) in new (object?, string)[] { (o.Exposure, "2"), (o.Temperature, "3"), (o.Tint, "4"), (o.Shadows, "5"), (o.Highlights, "6"), (o.Contrast, "7"),
                                                           (o.Saturation, "8"), (o.Vibrance, "9"), (o.Clarity, "10"), (o.Sharpening ?? o.JpegSharpening, "13") })
             if (v is not null) overridden.Add(id);
+        if (o.HighlightRecovery is not null) overridden.Add("highlight-recovery");
+        if (o.GamutCompress) overridden.Add("gamut-compress");
 
         var req = new ExportRequest
         {
@@ -377,6 +444,7 @@ public static class ConvertCmd
             DngColorSpace = o.DngCs,
             ToneMappingType = o.DngTone,
             Compression = o.DngComp,
+            DngKeepHighlights = keepDngHighlights,
             JpegColorSpace = o.JpegCs,
             JpegQuality = o.JpegQuality,
             JpegSubsampling = o.JpegSub,
@@ -389,6 +457,7 @@ public static class ConvertCmd
             JpegSoftware = o.JpegSoftware,
             Noise = noise,
             HdrColorSpace = o.HdrCs,
+            Stills = set.Still, Tiff = tiff, GainMap = gainMap,
             LuxFormats = set.LensFrames || px.Length > 0 ? VisualFormats.Writer : null,
             LensFrames = set.LensFrames ? new LensRequest
             {

@@ -173,6 +173,7 @@ internal static class Convert
             [AdjustmentKeys.Exposure] = a.Exposure, [AdjustmentKeys.Contrast] = a.Contrast, [AdjustmentKeys.Vibrance] = a.Vibrance,
             [AdjustmentKeys.Saturation] = a.Saturation, [AdjustmentKeys.Sharpening] = a.Sharpening, [AdjustmentKeys.Shadows] = a.Shadows,
             [AdjustmentKeys.Highlights] = a.Highlights, [AdjustmentKeys.Clarity] = a.Clarity,
+            [AdjustmentKeys.HighlightRecovery] = a.HighlightRecovery, [AdjustmentKeys.GamutCompress] = a.GamutCompress ? 1 : 0,
         };
         // temperature / tint "as shot" (null) stay absent: the target photo keeps its own white balance
         if (a.Temperature is float t) d[AdjustmentKeys.Temperature] = t;
@@ -197,6 +198,7 @@ internal static class Convert
                 Exposure = V(AdjustmentKeys.Exposure, 0), Contrast = V(AdjustmentKeys.Contrast, 0), Vibrance = V(AdjustmentKeys.Vibrance, 0),
                 Saturation = V(AdjustmentKeys.Saturation, 0), Sharpening = V(AdjustmentKeys.Sharpening, Lux.Engine.Pipeline.Adjustments.GuiSharpening),
                 Shadows = V(AdjustmentKeys.Shadows, 0), Highlights = V(AdjustmentKeys.Highlights, 0), Clarity = V(AdjustmentKeys.Clarity, 0),
+                HighlightRecovery = V(AdjustmentKeys.HighlightRecovery, 0), GamutCompress = V(AdjustmentKeys.GamutCompress, 0) >= 0.5f,
                 Temperature = s.Values.TryGetValue(AdjustmentKeys.Temperature, out var t) ? (float)t : null,
                 Tint = s.Values.TryGetValue(AdjustmentKeys.Tint, out var u) ? (float)u : null,
             },
@@ -220,9 +222,14 @@ internal static class Convert
             string key = AdjustmentKeys.FromContract(a.Key);
             string name = a.Key switch { AdjustmentKey.Temperature => "Temp", AdjustmentKey.Sharpening => "Sharpen", _ => a.Name };
             bool temp = a.Key == AdjustmentKey.Temperature;
-            string tip = (a.LuxOnly ? $"{a.Name} (a Lux control; Lumen never offered it)" : a.Name) + (a.Note.Length > 0 ? $" · {a.Note}" : "");
-            list.Add(new AdjustmentSpec(key, name, a.Min, a.Max, a.Default, a.Step, a.Decimals, temp ? " K" : "", Signed: !temp,
-                temp ? SliderScale.Log : SliderScale.Linear, tip));
+            string tip = a.Key switch
+            {
+                AdjustmentKey.HighlightRecovery => AdjustmentSpec.HighlightRecoveryTip,
+                AdjustmentKey.GamutCompress => AdjustmentSpec.GamutCompressTip,
+                _ => a.LuxOnly ? $"{a.Name} (a Lux control; Lumen never offered it)" : a.Name,
+            } + (a.Note.Length > 0 ? $" · {a.Note}" : "");
+            list.Add(new AdjustmentSpec(key, name, a.Min, a.Max, a.Default, a.Step, a.Decimals, temp ? " K" : "", Signed: !temp && a.Min < 0,
+                temp ? SliderScale.Log : SliderScale.Linear, tip, Toggle: a.Key == AdjustmentKey.GamutCompress));
         }
         return list.OrderBy(s => order.ToList().IndexOf(s.Key) is var i && i < 0 ? 99 : i).ToList();
     }
@@ -542,6 +549,8 @@ public sealed class ContractDevelopSession : IDevelopSession
         Num("exposure", a.Exposure, d.Exposure, "0.00"); Num("contrast", a.Contrast, d.Contrast, "0"); Num("highlights", a.Highlights, d.Highlights, "0");
         Num("shadows", a.Shadows, d.Shadows, "0"); Num("clarity", a.Clarity, d.Clarity, "0"); Num("vibrance", a.Vibrance, d.Vibrance, "0");
         Num("saturation", a.Saturation, d.Saturation, "0");
+        if (a.HighlightRecovery != 0f) parts.Add($"highlight recovery {a.HighlightRecovery.ToString("0", inv)}");
+        if (a.GamutCompress) parts.Add("saturated colors kept in gamut");
         if (Math.Abs(a.Sharpening - d.Sharpening) > 1e-6f) parts.Add($"sharpening {a.Sharpening.ToString("0", inv)}");
         if (a.Temperature is float t) parts.Add($"temperature {t.ToString("0", inv)} K");
         if (a.Tint is float u) parts.Add($"tint {u.ToString("0.#", inv)}");

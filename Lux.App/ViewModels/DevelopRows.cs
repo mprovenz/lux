@@ -28,7 +28,22 @@ public sealed partial class AdjustmentRowViewModel : ObservableObject, IAdjustme
     public AdjustmentSpec Spec { get; }
     public string Key => Spec.Key;
     public string Name => Spec.Name;
-    public string Tip => (Spec.Tip ?? Spec.Name) + " — double-click the name to reset, click the number to type a value";
+    public string Tip => Spec.Toggle ? Spec.Tip ?? Spec.Name : (Spec.Tip ?? Spec.Name) + " — double-click the name to reset, click the number to type a value";
+    /// <summary>The row is a switch (a check box) and not a slider.</summary>
+    public bool IsToggle => Spec.Toggle;
+    public bool IsSlider => !Spec.Toggle;
+    /// <summary>The state of a switch row. A change is one history step.</summary>
+    public bool IsOn
+    {
+        get => _value >= 0.5;
+        set
+        {
+            if (value == IsOn || _session() is not { } s) return;
+            double v = value ? 1 : 0;
+            Show(v);
+            s.SetValue(Key, v);
+        }
+    }
     public double Value => _value;
     public string ValueText => Spec.Format(_value);
     public bool IsDefault => Math.Abs(_value - Spec.Default) < Spec.Step / 2;
@@ -119,6 +134,7 @@ public sealed partial class AdjustmentRowViewModel : ObservableObject, IAdjustme
         _value = v;
         if (!HasError && !IsEditing) EditText = Spec.Format(v);
         OnPropertyChanged(nameof(Value)); OnPropertyChanged(nameof(ValueText)); OnPropertyChanged(nameof(Position)); OnPropertyChanged(nameof(IsDefault));
+        if (Spec.Toggle) OnPropertyChanged(nameof(IsOn));
     }
 }
 

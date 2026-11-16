@@ -488,14 +488,19 @@
                   <ItemsControl x:Name="AdjustmentList" ItemsSource="{Binding Adjustments}" AutomationProperties.Name="Tone and color">
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:AdjustmentRowViewModel">
-                        <Grid ColumnDefinitions="84,*,62" Height="30">
-                          <TextBlock Classes="adjlabel" Classes.moved="{Binding !IsDefault}" Text="{Binding Name}" DoubleTapped="OnAdjustmentLabelDoubleTapped"
-                                     ToolTip.Tip="{Binding Tip}" />
-                          <c:AdjustmentSlider Grid.Column="1" Target="{Binding}" Position="{Binding Position}" AutomationProperties.Name="{Binding Name}"
-                                              TrackGradient="{Binding Key, Converter={x:Static v:DevelopView.TrackGradientOf}}" />
-                          <TextBox Grid.Column="2" Classes="valuefield" Classes.error="{Binding HasError}" Text="{Binding EditText}"
-                                   KeyDown="OnValueKeyDown" GotFocus="OnValueGotFocus" LostFocus="OnValueLostFocus" AutomationProperties.Name="{Binding Name}" />
-                        </Grid>
+                        <Panel>
+                          <Grid ColumnDefinitions="84,*,62" Height="30" IsVisible="{Binding IsSlider}">
+                            <!-- a name of two words (Highlight recovery) takes two lines -->
+                            <TextBlock Classes="adjlabel" Classes.moved="{Binding !IsDefault}" Text="{Binding Name}" DoubleTapped="OnAdjustmentLabelDoubleTapped"
+                                       ToolTip.Tip="{Binding Tip}" TextWrapping="Wrap" LineHeight="14" />
+                            <c:AdjustmentSlider Grid.Column="1" Target="{Binding}" Position="{Binding Position}" AutomationProperties.Name="{Binding Name}"
+                                                TrackGradient="{Binding Key, Converter={x:Static v:DevelopView.TrackGradientOf}}" />
+                            <TextBox Grid.Column="2" Classes="valuefield" Classes.error="{Binding HasError}" Text="{Binding EditText}"
+                                     KeyDown="OnValueKeyDown" GotFocus="OnValueGotFocus" LostFocus="OnValueLostFocus" AutomationProperties.Name="{Binding Name}" />
+                          </Grid>
+                          <CheckBox Content="{Binding Name}" IsChecked="{Binding IsOn}" IsVisible="{Binding IsToggle}" MinHeight="30"
+                                    ToolTip.Tip="{Binding Tip}" AutomationProperties.Name="{Binding Name}" />
+                        </Panel>
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>

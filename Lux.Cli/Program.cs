@@ -437,14 +437,16 @@ namespace Lux.Cli
                                               converted at once; 1 = sequential)
                       --formats <list>        Comma-separated list of formats (default dng,jpg)
                                                 Lumen formats: dng, jpg, hdr, ppm, jpg+depth
-                                                Lux formats: depth, lens-frames, parallax-wiggle,
-                                                parallax-wiggle-interp, parallax-orbit, parallax-single, parallax-rack,
-                                                parallax-dolly, parallax-dof, parallax-anaglyph, parallax-crosseye,
-                                                parallax-sbs, parallax-still
-                                                all: every format above except hdr and ppm
+                                                Lux formats: tiff16, tiff-linear, jpg-hdr, depth, lens-frames,
+                                                parallax-wiggle, parallax-wiggle-interp, parallax-orbit, parallax-single,
+                                                parallax-rack, parallax-dolly, parallax-dof, parallax-anaglyph,
+                                                parallax-crosseye, parallax-sbs, parallax-still
+                                                all: every format above except hdr, ppm, tiff16, tiff-linear and jpg-hdr
                                               `depth` is the stereo depth pair in metric millimeters (<stem>_depth.f32 +
                                               <stem>_depth.jpg) on the exported grid. The Lux formats are named
-                                              <stem>_<format>.<ext>. lens-frames writes <stem>_<module>.jpg
+                                              <stem>_<format>.<ext>. lens-frames writes <stem>_<module>.jpg. tiff16 writes
+                                              <stem>.tif, tiff-linear writes <stem>_linear.tif and jpg-hdr writes
+                                              <stem>_hdr.jpg
 
                   GRID (picks the pixel grid; leaves tone and color alone)
                       --level <n>             Export level, 0 = full size (default)
@@ -511,8 +513,20 @@ namespace Lux.Cli
                                               of white does not change. Clipped areas stay clipped: this control does
                                               not recover highlights
                     * --clarity <v>           More (+) or less (-) local contrast in the midtones, -100 to 100
+                    * --highlight-recovery <v>
+                                              Bring back highlights that Lumen's tone curve clips, 0 to 100 (default 0 =
+                                              Lumen's rendering). The picture holds about one stop of tones above
+                                              Lumen's white. A larger value moves the white point up: the input that
+                                              reaches white is 2^(v/100) times Lumen's, one stop more at 100. Tones
+                                              below 80 % of white do not change. The brightest tones lose color toward
+                                              white. Areas that the sensors clipped stay white
+                    * --gamut-compress        Keep colors outside the output color space at its boundary, with their hue
+                                              and gradation. Without this option each channel clips, as in Lumen. Very
+                                              saturated colors inside the color space become slightly less saturated.
+                                              Other colors do not change
                     --shadows, --highlights and --clarity are Lux controls. The processing is part of Lumen's software,
                     but Lumen never offered it as controls.
+                    --highlight-recovery and --gamut-compress are Lux processing that Lumen does not have.
 
                   NOISE (Lux controls of the per-lens processing; dng, jpg, jpg+depth, hdr, ppm)
                     Lumen denoises each lens image before it merges the lenses. Then it adds a blurred copy of the
@@ -557,6 +571,12 @@ namespace Lux.Cli
                     * --dng-tone <profile>    Tone curve written to the DNG: acr | light_v1 | light_v1_lowlight |
                                               light_v2
                     * --dng-comp <0|1>        0 = uncompressed, 1 = lossless JPEG (default)
+                    * --dng-highlights <clip|keep>
+                                              keep = write the samples at half their value and BaselineExposure one stop
+                                              higher, so that a raw developer does not clip the tones up to one stop
+                                              above white. A developer that reads BaselineExposure shows the same
+                                              brightness. A developer that ignores it shows the picture one stop darker.
+                                              clip = Lumen's file (default)
 
                   JPEG   (each of these also applies to jpg+depth)
                     * --jpeg-cs <n>           Color space setting of Lumen's export, for the Exif ColorSpace tag
@@ -577,6 +597,33 @@ namespace Lux.Cli
                   HDR
                     * --hdr-cs <n>            Color space setting of Lumen's export (default 1 = linear_srgb). The .hdr
                                               file does not depend on it
+
+                  TIFF
+                      tiff16 is the picture of the JPG with 16 bits per channel. tiff-linear is the picture before the tone
+                      curve, as floating-point values in linear ProPhoto RGB. In tiff-linear a value of 1 is the level that
+                      the JPG shows as white. Brighter values are kept, so an editor can bring back highlights that the JPG
+                      clips. Both files are classic TIFF with an ICC profile and Exif data. Both come from the render of the
+                      JPG: the tone and color adjustments, the depth effect, the noise controls, --rotate, --transform,
+                      --upright, --jpeg-v2 and --jpeg-sharpening apply to them as they apply to the JPG.
+                      --tiff-cs <name>        Color space of tiff16: srgb (default), p3 (Display P3) or adobergb (Adobe RGB)
+                      --tiff-compression <c>  deflate (default), lzw or none. The bytes of a Deflate-compressed file can
+                                              differ between platforms. The pixels are the same
+                      --tiff-depth <d>        Sample type of tiff-linear: f32 (32-bit floating point, default) or f16
+                                              (16-bit floating point)
+
+                  JPG-HDR
+                      jpg-hdr is the JPG with a gain map. An HDR display shows brighter highlights. Other displays and
+                      programs show the JPG. The compressed picture data of the JPG is the same, byte for byte. The file
+                      follows the Ultra HDR Image Format v1.1 and ISO 21496-1 and has an sRGB ICC profile. Each option that
+                      applies to the JPG also applies to jpg-hdr, except --jpeg-cs.
+                      --gainmap <kind>        rgb (default): one gain for each color channel. luminance: one gain for the
+                                              brightness, which gives a smaller file and less accurate highlight colors
+                      --gainmap-scale <n>     The gain map has 1/n of the width and height of the picture: 4 (default), 2
+                                              or 1
+                      --gainmap-quality <n>   JPEG quality of the gain map, 1-100 (default 90)
+                      --hdr-max-size <px>     Scale the picture down so that neither side is larger than this (default: no
+                                              limit). Some decoders refuse a gain-map JPEG with a side above 8192 px, and
+                                              a full-size export is up to 10432 px wide
 
                   PPM
                       (no options)

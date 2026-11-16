@@ -10,10 +10,12 @@ namespace Lux.Engine.Pipeline.Export;
 /// (Bradford) colorants of the common profiles of these spaces. sRGB IEC 61966-2.1 uses the sRGB formula as a 1024-entry table.
 /// Adobe RGB (1998) uses gamma 563/256 = 2.19921875. The renderer's output color space property selects the profile: 4 'srgb' (the JPEG
 /// default) and 5 'adobe_rgb'. The linear spaces (1–3) and 'none' (0) get no profile.
+/// The TIFF writers also use <see cref="DisplayP3"/> (the sRGB tone curve) and <see cref="LinearProPhoto"/> (gamma 1.0). Their colorants
+/// come from the color-space table of the engine (<see cref="Color.ColorSpace.Standard"/>), adapted to D50.
 /// </summary>
 public static class IccProfiles
 {
-    static byte[]? _srgb, _adobe;
+    static byte[]? _srgb, _adobe, _p3, _linearProPhoto;
 
     /// <summary>sRGB IEC 61966-2.1.</summary>
     public static byte[] Srgb => _srgb ??= Build("sRGB IEC61966-2.1",
@@ -22,6 +24,18 @@ public static class IccProfiles
     /// <summary>Adobe RGB (1998) compatible.</summary>
     public static byte[] AdobeRgb => _adobe ??= Build("Adobe RGB (1998) compatible",
         (0.609741, 0.311111, 0.019470), (0.205276, 0.625671, 0.060867), (0.149185, 0.063217, 0.744568), new ushort[] { 563 });
+
+    /// <summary>Display P3: the P3 primaries, a D65 white point and the sRGB tone curve.</summary>
+    public static byte[] DisplayP3 => _p3 ??= Build("Display P3", Color.ColorSpace.Standard(Color.ColorSpace.LinearDisplayP3, Color.WhitePoint.Of(5), 1).M, SrgbCurve());
+
+    /// <summary>Linear ProPhoto RGB (ROMM primaries, D50 white point, gamma 1.0): the profile of the scene-linear TIFF.</summary>
+    public static byte[] LinearProPhoto => _linearProPhoto ??= Build("Linear ProPhoto RGB", Color.ColorSpace.ProPhotoD50.M, Array.Empty<ushort>());
+
+    /// <summary>Gets the profile of a 16-bit TIFF color space.</summary>
+    public static byte[] ForTiff(TiffColorSpace cs) => cs switch { TiffColorSpace.DisplayP3 => DisplayP3, TiffColorSpace.AdobeRgb => AdobeRgb, _ => Srgb };
+
+    /// <summary>Builds a profile from an RGB→XYZ matrix (row-major, already adapted to D50). A curve without entries is the identity.</summary>
+    static byte[] Build(string description, float[] m, ushort[] curve) => Build(description, (m[0], m[3], m[6]), (m[1], m[4], m[7]), (m[2], m[5], m[8]), curve);
 
     /// <summary>Gets the profile of a renderer output color space property (4 = srgb, 5 = adobe_rgb). Returns null for the other values.</summary>
     public static byte[]? ForColorSpaceProperty(int property) => property switch { 4 => Srgb, 5 => AdobeRgb, _ => null };

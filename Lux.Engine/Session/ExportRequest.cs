@@ -123,6 +123,10 @@ public sealed record ExportRequest
     public string? ToneMappingType { get; init; }
     /// <summary>DNG Compression tag override.</summary>
     public int? Compression { get; init; }
+    /// <summary>False = Lumen's DNG (the default). True = the DNG samples are written at half their value and BaselineExposure is one stop
+    /// higher, so that a raw developer does not clip the tones up to one stop above white
+    /// (<see cref="Pipeline.Export.DngExportTags.KeepHighlights"/>).</summary>
+    public bool DngKeepHighlights { get; init; }
 
     // ---- JPEG ----------------------------------------------------------------------------------------------
     /// <summary>Renderer property 0x13 for the JPEG (and JPEG+GDepth); null = the per-format rule (4 = srgb).</summary>
@@ -156,6 +160,15 @@ public sealed record ExportRequest
     public int? HdrColorSpace { get; init; }
     // There is no PPM equivalent on purpose: the property has no effect for fmt 1, because the `(fmt|4)==4` gate means a PPM
     // never reads the output tuning. The rule below still supplies the value Lumen would write.
+
+    // ---- TIFF and the HDR gain-map JPEG (Lux) --------------------------------------------------------------
+    /// <summary>The still formats of Lux that this run also writes (`tiff16`, `tiff-linear`, `jpg-hdr`). They use the render of the
+    /// JPG and all its settings, and never change the other files. Empty by default.</summary>
+    public IReadOnlyList<StillFormat> Stills { get; init; } = Array.Empty<StillFormat>();
+    /// <summary>The settings of `tiff16` and `tiff-linear`.</summary>
+    public TiffOptions Tiff { get; init; } = new();
+    /// <summary>The settings of `jpg-hdr`.</summary>
+    public GainMapOptions GainMap { get; init; } = new();
 
     /// <summary>A louder, per-command log: `export:`, `tags:`, `tuning:`, `display tuning`, `render` and `jpeg:` lines, and a
     /// two-space indent on the engine log, in place of `convert`'s summary lines.</summary>
@@ -204,7 +217,7 @@ public sealed record ExportRequest
 
     /// <summary>Whether the run needs an <see cref="ExportState"/> at all. `lens-frames` and `parallax-wiggle` alone
     /// do not: they are module renders, with no registration and no PipelineCache.</summary>
-    public bool NeedsState => (Formats?.Count ?? 0) > 0 || NeedsDepth;
+    public bool NeedsState => (Formats?.Count ?? 0) > 0 || NeedsDepth || Stills.Count > 0;
 }
 
 /// <summary>What an export may do with a capture's analysis cache (<see cref="ExportRequest.Context"/>).</summary>

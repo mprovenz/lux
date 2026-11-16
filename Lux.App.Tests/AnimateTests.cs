@@ -247,7 +247,7 @@ public class AnimateTests
         await h.MockupSelectionAsync();
         h.Library.OpenExport();
         var panel = h.Library.ExportPanel!;
-        Assert.Equal(new[] { "dng", "jpg", "jpg+depth", "hdr", "ppm", "depth" }, panel.Formats.Select(f => f.Key));
+        Assert.Equal(new[] { "dng", "jpg", "jpg+depth", "jpg-hdr", "tiff16", "tiff-linear", "hdr", "ppm", "depth" }, panel.Formats.Select(f => f.Key));
         Assert.DoesNotContain(panel.Formats, f => f.Key is "wiggle" or "rack");
         Assert.True(panel.CanAnimate);
         panel.Formats.First(f => f.Key == "dng").IsOn = false;

@@ -36,6 +36,9 @@ internal sealed class ProgressBoard : IDisposable
         ["jpeg tiles"] = new(0, 0.44, 0, 192),
         ["jpeg encode"] = new(0, 0, 0.015, 390),
         ["hdr write"] = new(5, 0, 0, 1),
+        ["tiff tiles"] = new(0, 0.45, 0, 192),
+        ["tiff write"] = new(0, 0.15, 0, 195),
+        ["gain map tiles"] = new(0, 0.9, 0, 192),
         ["ppm write"] = new(4, 0, 0, 1),
         ["depth"] = new(2, 0, 0, 1),
         ["lens-frames"] = new(0, 2.5, 0, 10),
@@ -79,6 +82,23 @@ internal sealed class ProgressBoard : IDisposable
                 case ExportImageFormat.Ppm:
                     if (!floatRendered) { plan.Add(("render tiles", Units(tilesPlanned ? Costs["render tiles"] : Costs["render tiles"] with { ThreadSecondsPerUnit = 1.2 }, tilesN))); floatRendered = tilesPlanned = true; }
                     plan.Add((f == ExportImageFormat.Hdr ? "hdr write" : "ppm write", Costs[f == ExportImageFormat.Hdr ? "hdr write" : "ppm write"])); break;
+            }
+        }
+        foreach (var f in req.Stills.Distinct())
+        {
+            // each still format of Lux runs the output stage on the tiles again; the first render of the run also makes the tiles
+            PhaseCost TileCost(string key) => Units(tilesPlanned ? Costs[key] : Costs[key] with { ThreadSecondsPerUnit = 1.5 }, tilesN);
+            switch (f)
+            {
+                case StillFormat.Tiff16:
+                case StillFormat.TiffLinear:
+                    string name = StillFormats.NameOf(f);
+                    plan.Add((name + " tiles", TileCost("tiff tiles"))); tilesPlanned = true;
+                    plan.Add((name + " write", Units(Costs["tiff write"], (gh + 31) / 32))); break;
+                case StillFormat.JpegHdr:
+                    if (!jpegRendered) { plan.Add(("jpeg tiles", TileCost("jpeg tiles"))); jpegRendered = tilesPlanned = true; }
+                    plan.Add(("jpg-hdr encode", Units(Costs["jpeg encode"], rowsN)));
+                    plan.Add(("gain map tiles", Units(Costs["gain map tiles"], tilesN))); break;
             }
         }
         if (req.DepthMap) plan.Add(("depth", Costs["depth"]));

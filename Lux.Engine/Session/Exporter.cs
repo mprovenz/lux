@@ -175,7 +175,8 @@ public static class Exporter
         bool wantGDepth = want.Contains(ExportImageFormat.JpegGDepth) || req.DepthMap;
         bool extras = req.LensFrames is not null || (req.Parallax?.Formats.Count ?? 0) > 0;
         // An empty format list is legal only when something else is written (`--formats depth`, or the Lux formats).
-        if (want.Length == 0 && !req.DepthMap && !extras) throw new ExportRequestException("no output format requested");
+        var stills = req.Stills.Distinct().ToArray();
+        if (want.Length == 0 && !req.DepthMap && !extras && stills.Length == 0) throw new ExportRequestException("no output format requested");
         bool v = req.Verbose;
 
         if (req.OutFile is null)
@@ -184,8 +185,8 @@ public static class Exporter
                 throw new ExportRequestException("an export needs either OutFile or OutDirectory + Stem");
             Directory.CreateDirectory(req.OutDirectory);
         }
-        else if (want.Length + (req.Parallax?.Formats.Count ?? 0) > 1 || req.DepthMap || req.LensFrames is not null)
-            throw new ExportRequestException($"OutFile names one file, but this run writes {want.Length}{(req.DepthMap ? " + the depth map" : "")}");
+        else if (want.Length + stills.Length + (req.Parallax?.Formats.Count ?? 0) > 1 || req.DepthMap || req.LensFrames is not null)
+            throw new ExportRequestException($"OutFile names one file, but this run writes {want.Length + stills.Length}{(req.DepthMap ? " + the depth map" : "")}");
 
         string PathFor(ExportImageFormat f) =>
             req.OutFile ?? Path.Combine(req.OutDirectory!, req.Stem + ExportFormats.Extension(f));
@@ -202,7 +203,7 @@ public static class Exporter
         using var budgetWatch = req.MemoryBudgetBytes is long budget0 ? MemoryBudget.Watch(budget0) : null;
         if (req.MemoryBudgetBytes is long budget
             && ExportTransformOutput.Compute(s.Grid.Transform, s.Grid.Size, new RectI(0, 0, s.Grid.Size.W, s.Grid.Size.H), s.Grid.Window.ExportDims, false).Level == 0
-            && want.Length > 0)
+            && want.Length + stills.Length > 0)
             MemoryBudget.PrepareLevel0(s, budget, req.RenderThreads, req.Cancel, eng);
         var win = s.Grid.Window; var size = s.Grid.Size; int lv = s.Grid.Level;
         var sensor = (frame.Width, frame.Height); var canvas = st.Dims[0];
@@ -214,39 +215,45 @@ public static class Exporter
         else
         {
             log?.Invoke($"export window {window} size {size.W}x{size.H}");
-            log?.Invoke($"formats: {string.Join(" ", want.Select(f => $"{f}({(int)f})").Concat(req.DepthMap ? new[] { "depth" } : Array.Empty<string>()))}"
+            log?.Invoke($"formats: {string.Join(" ", want.Select(f => $"{f}({(int)f})").Concat(req.DepthMap ? new[] { "depth" } : Array.Empty<string>()).Concat(stills.Select(StillFormats.NameOf)))}"
                       + (extras ? " + " + string.Join(" ", (req.LensFrames is null ? Array.Empty<string>() : new[] { "lens-frames" }).Concat((req.Parallax?.Formats ?? Array.Empty<ParallaxFormat>()).Select(ExportFormats.NameOf))) : ""));
         }
 
         var outputs = new List<Output>();
         var sw = new System.Diagnostics.Stopwatch();
 
+        (DateTime Time, int TzOffsetHours)? jpegTime = null;
         DngExportTags TagsFor(ExportImageFormat f)
         {
             var t = BuildTags(st, req);
             t.ExifImageWidth = size.W; t.ExifImageHeight = size.H;
             t.ColorSpaceProperty = req.ColorSpaceOf(f);
+            if (f == ExportImageFormat.Dng) t.KeepHighlights = req.DngKeepHighlights;
             if (f is ExportImageFormat.Jpeg or ExportImageFormat.JpegGDepth)
             {
                 if (req.JpegSoftware is string sfw) t.Software = sfw;
                 if (req.JpegModifyTime is DateTime mt) t.ModifyTime = mt;
+                else if (stills.Length > 0) (t.ModifyTime, t.ModifyTzOffsetHours) = jpegTime ??= (t.ModifyTime, t.ModifyTzOffsetHours);   // one time for the JPG and the files made from it
             }
             return t;
         }
+
+        // the encoder settings of the JPG; `jpg-hdr` writes its primary image with the same ones
+        JpegEncoder NewJpegEncoder(DngExportTags t, string version, (int W, int H) sz, string phase = "jpeg encode") => new()
+        {
+            Quality = req.JpegQuality ?? 98,          // the literal 0x62 in exportImage
+            SubsamplingId = req.JpegSubsampling ?? 2, // the literal 2 = 4:2:0
+            Comment = req.JpegComment ?? "Created with LibCP " + version,
+            ExifApp1 = JpegExif.Build(t, sz.W, sz.H),
+            RowProgress = (row, rows) => { if (row == 1) s.Progress.Begin(phase, rows); s.Progress.Tick(); },
+        };
 
         void WriteJpeg(ExportImageFormat f, string path)
         {
             var (renderer, px) = s.Rgba8();
             var t = TagsFor(f);
             string version = t.Software.StartsWith("Build ", StringComparison.Ordinal) ? t.Software[6..] : t.Software;
-            var enc = new JpegEncoder
-            {
-                Quality = req.JpegQuality ?? 98,          // the literal 0x62 in exportImage
-                SubsamplingId = req.JpegSubsampling ?? 2, // the literal 2 = 4:2:0
-                Comment = req.JpegComment ?? "Created with LibCP " + version,
-                ExifApp1 = JpegExif.Build(t, size.W, size.H),
-                RowProgress = (row, rows) => { if (row == 1) s.Progress.Begin("jpeg encode", rows); s.Progress.Tick(); },
-            };
+            var enc = NewJpegEncoder(t, version, size);
             if (req.JpegEmbedIcc) enc.IccProfile = IccProfiles.ForColorSpaceProperty(t.ColorSpaceProperty);   // an option; off by default
             if (f == ExportImageFormat.JpegGDepth)
             {
@@ -327,6 +334,36 @@ public static class Exporter
             if (!v) log?.Invoke($"{f} {size.W}x{size.H} -> {Path.GetFileName(path)} ({bytes} B) in {secs:F1}s");
         }
 
+        // ---- the still formats of Lux: the render of the JPG, stored at a higher precision or with a gain map (StillExport)
+        foreach (var f in stills)
+        {
+            sw.Restart();
+            string path = req.OutFile ?? Path.Combine(req.OutDirectory!, req.Stem + StillFormats.Suffix(f));
+            var outSize = size;
+            if (f == StillFormat.JpegHdr)
+            {
+                // a size limit gives this file its own grid: the JPG of that size, as an explicit output size renders it
+                outSize = StillExport.LimitedSize(size, req.GainMap.MaxSize);
+                var hs = outSize == size ? s : new ExportSession(st, req with { Size = outSize }, log);
+                var t = TagsFor(ExportImageFormat.Jpeg);
+                t.ExifImageWidth = outSize.W; t.ExifImageHeight = outSize.H;
+                string version = t.Software.StartsWith("Build ", StringComparison.Ordinal) ? t.Software[6..] : t.Software;
+                var hdr = StillExport.BuildJpegHdr(hs, req.GainMap, NewJpegEncoder(t, version, outSize, "jpg-hdr encode"), log);
+                File.WriteAllBytes(path, hdr.File);
+            }
+            else
+            {
+                var t = TagsFor(ExportImageFormat.Jpeg);
+                if (req.JpegSoftware is null) t.Software = "Lux";
+                if (f == StillFormat.Tiff16) StillExport.WriteTiff16(s, path, t, req.Tiff);
+                else StillExport.WriteTiffLinear(s, path, t, req.Tiff);
+            }
+            long bytes = new FileInfo(path).Length;
+            double secs = sw.Elapsed.TotalSeconds;
+            outputs.Add(new Output(StillFormats.NameOf(f), path, bytes, secs));
+            if (!v) log?.Invoke($"{StillFormats.NameOf(f)} {outSize.W}x{outSize.H} -> {Path.GetFileName(path)} ({bytes} B) in {secs:F1}s");
+        }
+
         // ---- the stereo depth map itself (a Lux extra, not a Lumen ExportImageFormat): the SAME depth the GDepth
         // block carries, written before the gray8 quantization. `_depth.f32` is metric millimeters at full float
         // precision with the project's {w,h,stride,bpp} header; `_depth.jpg` is the gray8 rendering, byte-for-byte
@@ -380,6 +417,8 @@ public static class Exporter
                     Shadows = O(5) ? g.Shadows : a.Shadows, Highlights = O(6) ? g.Highlights : a.Highlights, Contrast = O(7) ? g.Contrast : a.Contrast,
                     Saturation = O(8) ? g.Saturation : a.Saturation, Vibrance = O(9) ? g.Vibrance : a.Vibrance, Clarity = O(10) ? g.Clarity : a.Clarity,
                     Sharpening = O(13) ? g.Sharpening : a.Sharpening, MonotoneSharpening = O(13) ? g.MonotoneSharpening : a.MonotoneSharpening,
+                    HighlightRecovery = o.Contains("highlight-recovery") ? g.HighlightRecovery : a.HighlightRecovery,
+                    GamutCompress = o.Contains("gamut-compress") ? g.GamutCompress : a.GamutCompress,
                 };
             else if (O(13)) a = a with { Sharpening = req.JpegSharpening, MonotoneSharpening = false };
             r = r with { Adjustments = a };

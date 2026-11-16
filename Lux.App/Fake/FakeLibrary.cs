@@ -559,7 +559,7 @@ public sealed class FakeLibrary : ILibrary
     public IReadOnlyList<ExportTarget> ExportTargets(IReadOnlyCollection<string> captureIds, ExportOptions options) =>
         captureIds.Select(id => Get(id)).Where(c => c != null).Select(c =>
         {
-            var files = options.Formats.Select(f => Path.Combine(options.OutputFolder ?? "/home/you/Pictures/Lux Export", options.FileNamePattern.Replace("{name}", c!.Name) + f switch { "dng" => ".dng", "hdr" => ".hdr", "ppm" => ".ppm", "jpg+depth" => "_gdepth.jpg", "depth" => "_depth.f32", _ => ".jpg" })).ToList();
+            var files = options.Formats.Select(f => Path.Combine(options.OutputFolder ?? "/home/you/Pictures/Lux Export", options.FileNamePattern.Replace("{name}", c!.Name) + f switch { "dng" => ".dng", "hdr" => ".hdr", "ppm" => ".ppm", "jpg+depth" => "_gdepth.jpg", "depth" => "_depth.f32", "jpg-hdr" => "_hdr.jpg", "tiff16" => ".tif", "tiff-linear" => "_linear.tif", _ => ".jpg" })).ToList();
             return new ExportTarget(c!.Id, files, files.Where(ExistingExportFiles.Contains).ToList());
         }).ToList();
 

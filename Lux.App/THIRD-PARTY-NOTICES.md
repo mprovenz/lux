@@ -11,6 +11,12 @@ fonts as `Assets/Fonts/Archivo-OFL.txt` and `Assets/Fonts/JetBrainsMono-OFL.txt`
 The fonts are used unmodified and are not sold by themselves. Inter, used as a fallback for characters the bundled faces lack, comes with
 the Avalonia.Fonts.Inter package under its own SIL Open Font License 1.1.
 
+## File formats
+
+This product includes DNG technology under license by Adobe.
+
+This product includes Gain Map technology under license by Adobe.
+
 ## Libraries
 
 The published app also contains these libraries, each under its own licence:

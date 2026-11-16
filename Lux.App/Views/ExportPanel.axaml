@@ -27,7 +27,7 @@
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:FormatOption">
                   <CheckBox Classes="optionrow" IsChecked="{Binding IsOn}" IsEnabled="{Binding IsAvailable}" AutomationProperties.Name="{Binding Name}">
-                    <Grid ColumnDefinitions="110,*">
+                    <Grid ColumnDefinitions="150,*">
                       <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
                       <TextBlock Grid.Column="1" Classes="secondary small" Text="{Binding Note}" VerticalAlignment="Center" />
                     </Grid>
@@ -70,6 +70,26 @@
               <CheckBox Grid.Column="1" x:Name="EmbedProfileBox" IsChecked="{Binding EmbedColorProfile}" Content="Embed the sRGB profile in JPG files"
                         AutomationProperties.Name="Embed the sRGB profile in JPG files"
                         ToolTip.Tip="Off: JPG files as Lumen writes them (no profile; apps assume sRGB). On: the sRGB profile is added, for apps that need it." />
+            </Grid>
+            <Grid ColumnDefinitions="110,*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto" IsVisible="{Binding JpegFormatChosen}">
+              <TextBlock Text="JPEG quality" VerticalAlignment="Center" />
+              <Slider Grid.Column="1" x:Name="JpegQualitySlider" Minimum="1" Maximum="100" SmallChange="1" LargeChange="5" TickFrequency="1" IsSnapToTickEnabled="True"
+                      Value="{Binding JpegQuality}" AutomationProperties.Name="JPEG quality"
+                      ToolTip.Tip="The quality of each JPEG file of this export, from 1 to 100. A lower value makes a smaller file with less detail." />
+              <TextBlock Grid.Column="2" x:Name="JpegQualityValue" Classes="mono" Text="{Binding JpegQualityText}" VerticalAlignment="Center" MinWidth="44" />
+              <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Classes="small secondary wrap" Text="98 is Lumen's value." />
+            </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12" IsVisible="{Binding DngChosen}">
+              <TextBlock Text="DNG highlights" VerticalAlignment="Center" />
+              <CheckBox Grid.Column="1" x:Name="KeepDngHighlightsBox" IsChecked="{Binding KeepDngHighlights}" Content="Keep highlights above white"
+                        AutomationProperties.Name="Keep highlights above white"
+                        ToolTip.Tip="Off: the DNG as Lumen writes it. On: the DNG holds its values at half scale and tells the raw developer to add one stop, so highlights above white are not clipped. Some raw developers then open the picture one stop darker." />
+            </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12" IsVisible="{Binding Tiff16Chosen}">
+              <TextBlock Text="TIFF color" VerticalAlignment="Center" />
+              <ComboBox Grid.Column="1" x:Name="TiffColorChoice" ItemsSource="{Binding TiffColorChoices}" SelectedItem="{Binding TiffColorSpace}"
+                        AutomationProperties.Name="Color space of the 16-bit TIFF"
+                        ToolTip.Tip="The color space of the TIFF 16-bit file. Display P3 and Adobe RGB hold colors that sRGB cannot. The file contains the profile." />
             </Grid>
             <Grid ColumnDefinitions="110,*" ColumnSpacing="12">
               <TextBlock Text="Tone style" VerticalAlignment="Center" />

@@ -289,7 +289,7 @@ internal sealed class PhotoViewImpl : IPhotoView
 
     static int ClassOf(AdjustmentKey k) => k switch
     {
-        AdjustmentKey.Exposure => 0, AdjustmentKey.Contrast => 1, AdjustmentKey.Shadows or AdjustmentKey.Highlights or AdjustmentKey.Clarity => 2,
+        AdjustmentKey.Exposure or AdjustmentKey.HighlightRecovery or AdjustmentKey.GamutCompress => 0, AdjustmentKey.Contrast => 1, AdjustmentKey.Shadows or AdjustmentKey.Highlights or AdjustmentKey.Clarity => 2,
         AdjustmentKey.Saturation or AdjustmentKey.Vibrance or AdjustmentKey.Sharpening => 3, _ => 4,
     };
 

@@ -30,7 +30,7 @@ internal sealed partial class LibraryCore
             CacheLevel.Linear13 => $"Keeping the 13 MP render of {NameOf(c.CaptureId)}" + (HasNoDepth(c.CaptureId) ? " (depth map first)" : ""),
             _ => $"Keeping the depth of {NameOf(c.CaptureId)}",
         },
-        ExportJobRequest e => $"Exporting {NameOf(e.CaptureId)} as {string.Join(" + ", e.Options.Formats.Select(f => f.ToUpperInvariant()))}",
+        ExportJobRequest e => $"Exporting {NameOf(e.CaptureId)} as {string.Join(" + ", e.Options.Formats.Select(ExportJobs.DisplayName))}",
         AnimationJobRequest an => $"Animating {NameOf(an.CaptureId)} as {AnimationJobs.FormatName(an.Options.Format)}",
         LumenImportJobRequest l => $"Importing Lumen edits for {NameOf(l.CaptureId)}",
         FolderScanJobRequest f => $"Scanning {(FolderRow(f.FolderId) is { } fr ? Path.GetFileName(fr.Path) is { Length: > 0 } n ? n : fr.Path : "a folder")}",
@@ -48,7 +48,7 @@ internal sealed partial class LibraryCore
         return r switch
         {
             AnimationJobRequest an => AnimationJobs.Detail(an.Options),
-            ExportJobRequest e => string.Join(" · ", new[] { string.Join(" + ", e.Options.Formats.Select(f => f.ToUpperInvariant())), e.Options.LongEdge is int le ? $"{le} px" : Lvl(e.Options.Level) }
+            ExportJobRequest e => string.Join(" · ", new[] { string.Join(" + ", e.Options.Formats.Select(ExportJobs.DisplayName)), e.Options.LongEdge is int le ? $"{le} px" : Lvl(e.Options.Level) }
                 .Concat(e.Options.DepthEffectOff ? new[] { "all in focus" } : e.Options.DepthEffectFNumber is float f ? new[] { string.Format(inv, "f/{0:0.#}", f) } : Array.Empty<string>())
                 .Concat(e.Options.UseSavedEdits ? Array.Empty<string>() : new[] { "without saved edits" })),
             AnalysisJobRequest a => a.TargetLevel switch { CacheLevel.Full => "depth + full detail", CacheLevel.Geometry => "depth", _ => "depth + 13 MP render" },
@@ -201,6 +201,10 @@ internal sealed partial class LibraryCore
         "dng" => "Writing DNG",
         "jpeg tiles" => "Rendering JPG",
         "jpeg encode" => "Writing JPG",
+        "tiff16 tiles" or "tiff-linear tiles" => "Rendering TIFF",
+        "tiff16 write" or "tiff-linear write" => "Writing TIFF",
+        "jpg-hdr encode" => "Writing JPG + HDR gain map",
+        "gain map tiles" => "Rendering the gain map",
         _ => char.ToUpperInvariant(phase[0]) + phase[1..],
     };
 
@@ -323,7 +327,18 @@ internal static class ExportJobs
         if (o.FocusDepthMm is float fd && !(fd > 0)) throw new LibraryException("The focus distance must be greater than 0.");
         if (o.JpegQuality is int q && (q < 1 || q > 100)) throw new LibraryException("JPG quality is between 1 and 100.");
         if (string.IsNullOrWhiteSpace(o.FileNamePattern)) throw new LibraryException("The file name pattern is empty.");
+        if (o.TiffColorSpace is string cs && !StillFormats.TryParseColorSpace(cs, out _)) throw new LibraryException($"“{cs}” is not a color space of the 16-bit TIFF (srgb, p3, adobergb).");
     }
+
+    /// <summary>The name of a format in a job title: the names of the export panel for the still formats of Lux, else upper case.</summary>
+    internal static string DisplayName(string f) => f.Trim().ToLowerInvariant() switch
+    {
+        "tiff16" => "TIFF 16-bit", "tiff-linear" => "TIFF linear (HDR)", "jpg-hdr" => "JPG + HDR gain map", _ => f.ToUpperInvariant(),
+    };
+
+    /// <summary>The still formats of Lux among the format names (tiff16, tiff-linear, jpg-hdr).</summary>
+    static StillFormat[] Stills(ExportOptions o)
+        => o.Formats.Select(f => StillFormats.TryParse(f.Trim(), out StillFormat s) ? s : (StillFormat?)null).Where(s => s is not null).Select(s => s!.Value).Distinct().ToArray();
 
     static (ExportImageFormat? Format, bool DepthMap) Parse(string f) => f.Trim().ToLowerInvariant() switch
     {
@@ -333,7 +348,8 @@ internal static class ExportJobs
         "hdr" => (ExportImageFormat.Hdr, false),
         "ppm" => (ExportImageFormat.Ppm, false),
         "depth" => (null, true),
-        _ => throw new LibraryException($"“{f}” is not a format Lux can export (dng, jpg, jpg+depth, hdr, ppm, depth)."),
+        "tiff16" or "tiff-linear" or "jpg-hdr" => (null, false),   // the still formats of Lux: see Stills
+        _ => throw new LibraryException($"“{f}” is not a format Lux can export (dng, jpg, jpg+depth, hdr, ppm, tiff16, tiff-linear, jpg-hdr, depth)."),
     };
 
     /// <summary>A custom long edge as `convert --level L --size W,H`: W,H from the photo's full size (after its saved crop when edits are used),
@@ -379,7 +395,10 @@ internal static class ExportJobs
             EditsVariant = o.UseSavedEdits ? o.EditsVariant : null,
             CacheUse = o.UseCache ? CacheUse.ReadWriteGeometry : CacheUse.None,
             JpegQuality = o.JpegQuality,
+            DngKeepHighlights = o.DngKeepHighlights,
             JpegEmbedIcc = o.EmbedColorProfile,
+            Stills = Stills(o),
+            Tiff = new TiffOptions { ColorSpace = o.TiffColorSpace is string tcs && StillFormats.TryParseColorSpace(tcs, out var tiffCs) ? tiffCs : TiffColorSpace.Srgb },
             JpegSharpening = DisplayIspTuning.GuiSharpeningProperty,
             Adjustments = o.Adjustments?.Validate(),
             OutDirectory = outDir,
@@ -421,6 +440,7 @@ internal static class ExportJobs
     static IEnumerable<string> FilesOf(ExportRequest r, string dir, string stem)
     {
         foreach (var f in r.Formats) yield return Path.Combine(dir, stem + ExportFormats.Extension(f));
+        foreach (var f in r.Stills) yield return Path.Combine(dir, stem + StillFormats.Suffix(f));
         if (r.DepthMap) { yield return Path.Combine(dir, stem + "_depth.f32"); yield return Path.Combine(dir, stem + "_depth.jpg"); }
     }
 
@@ -471,8 +491,17 @@ internal static class ExportJobs
             }
         }
         job.Planned(FilesOf(BuildRequest(o, outDir, stem, item), outDir, stem).FirstOrDefault());
-        var pp = new LibraryCore.PhaseProgress(job, 0.02, 0.98, ("loading", 1), ("registration", 30), ("fusion set-up", 10), ("telephoto set-up", 3),
-                                               ("level-0 inputs", 15), ("level-0 tiles", 15), ("render tiles", 5), ("depth-effect tiles", 5), ("dng", 8), ("depth", 3), ("jpeg tiles", 6), ("jpeg encode", 4));
+        var phases = new List<(string, double)> { ("loading", 1), ("registration", 30), ("fusion set-up", 10), ("telephoto set-up", 3),
+                                                   ("level-0 inputs", 15), ("level-0 tiles", 15), ("render tiles", 5), ("depth-effect tiles", 5), ("dng", 8), ("depth", 3), ("jpeg tiles", 6), ("jpeg encode", 4) };
+        // the still formats of Lux come after the others, in this order
+        foreach (var f in Stills(o))
+            phases.AddRange(f switch
+            {
+                StillFormat.Tiff16 => new[] { ("tiff16 tiles", 6.0), ("tiff16 write", 4.0) },
+                StillFormat.TiffLinear => new[] { ("tiff-linear tiles", 6.0), ("tiff-linear write", 4.0) },
+                _ => new[] { ("jpg-hdr encode", 4.0), ("gain map tiles", 8.0) },
+            });
+        var pp = new LibraryCore.PhaseProgress(job, 0.02, 0.98, phases.ToArray());
         // a canceled export leaves nothing of this run behind: the exporter removes the file it was writing, the job the ones it finished
         var startedUtc = DateTime.UtcNow;
         var existed = FilesOf(BuildRequest(o, outDir, stem, item), outDir, stem).Where(File.Exists).ToHashSet();

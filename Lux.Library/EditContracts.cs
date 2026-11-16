@@ -324,6 +324,10 @@ public enum AdjustmentKey
     Shadows = 7,
     Highlights = 8,
     Clarity = 9,
+    /// <summary>Highlight recovery of Lux, 0 to 100 (0 = Lumen's tone curve).</summary>
+    HighlightRecovery = 10,
+    /// <summary>Gamut compression of Lux: 0 = off (Lumen's clip), 1 = on.</summary>
+    GamutCompress = 11,
 }
 
 /// <summary>Groups for reset, copy / paste and presets (Lumen's copy dialog: GEOMETRY {rotation &amp; mirror, crop}, TONE &amp; COLOR).</summary>
@@ -331,9 +335,9 @@ public enum AdjustmentKey
 public enum EditGroups
 {
     None = 0,
-    /// <summary>Exposure, contrast, shadows, highlights, clarity.</summary>
+    /// <summary>Exposure, contrast, shadows, highlights, clarity, highlight recovery.</summary>
     Tone = 1,
-    /// <summary>Temperature, tint, vibrance, saturation.</summary>
+    /// <summary>Temperature, tint, vibrance, saturation, gamut compression.</summary>
     Colour = 2,
     /// <summary>Sharpening.</summary>
     Sharpening = 4,

@@ -185,7 +185,8 @@ public sealed class FakeJobQueue : IJobQueue, IDisposable
 
     internal static string FormatList(ExportOptions o)
     {
-        static string Name(string f) => f switch { "dng" => "DNG", "jpg" => "JPG", "jpg+depth" => "JPG + depth", "hdr" => "HDR", "ppm" => "PPM", "depth" => "depth map", _ => f };
+        static string Name(string f) => f switch { "dng" => "DNG", "jpg" => "JPG", "jpg+depth" => "JPG + depth", "hdr" => "HDR", "ppm" => "PPM", "depth" => "depth map",
+                                                   "jpg-hdr" => "JPG + HDR gain map", "tiff16" => "TIFF 16-bit", "tiff-linear" => "TIFF linear (HDR)", _ => f };
         return string.Join(" + ", o.Formats.Select(Name));
     }
 
@@ -496,7 +497,8 @@ public sealed class FakeJobQueue : IJobQueue, IDisposable
     string ExportPath(Job j, ExportJobRequest e, string? format = null)
     {
         var cap = _lib.Get(e.CaptureId);
-        string ext = (format ?? e.Options.Formats.FirstOrDefault() ?? "jpg") switch { "dng" => ".dng", "hdr" => ".hdr", "ppm" => ".ppm", "depth" => "_depth.png", "jpg+depth" => "_depth.jpg", _ => ".jpg" };
+        string ext = (format ?? e.Options.Formats.FirstOrDefault() ?? "jpg") switch { "dng" => ".dng", "hdr" => ".hdr", "ppm" => ".ppm", "depth" => "_depth.png", "jpg+depth" => "_depth.jpg",
+                                                                                    "jpg-hdr" => "_hdr.jpg", "tiff16" => ".tif", "tiff-linear" => "_linear.tif", _ => ".jpg" };
         return Path.Combine(e.Options.OutputFolder ?? "/home/you/Pictures/Lux Export", (cap?.Name ?? "capture") + ext);
     }
 
