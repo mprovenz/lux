@@ -333,7 +333,7 @@ public static class HsvLutOptimizer
 
     // ---------------- thin-plate spline ----------------
 
-    private static double Phi(double r) => r > 0 ? r * r * Math.Log10(r) : 0.0;   // φ(r) = r²·log10 r, as `log10(r)·r·r`
+    private static double Phi(double r) => r > 0 ? r * r * WineCrt.Log10(r) : 0.0;   // φ(r) = r²·log10 r, as `log10(r)·r·r`
 
     /// <summary>`sqrt(x)` as Lumen computes every point distance: `rsqrtss` + one Newton step
     /// (`((x·rs)·rs + (−3))·(x·rs)·(−0.5)`), masked to 0 when `x == 0`.
@@ -409,7 +409,7 @@ public static class HsvLutOptimizer
             float dx = pts[i].H - h, dy = pts[i].S - s;
             float r = RsqrtSqrt(dy * dy + dx * dx);
             double phi = 0.0;
-            if (r > 0f) { double rd = r; phi = Math.Log10(rd) * rd * rd; }
+            if (r > 0f) { double rd = r; phi = WineCrt.Log10(rd) * rd * rd; }
             acc = (double)(float)acc + w[i] * phi;
         }
         return (float)acc;

@@ -35,12 +35,12 @@ public sealed class ToneMappingLinearStage : IStage
         }
     }
 
-    /// <summary>msvcrt `exp2f` (api-ms-win-crt-math exp2f); exact for integer arguments — the only value the guide path uses is 2⁰ = 1.
-    /// Non-integer ev_offsets would need a bit-exact port of the CRT exp2f [I].</summary>
+    /// <summary>The CRT's `exp2f`. The guide path uses only 2⁰ = 1. Integer arguments take the exact short path; the other arguments
+    /// go to <see cref="WineCrt.Exp2f"/>.</summary>
     static float Exp2(float x)
     {
         if (x == 0f) return 1.0f;
         if (x == MathF.Floor(x) && MathF.Abs(x) < 127f) return BitConverter.Int32BitsToSingle(((int)x + 127) << 23);
-        return MathF.Pow(2f, x);
+        return WineCrt.Exp2f(x);
     }
 }

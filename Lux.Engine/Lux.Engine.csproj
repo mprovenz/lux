@@ -7,6 +7,11 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
+  <!-- Test build (-p:LuxSimdPortable=true): the vector operations of Imaging/Simd.cs use their portable code on every processor. -->
+  <PropertyGroup Condition="'$(LuxSimdPortable)' == 'true'">
+    <DefineConstants>$(DefineConstants);LUX_SIMD_PORTABLE</DefineConstants>
+  </PropertyGroup>
+
   <!-- Build-time C# generation from the 36 reconstructed ltpb .proto files (messages only) -->
   <ItemGroup>
     <Protobuf Include="Protos\**\*.proto" GrpcServices="None" ProtoRoot="Protos" />

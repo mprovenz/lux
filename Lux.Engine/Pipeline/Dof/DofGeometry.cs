@@ -189,18 +189,18 @@ public static class DofGeometry
                 {
                     var a = Vector128.LoadUnsafe(ref r0, (nuint)i);
                     var b = Vector128.LoadUnsafe(ref r0, (nuint)(i + 4));
-                    mn2 = Sse.Min(mn2, a); mn1 = Sse.Min(mn1, b); mx3 = Sse.Max(mx3, a); mx0 = Sse.Max(mx0, b);
+                    mn2 = Simd.Min(mn2, a); mn1 = Simd.Min(mn1, b); mx3 = Simd.Max(mx3, a); mx0 = Simd.Max(mx0, b);
                 }
-                mx3 = Sse.Max(mx3, mx0); var hi = Sse.Max(Sse.MoveHighToLow(mx3, mx3), mx3);
+                mx3 = Simd.Max(mx3, mx0); var hi = Simd.Max(Simd.MoveHighToLow(mx3, mx3), mx3);
                 float h0 = hi.GetElement(0), h1 = hi.GetElement(1); mx = h1 < h0 ? h0 : h1;
-                mn2 = Sse.Min(mn2, mn1); var lo = Sse.Min(Sse.MoveHighToLow(mn2, mn2), mn2);
+                mn2 = Simd.Min(mn2, mn1); var lo = Simd.Min(Simd.MoveHighToLow(mn2, mn2), mn2);
                 float l0 = lo.GetElement(0), l1 = lo.GetElement(1); mn = l0 < l1 ? l0 : l1;
             }
             for (; i < rw; i++)
             {
                 float v = img.Data[row + i];
-                mn = Sse.MinScalar(Vector128.CreateScalar(mn), Vector128.CreateScalar(v)).ToScalar();
-                mx = Sse.MaxScalar(Vector128.CreateScalar(mx), Vector128.CreateScalar(v)).ToScalar();
+                mn = Simd.MinScalar(Vector128.CreateScalar(mn), Vector128.CreateScalar(v)).ToScalar();
+                mx = Simd.MaxScalar(Vector128.CreateScalar(mx), Vector128.CreateScalar(v)).ToScalar();
             }
         }
         return (mn, mx);

@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
@@ -101,7 +102,7 @@ public static class LaplacianPyramid
                     for (; x < headEnd; x += 2) drow[x >> 1] = HClamped(scratch, b, x, loX, clampHiX);
                     if (x < simdEnd)
                     {
-                        if (Sse.IsSupported)
+                        if (Simd.IsSupported)
                         {
                             // the four outputs of a step at once: lane k = Assoc2(s[x+2k−2], s[x+2k−1], s[x+2k], s[x+2k+1], s[x+2k+2])
                             ref float sb = ref MemoryMarshal.GetArrayDataReference(scratch);
@@ -111,9 +112,9 @@ public static class LaplacianPyramid
                             {
                                 var l0 = Vector128.LoadUnsafe(ref sb, (nuint)(b + x - 2)); var l1 = Vector128.LoadUnsafe(ref sb, (nuint)(b + x + 2)); var l2 = Vector128.LoadUnsafe(ref sb, (nuint)(b + x + 6));
                                 var m0 = Vector128.LoadUnsafe(ref sb, (nuint)(b + x)); var m1 = Vector128.LoadUnsafe(ref sb, (nuint)(b + x + 4));
-                                var e0 = Sse.Shuffle(l0, l1, 0b10_00_10_00); var o0 = Sse.Shuffle(l0, l1, 0b11_01_11_01);
-                                var e1 = Sse.Shuffle(m0, m1, 0b10_00_10_00); var o1 = Sse.Shuffle(m0, m1, 0b11_01_11_01);
-                                var e2 = Sse.Shuffle(l1, l2, 0b10_00_10_00);
+                                var e0 = Simd.Shuffle(l0, l1, 0b10_00_10_00); var o0 = Simd.Shuffle(l0, l1, 0b11_01_11_01);
+                                var e1 = Simd.Shuffle(m0, m1, 0b10_00_10_00); var o1 = Simd.Shuffle(m0, m1, 0b11_01_11_01);
+                                var e2 = Simd.Shuffle(l1, l2, 0b10_00_10_00);
                                 (((k4 * e2) + (k1 * o0 + k0 * e0)) + (k3 * o1 + k2 * e1)).StoreUnsafe(ref db, (nuint)(x >> 1));
                             }
                         }
@@ -241,7 +242,7 @@ public static class LaplacianPyramid
         {
             if (X == ss && se > ss)
             {
-                if (Sse.IsSupported)
+                if (Simd.IsSupported)
                 {
                     ref float ra = ref MemoryMarshal.GetReference(A); ref float rb = ref MemoryMarshal.GetReference(B); ref float rc = ref MemoryMarshal.GetReference(C);
                     ref float rs = ref MemoryMarshal.GetReference(s); ref float rd = ref MemoryMarshal.GetReference(d);
@@ -255,9 +256,9 @@ public static class LaplacianPyramid
                         var Cm = Vector128.LoadUnsafe(ref rc, c - 1); var C0 = Vector128.LoadUnsafe(ref rc, c); var Cp = Vector128.LoadUnsafe(ref rc, c + 1);
                         var Sm = Bm + Am; var Sk = B0 + A0; var Sp = Bp + Ap;
                         var s0 = Vector128.LoadUnsafe(ref rs, (nuint)X); var s1 = Vector128.LoadUnsafe(ref rs, (nuint)(X + 4));
-                        var ev = (((C0 * u64) + ((Sm + Sp) * u01)) + (((Cm + Cp) + Sk) * u08)) - Sse.Shuffle(s0, s1, 0b10_00_10_00);
-                        var od = (((Cp + C0) * u40) + ((Sk + Sp) * u05)) - Sse.Shuffle(s0, s1, 0b11_01_11_01);
-                        Sse.UnpackLow(ev, od).StoreUnsafe(ref rd, (nuint)X); Sse.UnpackHigh(ev, od).StoreUnsafe(ref rd, (nuint)(X + 4));
+                        var ev = (((C0 * u64) + ((Sm + Sp) * u01)) + (((Cm + Cp) + Sk) * u08)) - Simd.Shuffle(s0, s1, 0b10_00_10_00);
+                        var od = (((Cp + C0) * u40) + ((Sk + Sp) * u05)) - Simd.Shuffle(s0, s1, 0b11_01_11_01);
+                        Simd.UnpackLow(ev, od).StoreUnsafe(ref rd, (nuint)X); Simd.UnpackHigh(ev, od).StoreUnsafe(ref rd, (nuint)(X + 4));
                     }
                 }
                 else
@@ -297,7 +298,7 @@ public static class LaplacianPyramid
         {
             if (X == ss && se > ss)
             {
-                if (Sse.IsSupported)
+                if (Simd.IsSupported)
                 {
                     ref float rp = ref MemoryMarshal.GetReference(P); ref float rq = ref MemoryMarshal.GetReference(Q);
                     ref float rs = ref MemoryMarshal.GetReference(s); ref float rd = ref MemoryMarshal.GetReference(d);
@@ -309,9 +310,9 @@ public static class LaplacianPyramid
                         var Sk = Vector128.LoadUnsafe(ref rq, c) + Vector128.LoadUnsafe(ref rp, c);
                         var Sp = Vector128.LoadUnsafe(ref rq, c + 1) + Vector128.LoadUnsafe(ref rp, c + 1);
                         var s0 = Vector128.LoadUnsafe(ref rs, (nuint)X); var s1 = Vector128.LoadUnsafe(ref rs, (nuint)(X + 4));
-                        var ev = ((Sk * u40) + ((Sm + Sp) * u05)) - Sse.Shuffle(s0, s1, 0b10_00_10_00);
-                        var od = ((Sp + Sk) * u25) - Sse.Shuffle(s0, s1, 0b11_01_11_01);
-                        Sse.UnpackLow(ev, od).StoreUnsafe(ref rd, (nuint)X); Sse.UnpackHigh(ev, od).StoreUnsafe(ref rd, (nuint)(X + 4));
+                        var ev = ((Sk * u40) + ((Sm + Sp) * u05)) - Simd.Shuffle(s0, s1, 0b10_00_10_00);
+                        var od = ((Sp + Sk) * u25) - Simd.Shuffle(s0, s1, 0b11_01_11_01);
+                        Simd.UnpackLow(ev, od).StoreUnsafe(ref rd, (nuint)X); Simd.UnpackHigh(ev, od).StoreUnsafe(ref rd, (nuint)(X + 4));
                     }
                 }
                 else

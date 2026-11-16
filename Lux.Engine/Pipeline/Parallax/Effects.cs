@@ -165,11 +165,11 @@ public static class StereoView
         -0.0651, -0.1287,  1.2971,
     };
 
-    static double ToLinear(byte v) { double s = v / 255.0; return s <= 0.04045 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4); }
+    static double ToLinear(byte v) { double s = v / 255.0; return s <= 0.04045 ? s / 12.92 : WineCrt.Pow((s + 0.055) / 1.055, 2.4); }
     static byte ToSrgb(double v)
     {
         v = Math.Clamp(v, 0, 1);
-        double s = v <= 0.0031308 ? v * 12.92 : 1.055 * Math.Pow(v, 1 / 2.4) - 0.055;
+        double s = v <= 0.0031308 ? v * 12.92 : 1.055 * WineCrt.Pow(v, 1 / 2.4) - 0.055;
         return (byte)Math.Clamp(s * 255.0 + 0.5, 0, 255);
     }
 

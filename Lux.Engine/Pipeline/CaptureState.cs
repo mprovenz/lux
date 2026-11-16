@@ -109,7 +109,7 @@ public sealed class CaptureState
         float m = MultiplierOf(mean);
         float ratio = lri.LumenExposureRatio;
         return new CaptureState(module, colour, raster, hists, colour ? (site ^ (rx + 2 * ry)) : -1, mean, m,
-                                lri.LumenNeutral, ratio, MathF.Log2(ratio));
+                                lri.LumenNeutral, ratio, WineCrt.Log2f(ratio));
     }
 
     /// <summary>How Lumen stores the four raster-site histograms on the `CapturedImage`, i.e. what the

@@ -56,7 +56,7 @@ public static class Mat3
     /// <summary>Rodrigues rotation about a unit axis by <paramref name="deg"/> degrees.</summary>
     public static double[] Rodrigues(double[] axis, double deg)
     {
-        double a = deg * Math.PI / 180.0, s = Math.Sin(a), c = Math.Cos(a);
+        double a = deg * Math.PI / 180.0, s = Pipeline.WineCrt.Sin(a), c = Pipeline.WineCrt.Cos(a);
         double[] K = { 0, -axis[2], axis[1], axis[2], 0, -axis[0], -axis[1], axis[0], 0 };
         double[] K2 = MatMul(K, K);
         var r = new double[9];

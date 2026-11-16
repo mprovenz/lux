@@ -8,11 +8,14 @@
 #   lux-light-v<version>-<rid>.tar.gz|.zip    the command line tool alone
 #   the installed build with self-update:     Lux-win-Setup.exe (win-x64)  /  Lux.AppImage (linux-x64),
 #                                             plus the update feed files (*.nupkg, releases.<channel>.json, …)
-# Runs on Linux for both platforms (the Windows installer is cross-built) and in Git Bash on Windows.
+# For macOS (osx-arm64, osx-x64) the first archive contains Lux.app. There is no installed build with self-update for macOS.
+# Runs on Linux for all platforms (the Windows installer is cross-built), in Git Bash on Windows, and on macOS.
+# A macOS build must be signed before macOS on Apple silicon can start it. On macOS this script signs the files ad hoc.
+# On other systems it cannot sign: sign the files on a Mac, as the last message of the script tells you.
 set -euo pipefail
 
 VERSION="${1:?version, e.g. 2.0.0}"; VERSION="${VERSION#v}"
-RID="${2:?runtime id: linux-x64 or win-x64}"
+RID="${2:?runtime id: linux-x64, win-x64, osx-arm64 or osx-x64}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$(mkdir -p "${3:-$ROOT/dist}" && cd "${3:-$ROOT/dist}" && pwd)"
 WORK="$ROOT/artifacts/pack/$RID"
@@ -20,7 +23,8 @@ WORK="$ROOT/artifacts/pack/$RID"
 case "$RID" in
   linux-x64) EXE=""; CHANNEL=linux; DIRECTIVE="[linux]" ;;
   win-x64)   EXE=".exe"; CHANNEL=win; DIRECTIVE="[win]" ;;
-  *) echo "unsupported runtime id '$RID' (linux-x64, win-x64)" >&2; exit 2 ;;
+  osx-arm64|osx-x64) EXE=""; CHANNEL=""; DIRECTIVE="" ;;
+  *) echo "unsupported runtime id '$RID' (linux-x64, win-x64, osx-arm64, osx-x64)" >&2; exit 2 ;;
 esac
 
 rm -rf "$WORK"; mkdir -p "$WORK/app" "$WORK/cli" "$WORK/feed"
@@ -49,6 +53,30 @@ if [ "$RID" = linux-x64 ]; then
   cp Lux.App/Assets/Icon/lux.svg "$WORK/app/lux.svg"
 fi
 
+APPDIR="$WORK/app"
+if [[ "$RID" == osx-* ]]; then
+  # macOS: put the app folder into the bundle layout. The executables and their files go to Contents/MacOS.
+  BUNDLE="$WORK/bundle/Lux.app"
+  mkdir -p "$BUNDLE/Contents/Resources"
+  cp "$WORK/cli"/*.dylib "$WORK/app/" 2>/dev/null || true
+  mv "$WORK/app" "$BUNDLE/Contents/MacOS"
+  # Only executables and libraries can stay in Contents/MacOS: the signature of the bundle does not accept other files there.
+  for f in "$BUNDLE/Contents/MacOS"/*; do
+    case "$(basename "$f")" in lux-app|lux-light|*.dylib) ;; *) mv "$f" "$BUNDLE/Contents/Resources/" ;; esac
+  done
+  cp Lux.App/Assets/Icon/lux.icns "$BUNDLE/Contents/Resources/lux.icns"
+  sed "s/@VERSION@/$VERSION/g" packaging/Info.plist > "$BUNDLE/Contents/Info.plist"
+  APPDIR="$WORK/bundle"
+  if command -v codesign >/dev/null 2>&1; then
+    # Sign the libraries first, then the executables, then the bundle.
+    find "$BUNDLE/Contents/MacOS" "$WORK/cli" -name '*.dylib' -exec codesign --force -s - {} \;
+    codesign --force -s - "$WORK/cli/lux-light" "$BUNDLE/Contents/MacOS/lux-light" "$BUNDLE/Contents/MacOS/lux-app"
+    codesign --force -s - "$BUNDLE"
+    codesign --verify --strict "$BUNDLE"
+    SIGNED=yes
+  fi
+fi
+
 archive() {   # <name> <folder>
   if [ "$RID" = win-x64 ]; then
     rm -f "$OUT/$1.zip"
@@ -59,8 +87,13 @@ archive() {   # <name> <folder>
   fi
 }
 echo "== archives"
-archive "lux-v$VERSION-$RID" "$WORK/app"
+archive "lux-v$VERSION-$RID" "$APPDIR"
 archive "lux-light-v$VERSION-$RID" "$WORK/cli"
+
+if [[ "$RID" == osx-* ]]; then
+  [ -n "${SIGNED:-}" ] || echo "== NOT SIGNED: on a Mac, unpack the archives and run 'codesign --force -s -' on each .dylib, on lux-light and lux-app, then on Lux.app"
+  echo "== done: $OUT"; ls -l "$OUT"; exit 0
+fi
 
 echo "== installed build with self-update"
 dotnet tool restore >/dev/null

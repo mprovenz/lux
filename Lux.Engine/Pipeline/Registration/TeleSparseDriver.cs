@@ -253,7 +253,7 @@ public static class TeleSparseDriver
         var B0img = new Rgba8Image(B0, wB, hB, wB);
         for (int level = 0; level < 3; level++)
         {
-            float scale = (float)Math.Pow(2.0, level);
+            float scale = (float)WineCrt.Pow(2.0, level);
             for (int j = 0; j < feats[level].Length; j++)
             {
                 var f = feats[level][j]; int ix = (int)(f.X * scale), iy = (int)(f.Y * scale);

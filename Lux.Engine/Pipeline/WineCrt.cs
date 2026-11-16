@@ -1,10 +1,11 @@
 namespace Lux.Engine.Pipeline;
 
 /// <summary>
-/// The C runtime's float maths as Lumen gets it. Lumen imports these functions from `api-ms-win-crt-math`, which resolves to
-/// `ucrtbase.dll`. The reference output comes from Lumen on Wine 10.0, so that CRT is Wine's ucrtbase. Each function here gives the same
-/// bits as that CRT; the comment of each function states the verified input domain. Use these, not <c>MathF</c>, wherever Lumen calls
-/// the CRT.
+/// The C runtime's float and double maths as Lumen gets it. Lumen and its Ceres library import these functions from
+/// `api-ms-win-crt-math`, which resolves to `ucrtbase.dll`. The reference output comes from Lumen on Wine 10.0, so that CRT is Wine's
+/// ucrtbase. Each function here gives the same bits as that CRT; the comment of each function states the verified input domain. Use
+/// these, not <c>Math</c> or <c>MathF</c>, wherever Lumen calls the CRT: the maths libraries of the operating systems give different
+/// last bits, and the output must not depend on the platform.
 /// <para>Wine's ucrtbase uses musl's argument reduction for sinf / cosf, but plain Taylor kernels. For some inputs its results are one
 /// ulp apart from musl's, so <c>MuslMath.Sinf/Cosf</c> do not give the same bits.</para>
 /// </summary>
@@ -154,6 +155,53 @@ public static partial class WineCrt
         else if (y <= -0.5f) y = y + x + 1f;
         else y = y + x;
         return neg ? -y : y;
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------------------------
+    // acosf — musl acosf.c (FreeBSD e_acosf.c: Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved. Developed at SunPro,
+    // a Sun Microsystems, Inc. business. Permission to use, copy, modify, and distribute this software is freely granted, provided
+    // that this notice is preserved.)
+    // ---------------------------------------------------------------------------------------------------------------------------------
+    const float AcfPio2Hi = 1.5707962513e+00f, AcfPio2Lo = 7.5497894159e-08f;
+    const float AcfP0 = 1.66666672e-01f, AcfP1 = -5.11644611e-02f, AcfP2 = -1.21124933e-02f, AcfP3 = -3.58742251e-03f, AcfQ1 = -7.56982703e-01f;
+
+    static float AcosfR(float z)
+    {
+        float p = z * (AcfP0 + z * (AcfP1 + z * (AcfP2 + z * AcfP3)));
+        float q = 1.0f + z * AcfQ1;
+        return p / q;
+    }
+
+    /// <summary>`acosf`. Verified domain: all 2^32 floats. An argument with |x| &gt; 1 gives the NaN 0xffc00000; a NaN argument comes
+    /// back unchanged.</summary>
+    public static float Acosf(float x)
+    {
+        float z, w, s, c, df;
+        uint hx = BitConverter.SingleToUInt32Bits(x);
+        uint ix = hx & 0x7fffffff;
+        if (ix >= 0x3f800000)                               // |x| >= 1 or NaN
+        {
+            if (ix == 0x3f800000) return (hx >> 31) != 0 ? 3.14159274f : 0f;
+            if (float.IsNaN(x)) return x;
+            return BitConverter.UInt32BitsToSingle(0xffc00000);
+        }
+        if (ix < 0x3f000000)                                // |x| < 0.5
+        {
+            if (ix <= 0x32800000) return 1.57079637f;       // |x| < 2^−26
+            return AcfPio2Hi - (x - (AcfPio2Lo - x * AcosfR(x * x)));
+        }
+        if ((hx >> 31) != 0)                                // x < −0.5
+        {
+            z = (1 + x) * 0.5f;
+            s = MathF.Sqrt(z);
+            return 2 * (AcfPio2Hi - (s + (AcosfR(z) * s - AcfPio2Lo)));
+        }
+        z = (1 - x) * 0.5f;                                 // x > 0.5
+        s = MathF.Sqrt(z);
+        df = BitConverter.UInt32BitsToSingle(BitConverter.SingleToUInt32Bits(s) & 0xfffff000);
+        c = (z - df * df) / (s + df);
+        w = AcosfR(z) * s + c;
+        return 2 * (df + w);
     }
 
     // ---- powf (musl / ARM optimized-routines, as Wine's msvcrt powf; TOINT_INTRINSICS = 0, POWF_SCALE = 1) ----

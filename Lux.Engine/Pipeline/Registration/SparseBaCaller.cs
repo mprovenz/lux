@@ -25,7 +25,7 @@ public static class SparseBaCaller
         if (theta > 0.0)
         {
             double inv = 1.0 / theta; x *= inv; y *= inv; z *= inv;
-            double nz = -z, ny = -y, zz = z * nz, s = Math.Sin(theta), c1 = 1.0 - Math.Cos(theta);
+            double nz = -z, ny = -y, zz = z * nz, s = WineCrt.Sin(theta), c1 = 1.0 - WineCrt.Cos(theta);
             double xy = (x * y) * c1, xz = (x * z) * c1, yz = (y * z) * c1;
             R[0] = 1.0 + (zz - y * y) * c1; R[1] = xy + nz * s; R[2] = xz + y * s;
             R[3] = xy + z * s; R[4] = (zz - x * x) * c1 + 1.0; R[5] = yz - x * s;

@@ -73,7 +73,7 @@ public sealed class ToneMappingAcrStage : IStage
         var f = t * Vector256.Create(LutScale);
         var i = Vector256.ConvertToInt32(f);
         i = Vector256.Max(i, Vector256<int>.Zero); i = Vector256.Min(i, Vector256.Create(1023));
-        var a = Avx2.GatherVector256(lp, i, 4); var b = Avx2.GatherVector256(lp, i + Vector256.Create(1), 4);
+        var a = Simd.GatherVector256(lp, i, 4); var b = Simd.GatherVector256(lp, i + Vector256.Create(1), 4);
         return ((f - Vector256.ConvertToSingle(i)) * (b - a)) + a;
     }
 

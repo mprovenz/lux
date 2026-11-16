@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
@@ -127,7 +128,7 @@ internal static class CoarseAlign
     static void Sad8(byte[] m, int rowp, int stride, ReadOnlySpan<byte> patch, Span<int> sum)
     {
         sum.Clear();
-        if (Sse2.IsSupported)
+        if (Simd.IsSupported)
         {
             // integer sums of absolute byte differences — any order gives the same value; psadbw per 16-byte row
             ref byte mb0 = ref MemoryMarshal.GetArrayDataReference(m); ref byte pb0 = ref MemoryMarshal.GetReference(patch);
@@ -137,7 +138,7 @@ internal static class CoarseAlign
                 nuint mb = (nuint)(rowp + r * stride);
                 for (int k = 0; k < 8; k++)
                 {
-                    var d = Sse2.SumAbsoluteDifferences(Vector128.LoadUnsafe(ref mb0, mb + (nuint)k), p).AsUInt64();
+                    var d = Simd.SumAbsoluteDifferences(Vector128.LoadUnsafe(ref mb0, mb + (nuint)k), p).AsUInt64();
                     sum[k] += (int)(d.GetElement(0) + d.GetElement(1));
                 }
             }
@@ -164,12 +165,12 @@ internal static class CoarseAlign
     static int Sad16(byte[] m, int q, int stride, ReadOnlySpan<byte> patch)
     {
         int s = 0;
-        if (Sse2.IsSupported)
+        if (Simd.IsSupported)
         {
             ref byte mb0 = ref MemoryMarshal.GetArrayDataReference(m); ref byte pb0 = ref MemoryMarshal.GetReference(patch);
             var acc = Vector128<ulong>.Zero;
             for (int r = 0; r < 16; r++)
-                acc += Sse2.SumAbsoluteDifferences(Vector128.LoadUnsafe(ref pb0, (nuint)(r * 16)), Vector128.LoadUnsafe(ref mb0, (nuint)(q + r * stride))).AsUInt64();
+                acc += Simd.SumAbsoluteDifferences(Vector128.LoadUnsafe(ref pb0, (nuint)(r * 16)), Vector128.LoadUnsafe(ref mb0, (nuint)(q + r * stride))).AsUInt64();
             return (int)(acc.GetElement(0) + acc.GetElement(1));
         }
         for (int r = 0; r < 16; r++)

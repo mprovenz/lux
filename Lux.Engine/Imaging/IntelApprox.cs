@@ -53,16 +53,16 @@ public static partial class IntelApprox
         Indefinite = Vector128.Create(0xffc00000u);
     static readonly Vector128<int> Bias = Vector128.Create(127);
 
-    /// <summary>`rcpps`: all four lanes. With AVX2 the table lookup is a gather and the special cases are lane masks;
+    /// <summary>`rcpps`: all four lanes. With fast gathers (<see cref="Simd.IsWideSupported"/>) the table lookup is a gather and the special cases are lane masks;
     /// otherwise four scalar lookups.</summary>
     public static unsafe Vector128<float> Reciprocal(Vector128<float> v)
     {
         var u = v.AsUInt32();
-        if (!Avx2.IsSupported)
+        if (!Simd.IsWideSupported)
             return Vector128.Create(RcpBits(u.GetElement(0)), RcpBits(u.GetElement(1)), RcpBits(u.GetElement(2)), RcpBits(u.GetElement(3))).AsSingle();
         var sign = u & SignMask; var e = (u >> 23) & ExpMask; var m = u & ManMask;
         Vector128<uint> r;
-        fixed (uint* t = RcpTable) r = Avx2.GatherVector128(t, (m >> 11).AsInt32(), 4);
+        fixed (uint* t = RcpTable) r = Simd.GatherVector128(t, (m >> 11).AsInt32(), 4);
         var re = ((r >> 23) & Ff).AsInt32() + Bias - e.AsInt32();
         var res = sign | (re.AsUInt32() << 23) | (r & ManMask);
         res = Vector128.ConditionalSelect(Vector128.LessThanOrEqual(re, Vector128<int>.Zero).AsUInt32(), sign, res);   // denormal result → ±0
@@ -79,15 +79,15 @@ public static partial class IntelApprox
     static readonly Vector256<int> Bias8 = Vector256.Create(127);
 
     /// <summary>`rcpps` on eight lanes: each lane = <see cref="RcpBits"/> of that lane (the same table and special cases as
-    /// the four-lane form, so the same bits for all 2³² inputs). Without AVX2, eight scalar lookups.</summary>
+    /// the four-lane form, so the same bits for all 2³² inputs). Without fast gathers, two four-lane halves.</summary>
     public static unsafe Vector256<float> Reciprocal(Vector256<float> v)
     {
         var u = v.AsUInt32();
-        if (!Avx2.IsSupported)
+        if (!Simd.IsWideSupported)
             return Vector256.Create(Reciprocal(v.GetLower()), Reciprocal(v.GetUpper()));
         var sign = u & SignMask8; var e = (u >> 23) & Ff8; var m = u & ManMask8;
         Vector256<uint> r;
-        fixed (uint* t = RcpTable) r = Avx2.GatherVector256(t, (m >> 11).AsInt32(), 4);
+        fixed (uint* t = RcpTable) r = Simd.GatherVector256(t, (m >> 11).AsInt32(), 4);
         var re = ((r >> 23) & Ff8).AsInt32() + Bias8 - e.AsInt32();
         var res = sign | (re.AsUInt32() << 23) | (r & ManMask8);
         res = Vector256.ConditionalSelect(Vector256.LessThanOrEqual(re, Vector256<int>.Zero).AsUInt32(), sign, res);   // denormal result → ±0
@@ -96,16 +96,16 @@ public static partial class IntelApprox
             Vector256.ConditionalSelect(Vector256.Equals(m, Vector256<uint>.Zero), sign, u | Quiet8), res);              // ±inf → ±0, NaN → quiet
         return res.AsSingle();
     }
-    /// <summary>`rsqrtps`: all four lanes (AVX2 gathers from both parity tables, else four scalar lookups).</summary>
+    /// <summary>`rsqrtps`: all four lanes (gathers from both parity tables when they are fast, else four scalar lookups).</summary>
     public static unsafe Vector128<float> ReciprocalSqrt(Vector128<float> v)
     {
         var u = v.AsUInt32();
-        if (!Avx2.IsSupported)
+        if (!Simd.IsWideSupported)
             return Vector128.Create(RsqrtBits(u.GetElement(0)), RsqrtBits(u.GetElement(1)), RsqrtBits(u.GetElement(2)), RsqrtBits(u.GetElement(3))).AsSingle();
         var sign = u & SignMask; var e = (u >> 23) & ExpMask; var m = u & ManMask; var idx = (m >> 11).AsInt32();
         Vector128<uint> rOdd, rEven;
-        fixed (uint* t = RsqrtOddTable) rOdd = Avx2.GatherVector128(t, idx, 4);
-        fixed (uint* t = RsqrtEvenTable) rEven = Avx2.GatherVector128(t, idx, 4);
+        fixed (uint* t = RsqrtOddTable) rOdd = Simd.GatherVector128(t, idx, 4);
+        fixed (uint* t = RsqrtEvenTable) rEven = Simd.GatherVector128(t, idx, 4);
         var k = e.AsInt32() - Bias;
         var r = Vector128.ConditionalSelect(Vector128.Equals(e & One, One), rOdd, rEven);   // e odd ⇔ k even ⇔ the e=127-parity table
         var re = ((r >> 23) & Ff).AsInt32() - Vector128.ShiftRightArithmetic(k, 1);         // k/2 for even k, (k−1)/2 for odd k

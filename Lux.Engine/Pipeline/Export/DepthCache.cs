@@ -124,9 +124,9 @@ public sealed class DepthImageCache
         {
             int so = y * stride, dofs = y * w, x = 0;
             for (; x + 4 <= w; x += 4)
-                Sse.Min(IntelApprox.Reciprocal(Vector128.Create(src[so + x], src[so + x + 1], src[so + x + 2], src[so + x + 3])), cv).CopyTo(dst, dofs + x);
+                Simd.Min(IntelApprox.Reciprocal(Vector128.Create(src[so + x], src[so + x + 1], src[so + x + 2], src[so + x + 3])), cv).CopyTo(dst, dofs + x);
             for (; x < w; x++)
-                dst[dofs + x] = Sse.MinScalar(IntelApprox.ReciprocalScalar(Vector128.CreateScalar(src[so + x])), Vector128.CreateScalar(clip)).ToScalar();
+                dst[dofs + x] = Simd.MinScalar(IntelApprox.ReciprocalScalar(Vector128.CreateScalar(src[so + x])), Vector128.CreateScalar(clip)).ToScalar();
         }
         return dst;
     }

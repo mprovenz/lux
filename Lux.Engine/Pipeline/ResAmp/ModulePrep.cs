@@ -77,7 +77,7 @@ internal static class ModulePrep
             float x = (float)(k - 4) * invS; float w;
             if (x == 0.0f) w = 1.0f;
             else if (MathF.Abs(x) >= 2.0f) w = 0.0f;
-            else { float a = MathF.Sin(x * pi); float b = MathF.Sin(x * pi2); w = ((b + b) * a) / ((x * x) * pisq); }
+            else { float a = WineCrt.Sinf(x * pi); float b = WineCrt.Sinf(x * pi2); w = ((b + b) * a) / ((x * x) * pisq); }
             wk[k] = w; sum = sum + w;
         }
         float invSum = 1.0f / sum; for (int k = 0; k < 9; k++) wk[k] *= invSum;

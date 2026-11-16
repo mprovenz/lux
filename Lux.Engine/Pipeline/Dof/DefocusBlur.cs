@@ -285,7 +285,7 @@ public sealed class DefocusBlur
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
     void FillLayer(DofImage img, Layer src, Layer dst, int ya, int yb)
     {
-        float t = 1f - (float)(uint)(long)Math.Log2((double)dst.Diameter) * _p.Feather;
+        float t = 1f - (float)(uint)(long)WineCrt.Log2((double)dst.Diameter) * _p.Feather;
         t = t > 0.1f ? t : 0.1f;
         float wd = (src.Hi - dst.Hi) * t, inv = 1f / wd, edge = wd + dst.Hi;
         bool feather = src.Hi > dst.Hi;

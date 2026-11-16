@@ -251,19 +251,19 @@ public static class ColorNoiseReductionKernel
     public sealed record Args(float Ratio, float VarScale, float[] Neutral, float[] InvN2, float[] A, float[] B);
 
     /// <summary>levels = (int)max(0, log2f(parameter_scale) + 5).</summary>
-    public static int Levels(float paramScale) { float l = MathF.Log2(paramScale) + LevelOffset; if (!(l >= 0f)) l = 0f; return (int)l; }
+    public static int Levels(float paramScale) { float l = WineCrt.Log2f(paramScale) + LevelOffset; if (!(l >= 0f)) l = 0f; return (int)l; }
 
     /// <summary>The per-level argument block of the dispatcher.</summary>
     public static Args MakeArgs(int level, int black, int white, float paramScale, float multiplier, ReadOnlySpan<float> neutral, float[] a3, float[] b3)
     {
         float pm = paramScale * multiplier; pm *= pm;
-        float e = MathF.Pow(2f, (float)(level * -2));
+        float e = WineCrt.Powf(2f, (float)(level * -2));
         float varScale = e * pm;
         var n = new[] { neutral[0], neutral[1], neutral[2], 1f };
         var n2 = Vector128.Create(n[0] * n[0], n[1] * n[1], n[2] * n[2], n[3] * n[3]);
         var r = IntelApprox.Reciprocal(n2);
         var one = Vector128.Create(1f);
-        var rr = Sse.Add(Sse.Multiply(Sse.Subtract(one, Sse.Multiply(n2, r)), r), r);
+        var rr = Simd.Add(Simd.Multiply(Simd.Subtract(one, Simd.Multiply(n2, r)), r), r);
         var inv = new[] { rr[0], rr[1], rr[2], rr[3] };
         return new Args((float)black / (float)white, varScale, n, inv, new[] { a3[0], a3[1], a3[2], 0f }, new[] { b3[0], b3[1], b3[2], 0f });
     }
@@ -300,7 +300,7 @@ public static class ColorNoiseReductionKernel
             var[c] = (meanA * a.B[c] + (ra + x) * a.A[c]) * (a.VarScale * a.InvN2[c]);
         }
         var vv = Vector128.Create(var[0], var[1], var[2], var[3]);
-        var sq = Sse.IsSupported ? Sse.Sqrt(vv) : Vector128.Create(MathF.Sqrt(var[0]), MathF.Sqrt(var[1]), MathF.Sqrt(var[2]), MathF.Sqrt(var[3]));
+        var sq = Simd.IsSupported ? Simd.Sqrt(vv) : Vector128.Create(MathF.Sqrt(var[0]), MathF.Sqrt(var[1]), MathF.Sqrt(var[2]), MathF.Sqrt(var[3]));
         var rs = IntelApprox.ReciprocalSqrt(vv);
         var D = Diag(sq[0], sq[1], sq[2]); var Dinv = Diag(rs[0], rs[1], rs[2]);
         var C = new float[] { mRR, mRG, mBR, mRG, mGG, mGB, mBR, mGB, mBB };   // column-major, symmetric

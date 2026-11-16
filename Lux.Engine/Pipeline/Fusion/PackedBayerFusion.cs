@@ -414,7 +414,7 @@ public sealed class PackedBayerFusion
                         for (int x = 0; x < vc; x += 2)
                         {
                             var v = Vector128.Create(p[r0 + x + 1], p[r0 + x], p[r1 + x], p[r1 + x + 1]);
-                            v = IntelApprox.Reciprocal(Sse.Max(v, tenth));
+                            v = IntelApprox.Reciprocal(Simd.Max(v, tenth));
                             s0 = s0 + v.GetElement(0); s1 = s1 + v.GetElement(1); s2 = s2 + v.GetElement(2); s3 = s3 + v.GetElement(3);
                         }
                     }
@@ -469,7 +469,7 @@ public sealed class PackedBayerFusion
         s = s * Vector128.Create(A[0], A[1], A[2], A[3]);
         s = Vector128.Create(One / White) * s;
         s = s + Vector128.Create(B[0], B[1], B[2], B[3]);
-        s = Sse.Max(s, Vector128.Create(Eps));
+        s = Simd.Max(s, Vector128.Create(Eps));
         float f2 = f * f;
         var o = (Vector128.Create(f2) * Vector128.Create(White * White)) * s;
         return Store(o);

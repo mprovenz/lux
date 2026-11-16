@@ -36,11 +36,11 @@ public static class HighlightRestoreKernel
         var f = new Frame();
         // rcpps + Newton on (nG, nB) and (nR, white−black), ×1.0
         var v = Vector128.Create(n[1], n[2], 0f, 0f); var r = IntelApprox.Reciprocal(v);
-        var nr = Sse.Multiply(Sse.Add(Sse.Multiply(Sse.Subtract(Vector128.Create(1f), Sse.Multiply(v, r)), r), r), Vector128.Create(1f));
+        var nr = Simd.Multiply(Simd.Add(Simd.Multiply(Simd.Subtract(Vector128.Create(1f), Simd.Multiply(v, r)), r), r), Vector128.Create(1f));
         f.RG = nr[0]; f.RB = nr[1];
         float wb = white - black;
         v = Vector128.Create(n[0], wb, 0f, 0f); r = IntelApprox.Reciprocal(v);
-        nr = Sse.Multiply(Sse.Add(Sse.Multiply(Sse.Subtract(Vector128.Create(1f), Sse.Multiply(v, r)), r), r), Vector128.Create(1f));
+        nr = Simd.Multiply(Simd.Add(Simd.Multiply(Simd.Subtract(Vector128.Create(1f), Simd.Multiply(v, r)), r), r), Vector128.Create(1f));
         f.RR = nr[0]; f.RWB = nr[1];
         f.SR = f.RR * f.RWB; f.SG = f.RG * f.RWB; f.SB = f.RWB * f.RB;
         f.Floor = (int)(-0.04f * white);

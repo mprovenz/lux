@@ -32,7 +32,7 @@ public static class IccProfiles
         for (int i = 0; i < t.Length; i++)
         {
             double v = i / (double)(t.Length - 1);
-            double lin = v <= 0.04045 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4);
+            double lin = v <= 0.04045 ? v / 12.92 : WineCrt.Pow((v + 0.055) / 1.055, 2.4);
             t[i] = (ushort)Math.Round(lin * 65535.0);
         }
         return t;

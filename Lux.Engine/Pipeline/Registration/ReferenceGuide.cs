@@ -79,9 +79,9 @@ public static class ReferenceGuide
                     long o = ((long)(tile.Y0 + y) * W + tile.X0 + x) * 4;
                     if (flt is not null) { flt[o] = v.R; flt[o + 1] = v.G; flt[o + 2] = v.B; flt[o + 3] = v.A; }
                     var m = Vector128.Create(v.R, v.G, v.B, v.A) * v255;
-                    var q = Sse2.ConvertToVector128Int32(m);              // cvtps2dq (RNE; NaN/overflow → 0x80000000)
-                    var w16 = Sse2.PackSignedSaturate(q, q);
-                    var b8 = Sse2.PackUnsignedSaturate(w16, w16);
+                    var q = Simd.ConvertToVector128Int32(m);              // cvtps2dq (RNE; NaN/overflow → 0x80000000)
+                    var w16 = Simd.PackSignedSaturate(q, q);
+                    var b8 = Simd.PackUnsignedSaturate(w16, w16);
                     pre[o] = b8.GetElement(0); pre[o + 1] = b8.GetElement(1); pre[o + 2] = b8.GetElement(2); pre[o + 3] = b8.GetElement(3);
                 }
             }
@@ -148,9 +148,9 @@ public static class Rgba8Warp
                 var acc = (C[5] * Vector128.Create(tbl[fx * 6 + 5]) + C[4] * Vector128.Create(tbl[fx * 6 + 4]))
                         + ((C[3] * Vector128.Create(tbl[fx * 6 + 3]) + C[2] * Vector128.Create(tbl[fx * 6 + 2]))
                            + (C[1] * Vector128.Create(tbl[fx * 6 + 1]) + C[0] * Vector128.Create(tbl[fx * 6])));
-                var q = Sse2.ConvertToVector128Int32(acc);
-                var w16 = Sse2.PackSignedSaturate(q, q);
-                var b8 = Sse2.PackUnsignedSaturate(w16, w16);
+                var q = Simd.ConvertToVector128Int32(acc);
+                var w16 = Simd.PackSignedSaturate(q, q);
+                var b8 = Simd.PackUnsignedSaturate(w16, w16);
                 long d = ((long)y * dw + x) * 4;
                 dst[d] = b8.GetElement(0); dst[d + 1] = b8.GetElement(1); dst[d + 2] = b8.GetElement(2); dst[d + 3] = b8.GetElement(3);
             }

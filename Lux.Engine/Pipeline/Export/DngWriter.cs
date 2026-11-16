@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Buffers.Binary;
 using System.Text;
 
@@ -38,8 +39,8 @@ public sealed class TiffDirectory
     /// <summary>x86 `cvttss2si`: truncate toward zero, and yield the "integer indefinite" 0x80000000 when the value does not fit (or is NaN).
     /// C#'s own `(int)` cast has SATURATED since .NET Core 3.0, so it would give 0x7fffffff instead — visible on a 149 mm capture, whose
     /// FocalLength numerator `149 · 2²⁴` overflows: Lumen writes 2147483648, a saturating cast writes 2147483647.</summary>
-    static int Cvtt(float f) => System.Runtime.Intrinsics.X86.Sse.IsSupported
-        ? System.Runtime.Intrinsics.X86.Sse.ConvertToInt32WithTruncation(System.Runtime.Intrinsics.Vector128.CreateScalar(f))
+    static int Cvtt(float f) => Simd.IsSupported
+        ? Simd.ConvertToInt32WithTruncation(System.Runtime.Intrinsics.Vector128.CreateScalar(f))
         : (f >= -2147483648f && f < 2147483648f ? (int)f : int.MinValue);
     /// <summary>float → RATIONAL/SRATIONAL over 2²⁴ with truncation (the matrices; field types 5/10).</summary>
     public static (int, int) SRat24(float f) => (Cvtt(f * 16777216f), Den24);

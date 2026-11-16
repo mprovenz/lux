@@ -24,7 +24,7 @@ public static class MirrorPose
         double ax = s.Axis[0], ay = s.Axis[1], az = s.Axis[2];
         double norm = Math.Sqrt((az * az + ax * ax) + ay * ay);
         ax /= norm; ay /= norm; az /= norm;
-        double phi = thetaDeg * DegToRad, c = Math.Cos(phi), sn = Math.Sin(phi), oc = 1.0 - c;
+        double phi = thetaDeg * DegToRad, c = WineCrt.Cos(phi), sn = WineCrt.Sin(phi), oc = 1.0 - c;
         double r00 = c + ax * ax * oc, r10 = ax * ay * oc + az * sn, r01 = ax * ay * oc - az * sn, r11 = ay * ay * oc + c;
         double r02 = ax * az * oc + ay * sn, r12 = ay * az * oc - ax * sn, r20 = ax * az * oc - ay * sn, r21 = ay * az * oc + ax * sn, r22 = az * az * oc + c;
         double n0x = s.N0[0], n0y = s.N0[1], n0z = s.N0[2];
@@ -66,7 +66,7 @@ public static class MirrorPose
     }
 
     /// <summary>Rotation about the optical axis by δ radians (row-major).</summary>
-    public static double[] Rz(double delta) { double c = Math.Cos(delta), s = Math.Sin(delta); return new[] { c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0 }; }
+    public static double[] Rz(double delta) { double c = WineCrt.Cos(delta), s = WineCrt.Sin(delta); return new[] { c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0 }; }
 
     /// <summary>The candidate camera = base calibration with (R, t) from the mirror pose at θ, composed with Rz(δ) when δ ≠ 0.</summary>
     public static CalibData NodePose(MirrorSystem s, CalibData baseCam, double thetaDeg, double delta)

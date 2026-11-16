@@ -86,8 +86,8 @@ public static class PostProcessingVibrance
     static float Rsqrt(float x) => IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar();
     static float Max0(float v) => v > 0f ? v : 0f;                       // MAXPS order: NaN → 0
     static float Clamp01(float v) { v = v > 0f ? v : 0f; return v < 1f ? v : 1f; }   // MAXPS order: NaN → 0
-    static int Cvtps2dq(float v) => Sse2.ConvertToVector128Int32(Vector128.CreateScalar(v)).ToScalar();
-    static int Cvttss2si(float v) => Sse.ConvertToInt32WithTruncation(Vector128.CreateScalar(v));
+    static int Cvtps2dq(float v) => Simd.ConvertToVector128Int32(Vector128.CreateScalar(v)).ToScalar();
+    static int Cvttss2si(float v) => Simd.ConvertToInt32WithTruncation(Vector128.CreateScalar(v));
 
     /// <summary>Hue in radians, 4-wide body: t = rcp(max(max|a|,|b|), 1e-6))·min, atan(t) = (t²·t)·((t²·c0 + c1)·t² + c2) + t,
     /// then the octant folds (|a| &lt; |b| → π/2 − ·, a &lt; 0 → π − ·, b &lt; 0 → −·).</summary>
@@ -288,8 +288,8 @@ public static class PostProcessingVibrance
         d = Sel(Vector256.GreaterThan(d, lo), d, lo);
         d = Sel(Vector256.LessThan(d, hi), d, hi);
         var f = Sel(Vector256.LessThan(Vector256<float>.Zero, d), d, d + Vector256.Create(360f));
-        var i = Avx.ConvertToVector256Int32(f);   // cvtps2dq: round to nearest even (as the scalar model)
-        fixed (float* tp = HueTable) return Avx2.GatherVector256(tp, i, 4);
+        var i = Simd.ConvertToVector256Int32(f);   // cvtps2dq: round to nearest even (as the scalar model)
+        fixed (float* tp = HueTable) return Simd.GatherVector256(tp, i, 4);
     }
 
     /// <summary>The body of one row of the vibrance kernels: columns [0, <paramref name="end"/>) eight at a time (kernel 1 = <see cref="Up.Vec"/>,
@@ -298,7 +298,7 @@ public static class PostProcessingVibrance
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     internal static int BodyRow(int kernel, in Up up, in Down down, float[] lpRow, float[] A, float[] B, int ab, float[] minv, float[] rgba, int o0, int end)
     {
-        if (!Avx2.IsSupported) return 0;
+        if (!Simd.IsWideSupported) return 0;
         int x = 0;
         ref float ob = ref MemoryMarshal.GetArrayDataReference(rgba);
         var one = Vector256.Create(1f);

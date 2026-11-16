@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
@@ -107,8 +108,8 @@ public sealed class ColorCorrectionOptimizedStage : IStage
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static unsafe Vector256<float> Interp(float* lut, Vector256<int> ia, Vector256<int> ib, Vector256<int> ic, Vector256<int> id, int k, Vector256<float> fh, Vector256<float> fs)
     {
-        var la = Avx2.GatherVector256(lut + k, ia, 4); var lb = Avx2.GatherVector256(lut + k, ib, 4);
-        var lc = Avx2.GatherVector256(lut + k, ic, 4); var ld = Avx2.GatherVector256(lut + k, id, 4);
+        var la = Simd.GatherVector256(lut + k, ia, 4); var lb = Simd.GatherVector256(lut + k, ib, 4);
+        var lc = Simd.GatherVector256(lut + k, ic, 4); var ld = Simd.GatherVector256(lut + k, id, 4);
         var dx = ((lb - la) * fh) + la;
         var dB = (ld - lc) * fh;
         return (((lc - dx) + dB) * fs) + dx;

@@ -36,7 +36,7 @@ public sealed class LightBA
         var r = new double[3];
         if (theta2 > DblEps)
         {
-            double theta = Math.Sqrt(theta2), c = Math.Cos(theta), s = Math.Sin(theta), ti = 1.0 / theta;
+            double theta = Math.Sqrt(theta2), c = WineCrt.Cos(theta), s = WineCrt.Sin(theta), ti = 1.0 / theta;
             double w0 = a[0] * ti, w1 = a[1] * ti, w2 = a[2] * ti;
             double x0 = w1 * p[2] - w2 * p[1], x1 = w2 * p[0] - w0 * p[2], x2 = w0 * p[1] - w1 * p[0];
             double tmp = ((w0 * p[0] + w1 * p[1]) + w2 * p[2]) * (1.0 - c);
@@ -51,7 +51,7 @@ public sealed class LightBA
     {
         double theta = Math.Sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
         if (!(theta > 0.0)) return new[] { 1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0 };
-        double x = a[0] / theta, y = a[1] / theta, z = a[2] / theta, s = Math.Sin(theta), c = 1.0 - Math.Cos(theta);
+        double x = a[0] / theta, y = a[1] / theta, z = a[2] / theta, s = WineCrt.Sin(theta), c = 1.0 - WineCrt.Cos(theta);
         return new[] {
             1 + ((-z * z) - y * y) * c, (-z) * s + (x * y) * c, (z * x) * c + y * s,
             (x * y) * c + z * s, 1 + ((-z * z) - x * x) * c, (z * y) * c - x * s,
@@ -78,7 +78,7 @@ public sealed class LightBA
         double n = Math.Sqrt(qx * qx + qy * qy + qz * qz);
         if (n != 0.0)
         {
-            double angle = 2.0 * Math.Atan2(n, Math.Abs(qw));
+            double angle = 2.0 * WineCrt.Atan2(n, Math.Abs(qw));
             if (qw < 0.0) n = -n;
             return new[] { qx / n * angle, qy / n * angle, qz / n * angle };
         }
@@ -102,7 +102,7 @@ public sealed class LightBA
         double s = Math.Sqrt(((a * a + b * b) + c * c) * 0.25);
         double cc = ((M11 + M22) + (M00 + (-1.0))) * 0.5;
         cc = (1.0 < cc) ? 1.0 : Math.Max(-1.0, cc);
-        double theta = Math.Acos(cc);
+        double theta = WineCrt.Acos(cc);
         if (s >= 1e-5) { double k = (0.5 / s) * theta; return new[] { k * b, k * c, k * a }; }
         if (!(cc > 0.0))
         {
@@ -186,8 +186,8 @@ public sealed class LightBA
         public static Dual operator /(double s, Dual g) { double w = s / g.A; var v = new double[g.V.Length]; double k = -s / (g.A * g.A); for (int i = 0; i < v.Length; i++) v[i] = g.V[i] * k; return new Dual(w, v); }
         public static Dual operator /(Dual f, Dual g) { double inv = 1.0 / g.A, q = f.A * inv; var v = new double[f.V.Length]; for (int i = 0; i < v.Length; i++) v[i] = (f.V[i] - q * g.V[i]) * inv; return new Dual(q, v); }
         public static Dual Sqrt(Dual x) { double s = Math.Sqrt(x.A); var v = new double[x.V.Length]; double k = 0.5 / s; for (int i = 0; i < v.Length; i++) v[i] = k * x.V[i]; return new Dual(s, v); }
-        public static Dual Sin(Dual x) { double c = Math.Cos(x.A); var v = new double[x.V.Length]; for (int i = 0; i < v.Length; i++) v[i] = c * x.V[i]; return new Dual(Math.Sin(x.A), v); }
-        public static Dual Cos(Dual x) { double s = -Math.Sin(x.A); var v = new double[x.V.Length]; for (int i = 0; i < v.Length; i++) v[i] = s * x.V[i]; return new Dual(Math.Cos(x.A), v); }
+        public static Dual Sin(Dual x) { double c = WineCrt.Cos(x.A); var v = new double[x.V.Length]; for (int i = 0; i < v.Length; i++) v[i] = c * x.V[i]; return new Dual(WineCrt.Sin(x.A), v); }
+        public static Dual Cos(Dual x) { double s = -WineCrt.Sin(x.A); var v = new double[x.V.Length]; for (int i = 0; i < v.Length; i++) v[i] = s * x.V[i]; return new Dual(WineCrt.Cos(x.A), v); }
     }
 
     static Dual[] RotatePointD(Dual[] a, Dual[] p, int np)
@@ -323,7 +323,7 @@ public sealed class LightBA
                 x = cand; xNorm = Math.Sqrt(x.Sum(v => v * v));
                 xCost = Evaluate(x, residuals, J); gradient = Gradient(); ScaleJ(); gradientMaxNorm = gradient.Max(v => Math.Abs(v));
                 stepSuccessful = true;
-                radius = radius / Math.Max(1.0 / 3.0, 1.0 - Math.Pow(2.0 * relativeDecrease - 1.0, 3)); radius = Math.Min(MaxRadius, radius); decreaseFactor = 2.0; reuseDiagonal = false;
+                radius = radius / Math.Max(1.0 / 3.0, 1.0 - WineCrt.Pow(2.0 * relativeDecrease - 1.0, 3)); radius = Math.Min(MaxRadius, radius); decreaseFactor = 2.0; reuseDiagonal = false;
                 seCur = candidateCost; accCand += modelCostChange; accRef += modelCostChange;
                 if (seCur < seMin) { seMin = seCur; nonmono = 0; seCand = seCur; accCand = 0; }
                 else { nonmono++; if (seCur > seCand) { seCand = seCur; accCand = 0; } }

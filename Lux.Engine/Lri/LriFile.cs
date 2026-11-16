@@ -160,7 +160,7 @@ public sealed class LriFile
     }
 
     /// <summary>`tone_mapping.ev_offset` / BaselineExposure = log2f(<see cref="LumenExposureRatio"/>).</summary>
-    public float LumenEvOffset => MathF.Log2(LumenExposureRatio);
+    public float LumenEvOffset => Pipeline.WineCrt.Log2f(LumenExposureRatio);
 
     /// <summary>
     /// Lumen's AsShot neutral: n = (1/r, 1/g, 1/b) from the header's awb_gains

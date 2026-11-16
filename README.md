@@ -85,6 +85,14 @@ Everything is self-contained, so no .NET install is needed. Pick one:
 
 The installed builds check this repository's releases when the app starts, download a newer version in the background and apply
 it only when you choose to restart. The binaries are not code-signed, so Windows shows a SmartScreen warning on first run.
+
+macOS: use the plain archives, `osx-arm64` for Apple silicon and `osx-x64` for Intel. The first archive contains `Lux.app`, with
+`lux-light` in `Lux.app/Contents/MacOS`. The macOS builds do not update themselves. They are not notarised, so macOS blocks a
+downloaded copy until you remove the quarantine mark:
+```
+tar -xzf lux-<version>-osx-arm64.tar.gz
+xattr -dr com.apple.quarantine Lux.app             # for the tool alone: xattr -d com.apple.quarantine lux-light
+```
 ```
 tar -xzf lux-light-<version>-linux-x64.tar.gz      # a .zip on Windows
 ./lux-light convert <file-or-dir> [--out-directory out] [--formats all] [-j threads]

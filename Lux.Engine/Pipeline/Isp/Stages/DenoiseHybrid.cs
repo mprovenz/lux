@@ -97,7 +97,7 @@ public static class HybridDenoise
     static Vector128<float> MaxV(Vector128<float> a, Vector128<float> b) => Vector128.ConditionalSelect(Vector128.GreaterThan(a, b), a, b);   // a > b ? a : b
     static Vector128<float> AbsV(Vector128<float> a) => (a.AsInt32() & Vector128.Create(0x7fffffff)).AsSingle();
     [MethodImpl(MethodImplOptions.AggressiveInlining)]   // always inlined, so the shuffle control stays an immediate
-    static Vector128<float> Bc(Vector128<float> v, [System.Diagnostics.CodeAnalysis.ConstantExpected] byte lane) => Sse.Shuffle(v, v, lane);   // broadcast one lane (0x00, 0x55, 0xAA, 0xFF)
+    static Vector128<float> Bc(Vector128<float> v, [System.Diagnostics.CodeAnalysis.ConstantExpected] byte lane) => Simd.Shuffle(v, v, lane);   // broadcast one lane (0x00, 0x55, 0xAA, 0xFF)
     /// <summary>Per-tap bilateral weight on all four lanes: max(1 − max(d − σ, 0)·r, 1e-6) with d broadcast.</summary>
     static Vector128<float> TapWeight(Vector128<float> d, Vector128<float> s, Vector128<float> r)
     {

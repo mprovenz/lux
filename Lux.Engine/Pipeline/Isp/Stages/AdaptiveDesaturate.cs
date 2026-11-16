@@ -28,7 +28,7 @@ public static class AdaptiveDesaturateKernel
     {
         var k = new float[n];
         float f = -0.5f / (sigma * sigma), c = (float)(n - 1) * 0.5f, sum = 0f;
-        for (int i = 0; i < n; i++) { float d = (float)i - c; k[i] = MathF.Exp(d * d * f); sum += k[i]; }
+        for (int i = 0; i < n; i++) { float d = (float)i - c; k[i] = WineCrt.Expf(d * d * f); sum += k[i]; }
         float m = scale / sum;
         for (int i = 0; i < n; i++) k[i] *= m;
         return k;

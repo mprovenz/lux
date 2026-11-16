@@ -1,3 +1,4 @@
+using Lux.Engine.Imaging;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
@@ -224,7 +225,7 @@ public static class ColorSpaceConvert
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
     static int Apply4Row(float[] T, Span<Vec4F> s, Span<Vec4F> d)
     {
-        if (!Avx.IsSupported) return 0;
+        if (!Simd.IsWideFloatSupported) return 0;
         int w = s.Length, x = 0;
         var c0 = Vector256.Create(T[0], T[3], T[6], 0f, T[0], T[3], T[6], 0f); var c1 = Vector256.Create(T[1], T[4], T[7], 0f, T[1], T[4], T[7], 0f);
         var c2 = Vector256.Create(T[2], T[5], T[8], 0f, T[2], T[5], T[8], 0f); var c3 = Vector256.Create(0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f);
@@ -232,7 +233,7 @@ public static class ColorSpaceConvert
         for (; x + 2 <= w; x += 2)
         {
             var v = Vector256.LoadUnsafe(ref sb, (nuint)(x * 4));
-            var X = Avx.Permute(v, 0x00); var Y = Avx.Permute(v, 0x55); var Z = Avx.Permute(v, 0xAA); var W = Avx.Permute(v, 0xFF);
+            var X = Simd.Permute(v, 0x00); var Y = Simd.Permute(v, 0x55); var Z = Simd.Permute(v, 0xAA); var W = Simd.Permute(v, 0xFF);
             (((W * c3) + ((Z * c2) + (X * c0))) + (Y * c1)).StoreUnsafe(ref db, (nuint)(x * 4));
         }
         return x;

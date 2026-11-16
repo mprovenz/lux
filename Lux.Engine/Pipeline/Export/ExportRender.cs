@@ -347,7 +347,7 @@ public static class ExportResample
         {
             float x = (float)(i - (n >> 1)) * inv, w;
             if (x == 0f) w = 1f;
-            else if (MathF.Abs(x) < 2f) { float s1 = MathF.Sin(x * 3.1415927f), s2 = MathF.Sin(x * 1.5707964f); w = ((s2 + s2) * s1) / (x * x * 9.869605f); }
+            else if (MathF.Abs(x) < 2f) { float s1 = WineCrt.Sinf(x * 3.1415927f), s2 = WineCrt.Sinf(x * 1.5707964f); w = ((s2 + s2) * s1) / (x * x * 9.869605f); }
             else w = 0f;
             k[i] = w; sum = sum + w;
         }

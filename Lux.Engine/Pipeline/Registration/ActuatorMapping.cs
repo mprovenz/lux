@@ -19,6 +19,6 @@ public sealed class ActuatorMapping
         else { double s = Math.Sqrt(disc); r0 = (s - b) / (a + a); r1 = (-b - s) / (a + a); }
         bool flag = hall < Inflection ? UseRplusLeft : UseRplusRight;
         double r = (flag ? 1 : 0) == 1 ? r0 : r1;   // idx = flag ^ 1 → root[1] when the flag is clear
-        return XformType == 1 ? Math.Atan(r) * (360.0 / Math.PI) : r * SOut + MOut;
+        return XformType == 1 ? WineCrt.Atan(r) * (360.0 / Math.PI) : r * SOut + MOut;
     }
 }

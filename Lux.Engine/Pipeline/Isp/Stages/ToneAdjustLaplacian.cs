@@ -74,7 +74,7 @@ public sealed class ToneAdjustLaplacianStage : IStage
         {
             var s = MemoryMarshal.Cast<Vec4F, float>(src.Row(y)); var o = ys.Row(y);
             int x = 0;
-            if (Avx2.IsSupported)
+            if (Simd.IsWideSupported)
             {
                 // eight pixels: R, G, B lanes gathered (stride 4); the same three products and two sums per pixel
                 ref float sb = ref MemoryMarshal.GetReference(s); ref float ob = ref MemoryMarshal.GetReference(o);
@@ -84,7 +84,7 @@ public sealed class ToneAdjustLaplacianStage : IStage
                     {
                         fixed (float* p = &Unsafe.Add(ref sb, x * 4))
                         {
-                            var R = Avx2.GatherVector256(p, idx, 4); var G = Avx2.GatherVector256(p + 1, idx, 4); var B = Avx2.GatherVector256(p + 2, idx, 4);
+                            var R = Simd.GatherVector256(p, idx, 4); var G = Simd.GatherVector256(p + 1, idx, 4); var B = Simd.GatherVector256(p + 2, idx, 4);
                             (((B * lb) + ((G * lg) + (R * lr))) * sc).StoreUnsafe(ref ob, (nuint)x);
                         }
                     }
@@ -238,7 +238,7 @@ public sealed class ToneAdjustLaplacianStage : IStage
                 y = (SignTable[b] * sigma) * tt;
             }
             float prod = clarity * x;
-            double e = Math.Exp((double)(x * x) / (((double)sigma * (double)sigma) * -2.0));
+            double e = WineCrt.Exp((double)(x * x) / (((double)sigma * (double)sigma) * -2.0));
             lut[i] = (float)((double)y + e * (double)prod);
         }
         return lut;
@@ -268,7 +268,7 @@ public sealed class ToneAdjustLaplacianStage : IStage
         }
         if (ns > 255) throw new InvalidOperationException("too many samples");
         int m = Math.Min(src.Width, src.Height);
-        int lv = (int)(Math.Log2((double)m) + -2.0);
+        int lv = (int)(WineCrt.Log2((double)m) + -2.0);
         int levels = lv > 1 ? lv : 2;
         if (levels >= 7) levels = 6;
         var own = al ?? new LaplacianPyramid.Alloc();
@@ -403,7 +403,7 @@ public sealed class ToneAdjustLaplacianStage : IStage
         fixed (float* lp = lut)
         {
             int x = 0;
-            if (Avx2.IsSupported)
+            if (Simd.IsWideSupported)
             {
                 ref float sb = ref MemoryMarshal.GetReference(s); ref float ob = ref MemoryMarshal.GetReference(o);
                 var G = Vector256.Create(g); var LO = Vector256.Create(lo); var HI = Vector256.Create(hi); var INV = Vector256.Create(invRange); var N1 = Vector256.Create(n1);
@@ -416,7 +416,7 @@ public sealed class ToneAdjustLaplacianStage : IStage
                     var t = N1 * ((v - LO) * INV);
                     var i = Vector256.ConvertToInt32(t);
                     i = Vector256.Max(i, zero); i = Vector256.Min(i, top);
-                    var l0 = Avx2.GatherVector256(lp, i, 4); var l1 = Avx2.GatherVector256(lp, i + one, 4);
+                    var l0 = Simd.GatherVector256(lp, i, 4); var l1 = Simd.GatherVector256(lp, i + one, 4);
                     ((l0 + G) + (t - Vector256.ConvertToSingle(i)) * (l1 - l0)).StoreUnsafe(ref ob, (nuint)x);
                 }
             }

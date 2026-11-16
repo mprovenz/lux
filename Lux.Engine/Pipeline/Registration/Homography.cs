@@ -309,7 +309,7 @@ public static class Homography
             float q = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(len2)).ToScalar();
             float D = ((len2 * q) * q) + (-3.0f);
             float cos = ((q * sign) * D) * comp;
-            return (double)MathF.Acos(cos) * 57.295780490442965;
+            return (double)WineCrt.Acosf(cos) * 57.295780490442965;
         }
         double d1 = Deg(E1, E1.Item1, -0.5f), d2 = Deg(E2, E2.Item2, -0.5f), d3 = Deg(E3, E3.Item1, 0.5f), d4 = Deg(E4, E4.Item2, 0.5f);
         // Lumen's `deg < 20.0` test (UCOMISD, then SETB) counts an unordered result (NaN) as

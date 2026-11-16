@@ -429,12 +429,12 @@ public static class CeresLineSearchMinimizer
             {
                 if (s.ValueIsValid)
                 {
-                    for (int j = 0; j <= degree; j++) lhs[row * m + j] = Math.Pow(s.X, degree - j);
+                    for (int j = 0; j <= degree; j++) lhs[row * m + j] = WineCrt.Pow(s.X, degree - j);
                     rhs[row] = s.Value; row++;
                 }
                 if (s.GradientIsValid)
                 {
-                    for (int j = 0; j < degree; j++) lhs[row * m + j] = (degree - j) * Math.Pow(s.X, degree - j - 1);
+                    for (int j = 0; j < degree; j++) lhs[row * m + j] = (degree - j) * WineCrt.Pow(s.X, degree - j - 1);
                     rhs[row] = s.Gradient; row++;
                 }
             }

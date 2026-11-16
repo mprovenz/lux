@@ -179,6 +179,6 @@ public static class ToneCurve
     public static float Srgb(float x)
     {
         x = Math.Clamp(x, 0f, 1f);
-        return x <= 0.0031308f ? 12.92f * x : 1.055f * MathF.Pow(x, 1f / 2.4f) - 0.055f;
+        return x <= 0.0031308f ? 12.92f * x : 1.055f * Pipeline.WineCrt.Powf(x, 1f / 2.4f) - 0.055f;
     }
 }

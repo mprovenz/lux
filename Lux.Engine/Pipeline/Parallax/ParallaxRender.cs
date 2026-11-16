@@ -61,7 +61,7 @@ public static class ParallaxRender
         var axis = Paths.Axis(src.Geometry);
         var pts = Paths.Generate(kind, n, r.Baseline, axis);
         log?.Invoke($"{ExportFormats.NameOf(f)}: {n} frames, path {kind}, baseline {r.Baseline:F2} mm along ({axis.X:F3},{axis.Y:F3})"
-                  + $" [{Math.Atan2(axis.Y, axis.X) * 180 / Math.PI:F1}° off horizontal], f = {src.Geometry.FocalPx:F1} px"
+                  + $" [{WineCrt.Atan2(axis.Y, axis.X) * 180 / Math.PI:F1}° off horizontal], f = {src.Geometry.FocalPx:F1} px"
                   + (f == ParallaxFormat.Single ? ", inpainting only" : ""));
         var frames = new List<Rgba>(n);
         for (int i = 0; i < pts.Count; i++)
@@ -109,7 +109,7 @@ public static class ParallaxRender
         for (int i = 0; i < n; i++)
         {
             double t = n == 1 ? 0 : (double)i / (n - 1);
-            double s = 0.5 - 0.5 * Math.Cos(Math.PI * t);       // ease in and out
+            double s = 0.5 - 0.5 * WineCrt.Cos(Math.PI * t);       // ease in and out
             double z = 1.0 / ((1 - s) / z1 + s / z2);
             frames.Add(Effects.DepthOfField(src.Colour, src.Depth, src.Geometry.FocalPx, z, r.Aperture, r.Layers, 64));
             log?.Invoke($"frame {i + 1,2}/{n} focus {z / 1000:F3} m");
@@ -139,7 +139,7 @@ public static class ParallaxRender
         for (int i = 0; i < n; i++)
         {
             double t = n == 1 ? 0 : (double)i / (n - 1);
-            double s = 0.5 - 0.5 * Math.Cos(Math.PI * t);     // eased 0 -> 1
+            double s = 0.5 - 0.5 * WineCrt.Cos(Math.PI * t);     // eased 0 -> 1
             double d = -dz * s;
             var v = Dibr.DollyZoom(src.Colour, src.Depth, d, subject);
             if (v.HoleCount > 0) Fill.Inpaint(v, src.W, src.H);

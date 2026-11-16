@@ -5,6 +5,7 @@
 #   lux-light-<version>-<rid>   the command line tool alone
 #   the installed build         Lux-win-Setup.exe / Lux.AppImage, which update themselves from this repository's releases
 #                               (the *.nupkg and releases.<channel>.json files attached to the release are their update feed)
+# For macOS (Apple silicon and Intel) it publishes the two archives only. The first archive contains Lux.app, signed ad hoc.
 
 name: Release
 
@@ -23,6 +24,7 @@ on:
           - all
           - linux
           - windows
+          - macos
       draft:
         description: "Create the release as a draft"
         type: boolean
@@ -71,7 +73,9 @@ jobs:
         run: |
           all='[
             {"family": "linux",   "os": "ubuntu-latest",  "rid": "linux-x64"},
-            {"family": "windows", "os": "windows-latest", "rid": "win-x64"}
+            {"family": "windows", "os": "windows-latest", "rid": "win-x64"},
+            {"family": "macos",   "os": "macos-latest",   "rid": "osx-arm64"},
+            {"family": "macos",   "os": "macos-latest",   "rid": "osx-x64"}
           ]'
           if [ "$PLATFORMS" = all ]; then
             sel=$(jq -c '{include: .}' <<< "$all")

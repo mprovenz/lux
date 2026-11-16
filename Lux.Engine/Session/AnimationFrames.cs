@@ -198,7 +198,7 @@ public sealed class AnimationRenderer
                     if (!(fn < aif)) notes.Add(string.Format(inv, "f/{0:0.##} is not below this photo's all-in-focus f/{1:0.##}: nothing will be blurred", fn, aif));
                     for (int k = 0; k < n; k++)
                     {
-                        double t = (double)k / (n - 1), e = 0.5 - 0.5 * Math.Cos(Math.PI * t);
+                        double t = (double)k / (n - 1), e = 0.5 - 0.5 * WineCrt.Cos(Math.PI * t);
                         float z = (float)Math.Round(1.0 / ((1 - e) / z1 + e / z2), 1);
                         frames.Add(new AnimationFrameInfo(k, string.Format(inv, "f/{0:0.#} · focus {1:0.00} m", fn, z / 1000)) { FNumber = fn, FocusMm = z });
                     }
@@ -210,7 +210,7 @@ public sealed class AnimationRenderer
                     float? focus = spec.FocusMm is float fm ? (float)Math.Round(fm, 1) : null;
                     for (int k = 0; k < n; k++)
                     {
-                        double t = (double)k / (n - 1), e = 0.5 - 0.5 * Math.Cos(Math.PI * t);
+                        double t = (double)k / (n - 1), e = 0.5 - 0.5 * WineCrt.Cos(Math.PI * t);
                         float N = k == 0 ? from : Round2((float)(1.0 / ((1 - e) / from + e / to)));
                         float? fnum = N >= aif ? null : N;   // at or above the all-in-focus f-number the picture is unchanged: no depth effect at all
                         frames.Add(new AnimationFrameInfo(k, fnum is null ? "all in focus" : string.Format(inv, "f/{0:0.#}", N)) { FNumber = fnum, FocusMm = focus });

@@ -66,7 +66,7 @@ public static class Paths
                 {
                     // cosine-eased so the ends of a ping-pong do not snap; the middle moves fastest, as a real swing does
                     double t = n == 1 ? 0 : (double)i / (n - 1);
-                    double s = -Math.Cos(Math.PI * t);
+                    double s = -WineCrt.Cos(Math.PI * t);
                     pts.Add((a.X * r * s, a.Y * r * s));
                 }
                 break;
@@ -75,7 +75,7 @@ public static class Paths
                 for (int i = 0; i < n; i++)
                 {
                     double th = 2 * Math.PI * i / n;   // closed loop: no ping-pong needed, and none of its endpoint stall
-                    double c = Math.Cos(th), s = Math.Sin(th);
+                    double c = WineCrt.Cos(th), s = WineCrt.Sin(th);
                     pts.Add((axis.X * r * c + px * r * s, axis.Y * r * c + py * r * s));
                 }
                 break;
@@ -83,7 +83,7 @@ public static class Paths
                 for (int i = 0; i < n; i++)
                 {
                     double t = n == 1 ? 0 : (double)i / (n - 1);
-                    double s = -Math.Cos(Math.PI * t);
+                    double s = -WineCrt.Cos(Math.PI * t);
                     double rise = arcRise * r * (1 - s * s);        // bulges perpendicular at the middle of the sweep
                     pts.Add((axis.X * r * s + px * rise, axis.Y * r * s + py * rise));
                 }

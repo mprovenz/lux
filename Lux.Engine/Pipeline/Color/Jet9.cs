@@ -66,18 +66,18 @@ public readonly struct Jet9
     /// <summary>ceres: `tmp = sqrt(f.a); two_a_inverse = 1/(2·tmp); Jet(tmp, f.v·two_a_inverse)`.</summary>
     public static Jet9 Sqrt(in Jet9 a) { double v = Math.Sqrt(a.V); return Lin(v, a, 1.0 / (2.0 * v)); }
     public static Jet9 Cbrt(in Jet9 a) { double v = Math.Cbrt(a.V); return Lin(v, a, v == 0 ? 0 : 1.0 / (3.0 * v * v)); }
-    public static Jet9 Exp(in Jet9 a) { double v = Math.Exp(a.V); return Lin(v, a, v); }
-    public static Jet9 Sin(in Jet9 a) => Lin(Math.Sin(a.V), a, Math.Cos(a.V));
-    public static Jet9 Cos(in Jet9 a) => Lin(Math.Cos(a.V), a, -Math.Sin(a.V));
+    public static Jet9 Exp(in Jet9 a) { double v = WineCrt.Exp(a.V); return Lin(v, a, v); }
+    public static Jet9 Sin(in Jet9 a) => Lin(WineCrt.Sin(a.V), a, WineCrt.Cos(a.V));
+    public static Jet9 Cos(in Jet9 a) => Lin(WineCrt.Cos(a.V), a, -WineCrt.Sin(a.V));
     public static Jet9 Abs(in Jet9 a) => a.V < 0 ? -a : a;
     /// <summary>pow(a, e) for a constant exponent (ceres: e·a^(e−1)·a').</summary>
-    public static Jet9 Pow(in Jet9 a, double e) => Lin(Math.Pow(a.V, e), a, e * Math.Pow(a.V, e - 1));
+    public static Jet9 Pow(in Jet9 a, double e) => Lin(WineCrt.Pow(a.V, e), a, e * WineCrt.Pow(a.V, e - 1));
     /// <summary>atan2(y, x): d = (x·y' − y·x') / (x² + y²).</summary>
     public static Jet9 Atan2(in Jet9 g, in Jet9 f)
     {
         // ceres: tmp = 1/(f.a² + g.a²); Jet(atan2(g.a, f.a), tmp·(−g.a·f.v + f.a·g.v))
         double tmp = 1.0 / (f.V * f.V + g.V * g.V);
-        return new(Math.Atan2(g.V, f.V),
+        return new(WineCrt.Atan2(g.V, f.V),
             tmp * (-g.V * f.D0 + f.V * g.D0), tmp * (-g.V * f.D1 + f.V * g.D1), tmp * (-g.V * f.D2 + f.V * g.D2), tmp * (-g.V * f.D3 + f.V * g.D3), tmp * (-g.V * f.D4 + f.V * g.D4),
             tmp * (-g.V * f.D5 + f.V * g.D5), tmp * (-g.V * f.D6 + f.V * g.D6), tmp * (-g.V * f.D7 + f.V * g.D7), tmp * (-g.V * f.D8 + f.V * g.D8));
     }

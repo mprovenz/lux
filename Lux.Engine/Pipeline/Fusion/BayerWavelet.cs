@@ -149,7 +149,7 @@ public static class BayerMerge
     static float[] BuildHann()
     {
         var h = new float[16];
-        for (int i = 0; i < 16; i++) h[i] = (float)(0.5 - Math.Cos(((double)i + 0.5) * 6.2831854820251465 / 16.0) * 0.5);
+        for (int i = 0; i < 16; i++) h[i] = (float)(0.5 - WineCrt.Cos(((double)i + 0.5) * 6.2831854820251465 / 16.0) * 0.5);
         return h;
     }
 

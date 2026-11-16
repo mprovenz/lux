@@ -68,7 +68,7 @@ public static class DepthRefine
             if (jet && !(double.IsFinite(j0) && double.IsFinite(j1))) return false;
             double sq = (r0 * r0) + (r1 * r1);
             double sum = 1.0 + sq * 1.0, inv = 1.0 / sum;
-            double rho0 = 1.0 * Math.Log(sum), rho1 = Math.Max(2.2250738585072014e-308, inv);
+            double rho0 = 1.0 * WineCrt.Log(sum), rho1 = Math.Max(2.2250738585072014e-308, inv);
             double bc = 0.5 * rho0;
             double sqrtRho1 = Math.Sqrt(rho1);
             double cr0 = r0 * sqrtRho1, cr1 = r1 * sqrtRho1, cj0 = j0 * sqrtRho1, cj1 = j1 * sqrtRho1;
@@ -173,7 +173,7 @@ public static class DepthRefine
                 for (int i = 0; i < n; i++) jac[i] = jac[i] * scaling;
                 pgs = Plus(x, -gradient, near, far); gradientMaxNorm = Math.Abs(x - pgs);
                 stepSuccessful = true;
-                radius = radius / Math.Max(1.0 / 3.0, 1.0 - Math.Pow(2.0 * relativeDecrease - 1.0, 3));
+                radius = radius / Math.Max(1.0 / 3.0, 1.0 - WineCrt.Pow(2.0 * relativeDecrease - 1.0, 3));
                 radius = Math.Min(MaxRadius, radius); decreaseFactor = 2.0; reuseDiagonal = false;
                 // step evaluator accept
                 seCur = candidateCost; accCand += modelCostChange; accRef += modelCostChange;
@@ -228,9 +228,9 @@ public static class DepthRefine
         var A = new double[N, N]; var b = new double[N];
         for (int i = 0; i < m; i++)
         {
-            for (int j = 0; j < N; j++) A[2 * i, j] = Math.Pow(xs[i], deg - j);
+            for (int j = 0; j < N; j++) A[2 * i, j] = WineCrt.Pow(xs[i], deg - j);
             b[2 * i] = fs[i];
-            for (int j = 0; j < N; j++) A[2 * i + 1, j] = j < deg ? (deg - j) * Math.Pow(xs[i], deg - j - 1) : 0.0;
+            for (int j = 0; j < N; j++) A[2 * i + 1, j] = j < deg ? (deg - j) * WineCrt.Pow(xs[i], deg - j - 1) : 0.0;
             b[2 * i + 1] = gs[i];
         }
         var poly = FullPivLuSolve(A, b, N);

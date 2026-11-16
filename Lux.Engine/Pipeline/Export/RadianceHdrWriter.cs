@@ -241,43 +241,43 @@ public static class RadianceHdrWriter
         var R = Vector128.Create(rgb12[0], rgb12[3], rgb12[6], rgb12[9]);
         var G = Vector128.Create(rgb12[1], rgb12[4], rgb12[7], rgb12[10]);
         var B = Vector128.Create(rgb12[2], rgb12[5], rgb12[8], rgb12[11]);
-        if (!(Sse41.IsSupported && Sse2.IsSupported && Sse.IsSupported))
+        if (!Simd.IsSupported)
         {
             for (int k = 0; k < 4; k++) dst[k] = EncodeQuadLaneFallback(R[k], G[k], B[k]);
             return;
         }
-        var m = Sse.Max(Sse.Max(R, B), G);                                                          // this order: MAXPS returns the second operand on NaN
+        var m = Simd.Max(Simd.Max(R, B), G);                                                          // this order: MAXPS returns the second operand on NaN
         var mi = m.AsInt32();
-        var mag = Sse2.And(mi, Vector128.Create(unchecked((int)AbsMask)));
-        var geMin = Sse2.CompareEqual(Sse41.Max(mag.AsUInt32(), Vector128.Create(MinNormal)).AsInt32(), mag);
-        var finite = Sse2.CompareGreaterThan(
+        var mag = Simd.And(mi, Vector128.Create(unchecked((int)AbsMask)));
+        var geMin = Simd.CompareEqual(Simd.Max(mag.AsUInt32(), Vector128.Create(MinNormal)).AsInt32(), mag);
+        var finite = Simd.CompareGreaterThan(
             Vector128.Create(unchecked((int)FiniteCmp)),
-            Sse2.Xor(Sse2.Add(mag, Vector128.Create(-1)), Vector128.Create(unchecked((int)SignBit))));
-        var isNormal = Sse2.And(geMin, finite);
-        var expWord = Sse2.Add(Sse2.And(Sse2.Add(mi, mi), Vector128.Create(unchecked((int)ExpByteMask))),
+            Simd.Xor(Simd.Add(mag, Vector128.Create(-1)), Vector128.Create(unchecked((int)SignBit))));
+        var isNormal = Simd.And(geMin, finite);
+        var expWord = Simd.Add(Simd.And(Simd.Add(mi, mi), Vector128.Create(unchecked((int)ExpByteMask))),
                                Vector128.Create(unchecked((int)ExpBias2)));
-        var E = Sse41.BlendVariable(Vector128.Create(unchecked((int)SignBit)).AsSingle(), expWord.AsSingle(), isNormal.AsSingle()).AsInt32();
+        var E = Simd.BlendVariable(Vector128.Create(unchecked((int)SignBit)).AsSingle(), expWord.AsSingle(), isNormal.AsSingle()).AsInt32();
         var rcp = IntelApprox.Reciprocal(m);                                                                // approximate reciprocal (RCPPS)
-        var isDenorm = Sse2.And(Sse2.CompareGreaterThan(Vector128.Create(unchecked((int)MinNormal)), mag), finite);
-        var mant = Sse41.BlendVariable(m, Vector128<float>.Zero, isDenorm.AsSingle());
-        mant = Sse41.BlendVariable(mant,
-            Sse.Or(Sse.And(m, Vector128.Create(unchecked((int)MantMask)).AsSingle()), Vector128.Create(unchecked((int)MantExp)).AsSingle()),
+        var isDenorm = Simd.And(Simd.CompareGreaterThan(Vector128.Create(unchecked((int)MinNormal)), mag), finite);
+        var mant = Simd.BlendVariable(m, Vector128<float>.Zero, isDenorm.AsSingle());
+        mant = Simd.BlendVariable(mant,
+            Simd.Or(Simd.And(m, Vector128.Create(unchecked((int)MantMask)).AsSingle()), Vector128.Create(unchecked((int)MantExp)).AsSingle()),
             isNormal.AsSingle());
         // one Newton step: r' = ((1 − m·r)·r) + r
-        var nr = Sse.Add(Sse.Multiply(Sse.Subtract(Vector128.Create(1f), Sse.Multiply(m, rcp)), rcp), rcp);
-        var scale = Sse.Multiply(Sse.Multiply(mant, Vector128.Create(Two56)), nr);
+        var nr = Simd.Add(Simd.Multiply(Simd.Subtract(Vector128.Create(1f), Simd.Multiply(m, rcp)), rcp), rcp);
+        var scale = Simd.Multiply(Simd.Multiply(mant, Vector128.Create(Two56)), nr);
         var zero = Vector128<float>.Zero; var c255 = Vector128.Create(Max255);
-        var Ri = Sse2.ConvertToVector128Int32WithTruncation(Sse.Min(Sse.Max(Sse.Multiply(R, scale), zero), c255));
-        var o = Sse2.Or(Ri, E);
-        var Gp = Sse.Multiply(G, scale);
-        var Bi = Sse2.ConvertToVector128Int32WithTruncation(Sse.Min(Sse.Max(Sse.Multiply(scale, B), zero), c255));
-        o = Sse2.Or(Sse2.ShiftLeftLogical(Bi, 16), o);
-        var Gi = Sse2.ConvertToVector128Int32WithTruncation(Sse.Min(Sse.Max(Gp, zero), c255));
-        o = Sse2.Or(Sse2.ShiftLeftLogical(Gi, 8), o);
+        var Ri = Simd.ConvertToVector128Int32WithTruncation(Simd.Min(Simd.Max(Simd.Multiply(R, scale), zero), c255));
+        var o = Simd.Or(Ri, E);
+        var Gp = Simd.Multiply(G, scale);
+        var Bi = Simd.ConvertToVector128Int32WithTruncation(Simd.Min(Simd.Max(Simd.Multiply(scale, B), zero), c255));
+        o = Simd.Or(Simd.ShiftLeftLogical(Bi, 16), o);
+        var Gi = Simd.ConvertToVector128Int32WithTruncation(Simd.Min(Simd.Max(Gp, zero), c255));
+        o = Simd.Or(Simd.ShiftLeftLogical(Gi, 8), o);
         o.AsUInt32().CopyTo(dst);
     }
 
-    /// <summary>Lane-wise mirror of <see cref="EncodeQuad"/> for hosts without SSE4.1. `rcpps` has no portable equivalent,
+    /// <summary>Lane-wise mirror of <see cref="EncodeQuad"/> for hosts without vector hardware. `rcpps` has no portable equivalent,
     /// so this substitutes an exact reciprocal: it is faithful in structure but **not** guaranteed bit-identical.</summary>
     static uint EncodeQuadLaneFallback(float r, float g, float b)
     {

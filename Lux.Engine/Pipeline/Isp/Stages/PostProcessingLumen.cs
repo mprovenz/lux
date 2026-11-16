@@ -177,7 +177,7 @@ public static class PostProcessingLumen
         else if (c < -Eps)
         {   // the blur path: σ = (float)((double)|c| / exp(log2(1.0 / (double)d))) with the
             // CRT double log2 / exp, a 7-tap ConvLineFactory when σ ≥ 1.3, else 5-tap, over the Lab line's L; it replaces L
-            float sb = (float)((double)MathF.Abs(c) / Math.Exp(Math.Log2(1.0 / (double)d)));
+            float sb = (float)((double)MathF.Abs(c) / WineCrt.Exp(WineCrt.Log2(1.0 / (double)d)));
             nb = sb >= 1.29999995f ? 7 : 5; kb = GaussianTaps(nb, sb);
         }
         // The column tiles are independent (each reads the untouched input and writes its own columns) — spread over threads when
@@ -315,7 +315,7 @@ public static class PostProcessingLumen
     static unsafe void LabRow(float[] src, int o0, int st, int en, int n4, float[] mw, float[] L, int lb, float[] A, float[] B, int ab, int tw)
     {
         int x = st, vecEnd = st + n4;
-        if (Avx2.IsSupported)
+        if (Simd.IsWideSupported)
         {
             var idx = Vector256.Create(0, 4, 8, 12, 16, 20, 24, 28); var zero = Vector256<float>.Zero;
             var m0 = Vector256.Create(mw[0]); var m1 = Vector256.Create(mw[1]); var m2 = Vector256.Create(mw[2]); var m3 = Vector256.Create(mw[3]); var m4 = Vector256.Create(mw[4]);
@@ -324,7 +324,7 @@ public static class PostProcessingLumen
             for (; x + 8 <= vecEnd; x += 8)
             {
                 float* p = sp + o0 + x * 4;
-                var r = Avx2.GatherVector256(p, idx, 4); var g = Avx2.GatherVector256(p + 1, idx, 4); var bl = Avx2.GatherVector256(p + 2, idx, 4);
+                var r = Simd.GatherVector256(p, idx, 4); var g = Simd.GatherVector256(p + 1, idx, 4); var bl = Simd.GatherVector256(p + 2, idx, 4);
                 var X = (m0 * r + m1 * g) + m2 * bl; var Y = (m3 * r + m4 * g) + m5 * bl; var Z = (m6 * r + m7 * g) + m8 * bl;
                 X = Vector256.ConditionalSelect(Vector256.LessThan(X, zero), zero, X); Y = Vector256.ConditionalSelect(Vector256.LessThan(Y, zero), zero, Y); Z = Vector256.ConditionalSelect(Vector256.LessThan(Z, zero), zero, Z);
                 var fx = LabF8(X); var fy = LabF8(Y); var fz = LabF8(Z);
@@ -371,7 +371,7 @@ public static class PostProcessingLumen
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
     static int ReconstructBody(float[] rgba, int o0, float[] L, int lb, float[] A, float[] B, int ab, float[]? blur1, float[]? blur2, float amount, float[]? lblur, float[]? ld, float a, float sat, float[] minv, int end)
     {
-        if (!Avx.IsSupported) return 0;
+        if (!Simd.IsWideFloatSupported) return 0;
         int x = 0;
         var zero = Vector256<float>.Zero; var one = Vector256.Create(1f);
         var c16 = Vector256.Create(16.0f); var inv116 = Vector256.Create(Inv116); var satv = Vector256.Create(sat); var asc = Vector256.Create(AScale); var bsc = Vector256.Create(BScale);
@@ -402,11 +402,11 @@ public static class PostProcessingLumen
             var Z = Vector256.ConditionalSelect(Vector256.LessThan(fz, cb), fz * lk + lo, fz * fz * fz);
             var r = (n0 * X + n1 * Y) + n2 * Z; var g = (n3 * X + n4 * Y) + n5 * Z; var bb = (n6 * X + n7 * Y) + n8 * Z;
             // interleave to RGBA (alpha 1): pure data movement
-            var t0 = Avx.UnpackLow(r, g); var t1 = Avx.UnpackHigh(r, g); var t2 = Avx.UnpackLow(bb, one); var t3 = Avx.UnpackHigh(bb, one);
-            var u0 = Avx.Shuffle(t0, t2, 0b01_00_01_00); var u1 = Avx.Shuffle(t0, t2, 0b11_10_11_10); var u2 = Avx.Shuffle(t1, t3, 0b01_00_01_00); var u3 = Avx.Shuffle(t1, t3, 0b11_10_11_10);
+            var t0 = Simd.UnpackLow(r, g); var t1 = Simd.UnpackHigh(r, g); var t2 = Simd.UnpackLow(bb, one); var t3 = Simd.UnpackHigh(bb, one);
+            var u0 = Simd.Shuffle(t0, t2, 0b01_00_01_00); var u1 = Simd.Shuffle(t0, t2, 0b11_10_11_10); var u2 = Simd.Shuffle(t1, t3, 0b01_00_01_00); var u3 = Simd.Shuffle(t1, t3, 0b11_10_11_10);
             nuint q = (nuint)(o0 + x * 4);
-            Avx.Permute2x128(u0, u1, 0x20).StoreUnsafe(ref ob, q); Avx.Permute2x128(u2, u3, 0x20).StoreUnsafe(ref ob, q + 8);
-            Avx.Permute2x128(u0, u1, 0x31).StoreUnsafe(ref ob, q + 16); Avx.Permute2x128(u2, u3, 0x31).StoreUnsafe(ref ob, q + 24);
+            Simd.Permute2x128(u0, u1, 0x20).StoreUnsafe(ref ob, q); Simd.Permute2x128(u2, u3, 0x20).StoreUnsafe(ref ob, q + 8);
+            Simd.Permute2x128(u0, u1, 0x31).StoreUnsafe(ref ob, q + 16); Simd.Permute2x128(u2, u3, 0x31).StoreUnsafe(ref ob, q + 24);
         }
         return x;
     }

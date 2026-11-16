@@ -87,7 +87,7 @@ public sealed class SensorNoise
             double s = Math.Sqrt(v);
             double t = x * (1.0 / s);
             double p = ((((((((t * Poly[0] + Poly[1]) * t + Poly[2]) * t + Poly[3]) * t + Poly[4]) * t + Poly[5]) * t + Poly[6]) * t + Poly[7]) * t + Poly[8]) * t + Poly[9];
-            t0[i] = s * 0.5 * (Math.Tanh(p) + 1.0);
+            t0[i] = s * 0.5 * (WineCrt.Tanh(p) + 1.0);
         }
         var sig = new float[n];
         for (int i = 0; i < n; i++) sig[i] = (float)t0[i];

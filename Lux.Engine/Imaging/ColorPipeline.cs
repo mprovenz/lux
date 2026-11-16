@@ -32,7 +32,7 @@ public static class ColorPipeline
     public static void Render(float[] rgb, float[] fmCamToXyz, float[] asShot, float ev)
     {
         float[] m = Mul3(XyzToSrgbD50, fmCamToXyz);   // camera-linear → linear sRGB
-        float g = MathF.Pow(2f, ev);
+        float g = Pipeline.WineCrt.Powf(2f, ev);
         float ir = g / asShot[0], ig = g / asShot[1], ib = g / asShot[2];
         int n = rgb.Length / 3;
         for (int i = 0; i < n; i++)
@@ -89,5 +89,5 @@ public static class ColorPipeline
     }
 
     /// <summary>Greyscale tone (for no-CFA/monochrome modules): toe → LUT → gamma on a luminance value.</summary>
-    public static float RenderMono(float y, float ev) => ToneCurve.Srgb(ToneCurve.Lookup(ToneCurve.HighlightRolloff(ToneCurve.Toe(y * MathF.Pow(2f, ev)))));
+    public static float RenderMono(float y, float ev) => ToneCurve.Srgb(ToneCurve.Lookup(ToneCurve.HighlightRolloff(ToneCurve.Toe(y * Pipeline.WineCrt.Powf(2f, ev)))));
 }
