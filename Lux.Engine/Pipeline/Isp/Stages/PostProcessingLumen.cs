@@ -12,14 +12,14 @@ namespace Lux.Engine.Pipeline.Isp.Stages;
 /// module ISP runs it (slot 11 of the Bayer block, wrapped by the `Pipeline` constructor): parameters = (analog gain,
 /// a = grain_power, b = grain_sigma, c = sharpening, d = sharpening_scale), saturation, vibrance.
 /// Without the payload's companion image (module ISP) a and b are forced to 0, so the kernel is: RGB → Lab in the
-/// colour-space-5 working space (ProPhoto primaries, D50 white; `LabLineFactory`, fast cube root),
+/// color-space-5 working space (ProPhoto primaries, D50 white; `LabLineFactory`, fast cube root),
 /// a gain-dependent DoG sharpening of L (`SharpenLineFactory`, Gaussian taps <see cref="GaussianTaps"/>,
 /// separable 3/5/7-tap convolutions `ConvLineFactory`), then Lab → RGB with the inverse of the white-scaled matrix.
 /// All float operation orders follow Lumen's code.
 /// </summary>
 public static class PostProcessingLumen
 {
-    // colour object of colour space 5: ProPhoto RGB→XYZ and the D50 white xy
+    // color object of color space 5: ProPhoto RGB→XYZ and the D50 white xy
     private static readonly float[] M = {
         BitConverter.Int32BitsToSingle(0x3f4c346c), BitConverter.Int32BitsToSingle(0x3e0a6fb1), BitConverter.Int32BitsToSingle(0x3d006c6c),
         BitConverter.Int32BitsToSingle(0x3e937a01), BitConverter.Int32BitsToSingle(0x3f363d62), BitConverter.Int32BitsToSingle(0x38b3b9d6),
@@ -105,6 +105,45 @@ public static class PostProcessingLumen
         return (g17 * d, d * len, f13 + f16);   // NOTE: the DoG amount used by getLine is c (params[3]); f13+f16 is not consumed there
     }
 
+    /// <summary>The radius, in pixels, that the wide Gaussian of the monotone sharpening response does not go below at a large amount.
+    /// Below approximately half a pixel a sampled Gaussian is almost a unit impulse, and the difference of the two Gaussians disappears.</summary>
+    public const float MonotoneWideSigma = 0.5f;
+
+    /// <summary>
+    /// The two Gaussian radii of the monotone sharpening response (Lux). Lumen makes both radii smaller when the amount increases
+    /// from 4 to 16. At a reduced image scale the radii are then below one pixel, both Gaussians become unit impulses, and a larger
+    /// amount sharpens less. This response uses Lumen's radii with one change to the wide radius for an amount above 4:
+    /// <list type="bullet">
+    /// <item>If Lumen's wide radius at amount 4 is <see cref="MonotoneWideSigma"/> pixels or more, the wide radius does not shrink
+    /// below that limit.</item>
+    /// <item>If it is smaller, the wide radius increases linearly to the limit while the amount goes from 4 to 16.</item>
+    /// </list>
+    /// The result is equal to Lumen's radii for each amount up to 4 at each image scale, and for each amount at full and at half size.
+    /// </summary>
+    public static (float Sigma1, float Sigma2) MonotoneSharpenSigmas(float gain, float c, float d)
+    {
+        var (s1, s2, _) = SharpenParams(gain, c, d);
+        if (!(c > 4.0f)) return (s1, s2);
+        var (_, wide4, _) = SharpenParams(gain, 4.0f, d);
+        float floor = MonotoneWideSigma;
+        if (wide4 < MonotoneWideSigma)
+        {
+            float u = (c + -4.0f) * 0.0833333358168602f; if (1.0f <= u) u = 1.0f;
+            floor = (MonotoneWideSigma - wide4) * u + wide4;
+        }
+        if (s2 < floor) s2 = floor;
+        return (s1, s2);
+    }
+
+    /// <summary>The smallest image scale that the blur radius of the monotone sharpening response follows.</summary>
+    public const float MonotoneBlurMinScale = 0.25f;
+
+    /// <summary>The blur radius of the monotone sharpening response (Lux) for a negative amount: |amount| · scale, in pixels. The
+    /// blur then covers the same part of the picture at full, half and quarter size. Below a quarter the radius stays at the quarter-size
+    /// value, because a smaller radius has no visible effect on the pixels. At full size (scale 1) the radius is equal to Lumen's
+    /// radius. Lumen divides |amount| by e^log2(1 / scale), which removes almost all of the blur at a reduced image scale.</summary>
+    public static float MonotoneBlurSigma(float c, float d) => MathF.Abs(c) * (d < MonotoneBlurMinScale ? MonotoneBlurMinScale : d);
+
     /// <summary>Fast cube root of t ≥ 0 as `LabLineFactory` computes it (bit-magic seed on the float's bit pattern, one raw-rcp Newton step,
     /// one refined step), then the Lab f(t): t &lt; (6/29)³ → 7.787·t + 16/116, else the cube root.</summary>
     private static float LabFBits(float t)
@@ -149,7 +188,9 @@ public static class PostProcessingLumen
     /// region at (VX, VY). The Lab/LDiff lines are computed over the extent rows/columns and only replicated where the parent has no data
     /// (Lumen's PP reads its input image beyond the stage region; e.g. a PP region of 516 inside a 519 denoiser output).
     /// </summary>
-    public static void Run(float[] rgba, int w, int h, float gain, float a, float b, float c, float d, float sat, float vib, float[]? comp, (float[] Data, int W, int H, int VX, int VY)? ext, float[]? compExt)
+    /// <param name="monotoneSharpening">False: Lumen's sharpening response. True: the monotone response of Lux
+    /// (<see cref="MonotoneSharpenSigmas"/>, <see cref="MonotoneBlurSigma"/>).</param>
+    public static void Run(float[] rgba, int w, int h, float gain, float a, float b, float c, float d, float sat, float vib, float[]? comp, (float[] Data, int W, int H, int VX, int VY)? ext, float[]? compExt, bool monotoneSharpening = false)
     {
         if (comp is null || MathF.Abs(a) < Eps) { a = 0f; b = 0f; }
         bool ldiffPath = MathF.Abs(a) > Eps;
@@ -173,11 +214,11 @@ public static class PostProcessingLumen
         int rs = Math.Max(-margin, -vy), re = Math.Min(h + margin, eh - vy), hh = re - rs;   // rows with parent data (region coordinates)
         int nx = w / 256 + ((w % 256) * 2 > 256 ? 1 : 0); if (nx < 1) nx = 1;
         float[]? k1 = null, k2 = null, kb = null; int n1 = 0, n2 = 0, nb = 0; float amount = 0f;
-        if (c > Eps) { var (s1, s2, _) = SharpenParams(gain, c, d); n1 = TapsFor(s1); k1 = GaussianTaps(n1, s1); n2 = TapsFor(s2); k2 = GaussianTaps(n2, s2); amount = c; }
+        if (c > Eps) { float s1, s2; if (monotoneSharpening) (s1, s2) = MonotoneSharpenSigmas(gain, c, d); else (s1, s2, _) = SharpenParams(gain, c, d); n1 = TapsFor(s1); k1 = GaussianTaps(n1, s1); n2 = TapsFor(s2); k2 = GaussianTaps(n2, s2); amount = c; }
         else if (c < -Eps)
         {   // the blur path: σ = (float)((double)|c| / exp(log2(1.0 / (double)d))) with the
             // CRT double log2 / exp, a 7-tap ConvLineFactory when σ ≥ 1.3, else 5-tap, over the Lab line's L; it replaces L
-            float sb = (float)((double)MathF.Abs(c) / WineCrt.Exp(WineCrt.Log2(1.0 / (double)d)));
+            float sb = monotoneSharpening ? MonotoneBlurSigma(c, d) : (float)((double)MathF.Abs(c) / WineCrt.Exp(WineCrt.Log2(1.0 / (double)d)));
             nb = sb >= 1.29999995f ? 7 : 5; kb = GaussianTaps(nb, sb);
         }
         // The column tiles are independent (each reads the untouched input and writes its own columns) — spread over threads when

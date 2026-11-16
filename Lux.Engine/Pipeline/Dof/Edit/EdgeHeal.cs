@@ -344,7 +344,7 @@ public static class EdgeHeal
 }
 
 /// <summary>
-/// Lumen's `lt::EdgeHealCommand`: hardness 1.0, needs the colour guide, holds the in-focus depth interval
+/// Lumen's `lt::EdgeHealCommand`: hardness 1.0, needs the color guide, holds the in-focus depth interval
 /// (<see cref="DofModel.CurrentInFocusRange"/> with (2.2, 0.7)) and the focus depth. Only the layered execute
 /// is reachable (executor B selects it by `dynamic_cast`); the plain virtual execute has no caller.
 /// </summary>
@@ -366,7 +366,7 @@ public sealed class EdgeHealCommand : DepthEditCommand
         CheckSize(depth, rect);
         var roi = PixelRoi(level); var c = Clip(rect, roi);
         if (c.X1 == c.X0 || c.Y1 == c.Y0) return false;
-        if (guide == null) throw new InvalidOperationException("the edge heal needs the colour guide");
+        if (guide == null) throw new InvalidOperationException("the edge heal needs the color guide");
         int w = c.Width, h = c.Height, rw = rect.Width, mw = roi.Width;
         var m = StrokeMask(roi, level);
         // the clipped views as dense images

@@ -188,7 +188,7 @@ public partial class BrowseView : UserControl
         album.Items.Add(newAlbum);
         menu.Items.Add(album);
         menu.Items.Add(new Separator());
-        menu.Items.Add(new MenuItem { Header = "Analyse now", Command = _vm.AnalyseSelectedCommand });
+        menu.Items.Add(new MenuItem { Header = "Analyze now", Command = _vm.AnalyseSelectedCommand });
         menu.Items.Add(new MenuItem { Header = "Upgrade to full detail", Command = _vm.UpgradeSelectedCommand });
         menu.Items.Add(new MenuItem { Header = "Release full detail", Command = _vm.ReleaseSelectedCommand });
         menu.Items.Add(new MenuItem { Header = "Import edits from Lumen…", Command = _vm.ImportLumenForSelectionCommand });

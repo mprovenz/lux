@@ -8,7 +8,7 @@ namespace Lux.Store;
 
 /// <summary>
 /// A capture's non-depth edits made in Lux — the Develop page's per-photo recipe (kept in the capture's context
-/// database, mirrored in the library). Capture-wide, independent of the depth-edit variants: tone and colour (<see cref="Adjustments"/>), the
+/// database, mirrored in the library). Capture-wide, independent of the depth-edit variants: tone and color (<see cref="Adjustments"/>), the
 /// photo transform (Lumen's own crop / rotation / flip matrix, <see cref="Transform"/>) and the depth effect's f-number and focus. Each part is
 /// optional; a part that is not set falls back to the active variant's saved settings (an imported Lumen session's), else to the capture's
 /// own rendering (<see cref="Merge"/>).
@@ -20,7 +20,7 @@ namespace Lux.Store;
 public sealed class CaptureRecipe
 {
     public const int Version = 1;
-    /// <summary>The whole tone and colour state; null = not set here.</summary>
+    /// <summary>The whole tone and color state; null = not set here.</summary>
     public Adjustments? Adjustments { get; init; }
     /// <summary>The photo transform; null = not set here.</summary>
     public ExportTransform? Transform { get; init; }
@@ -101,7 +101,7 @@ public sealed class CaptureRecipe
 
     /// <summary>
     /// The render state a capture renders with: the recipe's parts over <paramref name="variantState"/> (the active / named variant's saved
-    /// settings, null when it has none). Null recipe → <paramref name="variantState"/> unchanged (the earlier behaviour exactly). The variant's
+    /// settings, null when it has none). Null recipe → <paramref name="variantState"/> unchanged (the earlier behavior exactly). The variant's
     /// session geometry (a Lumen import's own calibration and depth), rating and tone style are kept.
     /// </summary>
     public static SavedRenderState? Merge(SavedRenderState? variantState, CaptureRecipe? recipe)

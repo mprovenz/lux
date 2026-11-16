@@ -248,7 +248,7 @@ public sealed class FakeDevelopSession : IDevelopSession
         _item = item;
         Specs = FakeDevelopService.SpecsFor(item);
         _original = new State(FakeDevelopService.Defaults(item), GeometryState.Identity);
-        _current = svc.Recipes.TryGetValue(item.Id, out var r) ? new State(new Dictionary<string, double>(r.Values), r.Geometry, r.Geometry.HasTurnOrFlip) : _original;
+        _current = svc.Recipes.TryGetValue(item.Id, out var r) ? new State(new Dictionary<string, double>(r.Values), r.Geometry, r.Geometry.HasTurnOrFlip || r.Geometry.HasLevel) : _original;
         var size = item.LevelSizes is { Count: > 0 } ls && ls[0].Width > 0 ? new PixelSize(ls[0].Width, ls[0].Height) : new PixelSize(8320, 6240);
         var (index, stored) = svc.Library.SceneOf(item.Id);
         _tiles = new FakeTileSource(index, item.IsStacked, item.IsTelephoto, stored, size, FinestFor(item.BestQuality), Specs, _current.Values, svc.Options.Timings);
@@ -489,7 +489,7 @@ public sealed class FakeDevelopSession : IDevelopSession
     AdjustmentSpec Spec(string key) => Specs.First(s => s.Key == key);
     string Label(string key, double v) => $"{Spec(key).Name} {Spec(key).Format(v)}";
 
-    // ---- tone and colour
+    // ---- tone and color
     double _dragStart;
 
     public void BeginDrag(string key)
@@ -530,7 +530,7 @@ public sealed class FakeDevelopSession : IDevelopSession
         Push($"Reset {Spec(key).Name.ToLowerInvariant()}", _current with { Values = new Dictionary<string, double>(_current.Values) { [key] = d } });
     }
 
-    public void ResetToneAndColour() => Push("Reset tone and colour", _current with { Values = FakeDevelopService.Defaults(_item) });
+    public void ResetToneAndColour() => Push("Reset tone and color", _current with { Values = FakeDevelopService.Defaults(_item) });
 
     public void RevertToOriginal()
     {
@@ -598,6 +598,36 @@ public sealed class FakeDevelopSession : IDevelopSession
         Geom("Rotate as the camera was held", g => g with { TurnDegrees = held });
     }
 
+    /// <summary>A level suggestion made from the photo's id: between −3° and +3°, and none for about one photo in eight.</summary>
+    public LevelSuggestion LevelSuggestion
+    {
+        get
+        {
+            int a = System.Convert.ToInt32(_item.Id[..2], 16), b = System.Convert.ToInt32(_item.Id[2..4], 16);
+            if (a % 8 == 5) return new LevelSuggestion(false, 0f, "The camera pointed up or down, so it could not sense which way is level.");
+            float degrees = (b % 61 - 30) / 10f;
+            return new LevelSuggestion(true, degrees == 0f ? 0.4f : degrees, null);
+        }
+    }
+
+    /// <summary>The level rotation is set to the suggestion. The crop becomes the largest centered part of the same shape that has no
+    /// empty corners. The fake picture shows the smaller crop, not the rotation.</summary>
+    public void Level()
+    {
+        if (LevelSuggestion is not { Available: true } l) return;
+        Geom("Level", g =>
+        {
+            double r = Math.Abs(l.Degrees) * Math.PI / 180, c = Math.Cos(r), s = Math.Sin(r);
+            var size = g.Turn.Apply(new Size(4, 3));
+            double w = size.Width * g.Crop.Width, h = size.Height * g.Crop.Height;
+            double cx = g.Crop.X + g.Crop.Width / 2, cy = g.Crop.Y + g.Crop.Height / 2;
+            double roomX = Math.Min(cx, 1 - cx) * size.Width, roomY = Math.Min(cy, 1 - cy) * size.Height;
+            double k = Math.Min(1, Math.Min(2 * roomX / (w * c + h * s), 2 * roomY / (w * s + h * c)));
+            var crop = new NormRect(cx - g.Crop.Width * k / 2, cy - g.Crop.Height * k / 2, g.Crop.Width * k, g.Crop.Height * k);
+            return g with { LevelDegrees = l.Degrees, Crop = crop };
+        });
+    }
+
     /// <summary>Crop, rotation and flips back to none: the orientation is undecided again (a photo shown as held is shown so again).</summary>
     public void ResetGeometry() { _cropping = false; Push("Reset crop and rotation", new State(_current.Values, GeometryState.Identity, TurnSaved: false)); }
 
@@ -613,7 +643,7 @@ public sealed class FakeDevelopSession : IDevelopSession
         Changed?.Invoke();
     }
 
-    /// <summary>Lumen's reshaping: the same area, centred, kept inside.</summary>
+    /// <summary>Lumen's reshaping: the same area, centered, kept inside.</summary>
     public void SetCropAspect(CropAspect aspect)
     {
         _cropAspect = aspect;

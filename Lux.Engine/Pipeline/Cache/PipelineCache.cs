@@ -27,7 +27,7 @@ public sealed class PipelineCache
     public Action<string>? Log;
     /// <summary>Optional: generate the inputs of the level-0 generator (the fusion, reference and telephoto cache tiles) with the given
     /// thread count before <see cref="Prefetch"/> starts the level-0 tiles. Left to the level-0 tiles themselves, those inputs are made
-    /// lazily by whichever tile asks first while its neighbours wait on the same entries, which serialises the start of the phase.</summary>
+    /// lazily by whichever tile asks first while its neighbors wait on the same entries, which serializes the start of the phase.</summary>
     public Action<int>? Level0Prefetch;
     /// <summary>Progress of <see cref="Prefetch"/>: the "level-N tiles" phase, one unit per tile.</summary>
     public ProgressReporter Progress { get; set; } = ProgressReporter.None;
@@ -145,7 +145,7 @@ public sealed class PipelineCache
 
     /// <summary>Generate every tile of <paramref name="level"/> overlapping <paramref name="rect"/> that is not cached yet, running up to
     /// <paramref name="threads"/> generations at once. A later <see cref="Render"/> of any part of the rect is then a cache hit. The tiles are
-    /// the same whichever thread makes them: each is a pure function of the capture, memoised once by <see cref="TileStore{TKey,TValue}"/>.</summary>
+    /// the same whichever thread makes them: each is a pure function of the capture, memoized once by <see cref="TileStore{TKey,TValue}"/>.</summary>
     public void Prefetch(int level, RectI rect, int threads, CancellationToken cancel = default)
     {
         var (W, H) = LevelDims[level];

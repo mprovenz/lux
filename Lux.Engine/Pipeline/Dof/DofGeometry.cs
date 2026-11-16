@@ -22,7 +22,7 @@ namespace Lux.Engine.Pipeline.Dof;
 /// <param name="BlurRect">The tile grown by the margin, clamped to the level: the blur's input AND output tile rect.</param>
 /// <param name="TileInBlur">The tile relative to <paramref name="BlurRect"/>: what is cut out of the blur output.</param>
 /// <param name="FetchRect">`BlurRect` grown by up to 10 px per side, clamped to the level: the rect of the depth fetch,
-/// the colour `renderROI` and the edit-layer fetch, i.e. the builder's buffer.</param>
+/// the color `renderROI` and the edit-layer fetch, i.e. the builder's buffer.</param>
 /// <param name="CropRect">`BlurRect` relative to <paramref name="FetchRect"/>: the rect to which the built
 /// DualLayerBuffer is cropped before the blur.</param>
 /// <param name="InFocusNear">The in-focus range (focus, f, SENSOR pitch, N = 2.2, blur = 0.7), near bound — the builder's last argument.</param>
@@ -38,7 +38,7 @@ public readonly record struct DofTileGeometry(int Level, int Tx, int Ty, RectI T
     /// <summary>The builder's parameter block `{focus, f, f35, level pitch}`.</summary>
     public (float Focus, float F, float F35, float Pitch) BuilderParams => (Focus, FocalLength, FocalLength35, LevelPitch);
 
-    /// <summary>Whether a tile made with this geometry has the same pixels as one made with <paramref name="o"/> from the same colour, depth
+    /// <summary>Whether a tile made with this geometry has the same pixels as one made with <paramref name="o"/> from the same color, depth
     /// and edit layer: every field the builder, the blur and the crops read is equal. <see cref="Window"/>, <see cref="DepthMin"/>,
     /// <see cref="DepthMax"/> and <see cref="Margin"/> are left out — they reach the pixels only through the rects (the margin sets
     /// <see cref="BlurRect"/>, <see cref="TileInBlur"/>, <see cref="FetchRect"/>, <see cref="CropRect"/>; the post stage's noise is seeded

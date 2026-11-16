@@ -17,7 +17,7 @@ namespace Lux.App.ViewModels;
 public enum PageTool { None, Focus, RefineEdge, BlendArea, MatchDepth, Crop }
 
 /// <summary>
-/// The depth part of the Develop page: readiness and "Analyse now", the depth effect (aperture and focus sliders with typed values, the
+/// The depth part of the Develop page: readiness and "Analyze now", the depth effect (aperture and focus sliders with typed values, the
 /// focal-region shade, the in-focus read-out, the focus tool with its pin and entry hint), Lumen's depth tools (refine edge, blend area, match
 /// depth with brush / lasso / quick select: option bar, brush size with <c>[</c> / <c>]</c>, the pending selection with its target depth typed
 /// or picked from the photo, Apply / Clear / Cancel), the slow-tool progress and the "nothing changed" messages (with Lumen's shake), the depth
@@ -53,7 +53,7 @@ public sealed partial class DepthViewModel : ObservableObject
 
     /// <summary>A depth edit could not be made: the view shakes the picture (Lumen's "anomaly").</summary>
     public event Action? ShakeRequested;
-    /// <summary>The pending selection was applied, cleared or cancelled: the view clears its strokes and lasso.</summary>
+    /// <summary>The pending selection was applied, cleared or canceled: the view clears its strokes and lasso.</summary>
     public event Action? SelectionCleared;
     /// <summary>The tool, its mode or its options changed (the view shows the overlays that go with them).</summary>
     public event Action? ToolChanged;
@@ -321,7 +321,7 @@ public sealed partial class DepthViewModel : ObservableObject
         _ = Task.Delay(5000, cts.Token).ContinueWith(t => { if (!t.IsCanceled) Dispatcher.UIThread.Post(() => { if (!cts.IsCancellationRequested) ShowHint = false; }); }, TaskScheduler.Default);
     }
 
-    // ---- options: size (brush) / feathering (lasso), follow colour, add / remove
+    // ---- options: size (brush) / feathering (lasso), follow color, add / remove
     public double SizeValue
     {
         get => IsLasso ? _feather : _brushSize;
@@ -436,7 +436,7 @@ public sealed partial class DepthViewModel : ObservableObject
     /// <summary>A press while the depth is not ready: the reason (and the shake).</summary>
     public void RefuseNotReady()
     {
-        ShowMessage(ReadinessTitle + ". " + (CanAnalyse ? "Use “Analyse now” to make it." : ReadinessText), warning: true);
+        ShowMessage(ReadinessTitle + ". " + (CanAnalyse ? "Use “Analyze now” to make it." : ReadinessText), warning: true);
         ShakeRequested?.Invoke();
     }
 
@@ -450,7 +450,7 @@ public sealed partial class DepthViewModel : ObservableObject
                 ShakeRequested?.Invoke();
                 break;
             case ToolResult.Cancelled:
-                ShowMessage("Cancelled — nothing changed.", warning: false, seconds: 3);
+                ShowMessage("Canceled — nothing changed.", warning: false, seconds: 3);
                 break;
         }
     }

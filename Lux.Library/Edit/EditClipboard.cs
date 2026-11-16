@@ -184,7 +184,7 @@ internal sealed class EditClipboard : IEditClipboard
         if (g.HasFlag(EditGroups.Sharpening)) a = a with { Sharpening = d.Sharpening };
         s.Adj = a;
         if ((g & EditGroups.Geometry) == EditGroups.Geometry) { s.Geo.ResetGeometry(); s.Decided = false; }
-        else if (g.HasFlag(EditGroups.Crop)) { LumenGeometryEdits.SetCropFromRect(s.Geo.T, new QRect(0, 0, 1, 1)); s.Geo.InitTransform(s.Geo.T); }
+        else if (g.HasFlag(EditGroups.Crop)) { LumenGeometryEdits.SetCropFromRect(s.Geo.T, new QRect(0, 0, 1, 1)); s.Geo.InitTransform(s.Geo.T); s.Geo.FitFrame(); }
         else if (g.HasFlag(EditGroups.RotationAndMirror))
         {
             var frame = LumenGeometryEdits.RectFromCrop(s.Geo.T);

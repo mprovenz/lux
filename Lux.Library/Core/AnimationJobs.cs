@@ -8,7 +8,7 @@ namespace Lux.Library.Core;
 
 /// <summary>The animated export job (<see cref="JobKind.Animation"/>): the engine's <see cref="AnimationRenderer"/> on a session of the capture
 /// (saved edits and settings as an export applies them), then Lux's own writer — or ffmpeg for MP4 / WebM — into a temporary file renamed
-/// when complete, so a cancelled job leaves nothing.</summary>
+/// when complete, so a canceled job leaves nothing.</summary>
 internal static class AnimationJobs
 {
     public static string FormatName(AnimationFormat f) => f switch

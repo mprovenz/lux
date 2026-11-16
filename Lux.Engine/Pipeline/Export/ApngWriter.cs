@@ -5,7 +5,7 @@ using Lux.Engine.Pipeline.Parallax;
 namespace Lux.Engine.Pipeline.Export;
 
 /// <summary>
-/// Lux's animated PNG writer (APNG, no external tool): true colour (8-bit RGB), every pixel exact. The first frame is the PNG's own image
+/// Lux's animated PNG writer (APNG, no external tool): true color (8-bit RGB), every pixel exact. The first frame is the PNG's own image
 /// (a viewer without APNG support shows it as a still); each later frame stores only the rectangle that changed since the previous one
 /// (<c>fcTL</c> region, blend "source", disposal "none"). Rows are filtered adaptively (the filter with the smallest sum of absolute
 /// differences per row) and deflated with .NET's zlib. Delays are written as milliseconds (<c>delay_num / 1000</c>).

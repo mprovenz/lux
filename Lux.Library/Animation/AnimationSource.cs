@@ -16,7 +16,7 @@ namespace Lux.Library.Animation;
 /// 4:3 capture; the lens effects 520 px wide from a quicker lens render), then, for the depth effects and the parallax, sharper frames from
 /// export level 3 that replace them (see <see cref="SharpSpec"/>). Frames are made in an order that covers the animation early (first, last,
 /// middle, quarters, …) and kept per set of frame-defining values for as long as the source is open. A depth effect on a photo that has
-/// not been analysed asks the Queue for the analysis (so it shows there) and continues when it is done.
+/// not been analyzed asks the Queue for the analysis (so it shows there) and continues when it is done.
 /// </summary>
 internal sealed class AnimationSourceImpl : IAnimationSource
 {
@@ -78,7 +78,7 @@ internal sealed class AnimationSourceImpl : IAnimationSource
             return _own ??= CaptureSession.Open(_path, new SessionOptions { Context = _ctx, Threads = _lib.SettingsImpl.RenderThreads, DisplayCacheBytes = 0, KeepGeometry = false });
     }
 
-    /// <summary>The depth is available without computing it here: the photo is analysed (or its editing session has it). When not, the
+    /// <summary>The depth is available without computing it here: the photo is analyzed (or its editing session has it). When not, the
     /// analysis is queued (it shows in the Queue) and awaited.</summary>
     /// <summary>After the depth was computed by a Queue job while the photo was open in Develop, its editing session may hold a render state
     /// made before the kept depth existed: the frames then come from this source's own session, which reads the kept depth.</summary>
@@ -102,7 +102,7 @@ internal sealed class AnimationSourceImpl : IAnimationSource
         {
             var info = await _lib.Jobs.WaitAsync(id, cancel).ConfigureAwait(false);
             if (info.State == JobState.Failed) throw new LibraryException(info.Error ?? "The analysis failed.");
-            if (info.State == JobState.Cancelled) throw new OperationCanceledException("the analysis was cancelled");
+            if (info.State == JobState.Cancelled) throw new OperationCanceledException("the analysis was canceled");
         }
         Item = _lib.Get(CaptureId) ?? Item;
         if (open is not null) _preferOwn = true;
@@ -131,7 +131,7 @@ internal sealed class AnimationSourceImpl : IAnimationSource
         return await Task.Run(() => WithSession(s =>
         {
             // a point of a level-4 preview frame (the export's grid, after the saved crop / rotation, or the held turn the frames carry) → the
-            // capture's normalised export window
+            // capture's normalized export window
             var spec = Oriented(new AnimationSpec(), _current?.Options ?? new AnimationOptions());
             var req = new ExportRequest { Formats = new[] { ExportImageFormat.Jpeg }, Level = 4 };
             if (spec.Transform is { } t) req = req with { Transform = t, OverriddenSettings = new HashSet<string> { "transform" } };
@@ -390,7 +390,7 @@ internal sealed class PreviewImpl : IAnimationPreview
         return null;
     }
 
-    /// <summary>The share of the picture whose colour changes visibly (more than 16 of 255 in a channel) between two frames of one size, and
+    /// <summary>The share of the picture whose color changes visibly (more than 16 of 255 in a channel) between two frames of one size, and
     /// whether the two are the same picture (no channel differs by more than 2).</summary>
     internal static (double Visible, bool Same) Change(PreviewFrame a, PreviewFrame b)
     {
@@ -418,7 +418,7 @@ internal sealed class PreviewImpl : IAnimationPreview
         if (o.Effect == AnimationEffect.RackFocus && f0.FocusMm is float z1 && fn.FocusMm is float z2)
         {
             // the blur follows 1/distance: two ends that close in 1/distance give the same picture
-            double span = Math.Abs(1.0 / z1 - 1.0 / z2) * 1000;   // dioptres
+            double span = Math.Abs(1.0 / z1 - 1.0 / z2) * 1000;   // diopters
             if (span < 0.02)
                 notes.Add(z1 == z2 ? $"The focus does not move: it starts and ends at {M(z1)}. Pick a nearer start and a farther end on the photo."
                                    : $"The focus hardly moves: from {M(z1)} to {M(z2)} looks the same to the depth effect (both are far away). Pick a nearer start on the photo.");

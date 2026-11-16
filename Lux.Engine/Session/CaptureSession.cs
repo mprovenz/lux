@@ -25,6 +25,11 @@ public sealed record SessionOptions
     /// <summary>Memory the display render may keep per session for fast slider changes: each recently shown tile's linear input and its
     /// output-stage intermediates (about 25–32 MB per 512 tile). Least recently used tiles go first; 0 keeps nothing.</summary>
     public long DisplayCacheBytes { get; init; } = 1L << 30;
+    /// <summary>The Lux noise controls of the module ISP for every render and export of this session (<see cref="NoiseControls"/>: grain
+    /// strength, denoise threshold). Null = Lumen's values. They change the merged image itself, so they belong to the session and not to
+    /// one render: open a new session to change them. A session with other values than Lumen's reads the geometry and the depth from the
+    /// analysis cache, but no image tiles, and it cannot raise the cache above the geometry level.</summary>
+    public NoiseControls? Noise { get; init; }
 }
 
 /// <summary>What a render returns.</summary>
@@ -38,7 +43,7 @@ public enum RenderOutput
 
 /// <summary>
 /// The per-render settings of <see cref="CaptureSession.RenderAsync"/>. Every default is Lumen's own value, so a default render is the
-/// Lumen-identical one. <para>The tone and colour adjustments (exposure, contrast, temperature, tint, vibrance, saturation, sharpening,
+/// Lumen-identical one. <para>The tone and color adjustments (exposure, contrast, temperature, tint, vibrance, saturation, sharpening,
 /// shadows, highlights, clarity) are <see cref="Adjustments"/>: they act on the display output only (as on the JPG); the linear output
 /// is the image before them.</para>
 /// </summary>
@@ -52,7 +57,7 @@ public sealed record RenderSettings
     /// <summary>The display render's sharpening property (Lumen's export value by default). Ignored when <see cref="Adjustments"/> is set
     /// (its own <see cref="Pipeline.Adjustments.Sharpening"/> applies).</summary>
     public float Sharpening { get; init; } = DisplayIspTuning.GuiSharpeningProperty;
-    /// <summary>Lumen's tone and colour settings for the display output; null = none (Lumen's own rendering, with <see cref="Sharpening"/>).</summary>
+    /// <summary>Lumen's tone and color settings for the display output; null = none (Lumen's own rendering, with <see cref="Sharpening"/>).</summary>
     public Adjustments? Adjustments { get; init; }
     /// <summary>The v2 tone-mapping gate of the display render.</summary>
     public bool ToneV2 { get; init; }
@@ -94,7 +99,7 @@ public sealed record CaptureInfo(string ReferenceModule, IReadOnlyList<string> M
 /// raised and lowered under one lock. The async members run on the thread pool and never block the caller. Results never depend on the
 /// schedule: every tile is a pure function of the capture.</para>
 /// <para><b>Cancellation.</b> Every async member takes a token, checked between registration states, between tiles and between files. A
-/// cancelled call throws <see cref="OperationCanceledException"/>; nothing it computed is lost (finished tiles stay cached) and nothing
+/// canceled call throws <see cref="OperationCanceledException"/>; nothing it computed is lost (finished tiles stay cached) and nothing
 /// half-made is kept — a later call resumes the work.</para>
 /// <para><b>Levels.</b> Export levels 0 (full size, super-resolved) to 4; level 1 is the 13 MP image. Levels 2–4 come from the reference
 /// module alone and are a few seconds from nothing; level 1 needs the fusion; level 0 and anything that reads the depth need the
@@ -110,6 +115,7 @@ public sealed class CaptureSession : IDisposable
     readonly object _lock = new();
     readonly object _cacheLock = new();
     readonly ProgressReporter _progress;
+    readonly NoiseControls? _noise;   // null = Lumen's values: only then the image tiles of the analysis cache are read or written
     ExportState? _state0, _state1;   // built for level 0 (registration, depth, level 0) and for level 1 (the 13 MP render's fusion)
     AnalysisCache.CachedTiles? _tiles0, _tiles1;
     IAnalysisCache? _cache; bool _cacheOpened;
@@ -118,6 +124,7 @@ public sealed class CaptureSession : IDisposable
     CaptureSession(string path, LriFile lri, SessionOptions options)
     {
         Path = path; Lri = lri; Options = options;
+        _noise = options.Noise is { IsLumen: false } nc ? nc.Validate() : null;
         _progress = new ProgressReporter(options.Progress);
         var h = lri.Header;
         DateTime? when = h.ImageTimeStamp is { } ts ? new DateTime((int)ts.Year, (int)ts.Month, (int)ts.Day, (int)ts.Hour, (int)ts.Minute, (int)ts.Second) : null;
@@ -160,6 +167,7 @@ public sealed class CaptureSession : IDisposable
         if (c is null) return;
         lock (_lock)
         {
+            if (_noise is not null) return;
             if (_tiles0 is not null) _tiles0.Refresh();
             else if (_state0 is not null) { _tiles0 = AnalysisCache.TileSource(c, 0, Options.Log); _state0.Cache.Stored = _tiles0; }
             if (_tiles1 is not null) _tiles1.Refresh();
@@ -177,10 +185,10 @@ public sealed class CaptureSession : IDisposable
             if (slot is not null) return slot;
             var cache = Options.UseCache ? Cache(create: false) : null;
             var geo = buildLevel == 0 && cache is not null ? AnalysisCache.LoadGeometry(cache, Options.Log) : null;
-            var tiles = cache is null ? null : AnalysisCache.TileSource(cache, buildLevel, Options.Log);
+            var tiles = cache is null || _noise is not null ? null : AnalysisCache.TileSource(cache, buildLevel, Options.Log);
             if (buildLevel == 0) _tiles0 = tiles; else _tiles1 = tiles;
             slot = ExportBuild.Build(Lri, Path, buildLevel, Options.Log, Options.Threads, _progress,
-                                     new BuildOptions { Geometry = geo, StoredTiles = tiles, KeepRegistration = false });
+                                     new BuildOptions { Geometry = geo, StoredTiles = tiles, KeepRegistration = false, Noise = _noise });
             if (buildLevel == 0 && Options.Context is { } ctx && _appliedEdits is { } ae && ae.Applied) ae.Note = ctx.ApplySavedEdits(slot, ae.Variant, Options.Log);
             return slot;
         }
@@ -206,7 +214,7 @@ public sealed class CaptureSession : IDisposable
 
     /// <summary>Run the registration chain (or load its result from the analysis cache): the depth, the focus queries and level 0 then need
     /// nothing more. Keeps the result in the cache when <see cref="SessionOptions.KeepGeometry"/> is set.
-    /// <para>Cancelling abandons the wait: the registration, once started, is shared by every caller and runs to its end in the
+    /// <para>Canceling abandons the wait: the registration, once started, is shared by every caller and runs to its end in the
     /// background, and its result is kept for the next call.</para></summary>
     public async Task EnsureAnalysisAsync(CancellationToken cancel = default)
     {
@@ -226,7 +234,7 @@ public sealed class CaptureSession : IDisposable
     /// <summary>Render a region of an export level (export-level pixels, the level's own grid). Linear or display output per
     /// <paramref name="settings"/>; a default <see cref="RenderSettings"/> gives the Lumen-identical pixels of that level's export.</summary>
     /// <remarks>With <paramref name="settings"/> null the capture's saved settings apply (<see cref="SavedRenderSettings"/>: an imported
-    /// session's depth effect, focus, tone and colour, tone style); explicit settings are used as they are.</remarks>
+    /// session's depth effect, focus, tone and color, tone style); explicit settings are used as they are.</remarks>
     public Task<RenderedTile> RenderAsync(int level, RectI rect, RenderSettings? settings = null, CancellationToken cancel = default)
         => Task.Run(() => Render(level, rect, settings, cancel), cancel);
 
@@ -499,7 +507,7 @@ public sealed class CaptureSession : IDisposable
         return State(0).DepthCache(Window);
     }
 
-    /// <summary>The scene depth (mm) at a point of the image, normalised to the export window (0,0 = top left) — Lumen's click to focus
+    /// <summary>The scene depth (mm) at a point of the image, normalized to the export window (0,0 = top left) — Lumen's click to focus
     /// (`getDepthAtPoint`: the 3×3 mean of the depth cache at the mapped canvas point).</summary>
     public async Task<float> DepthAtAsync(float x, float y, CancellationToken cancel = default)
     {
@@ -539,7 +547,7 @@ public sealed class CaptureSession : IDisposable
     ExportState? _session0, _session1;   // states of a Lumen-session render (the session's geometry and depth), built on first use
 
     /// <summary>The render settings saved with the capture's active edits variant (an imported Lumen session's f-number, focus, tone and
-    /// colour, crop / rotation, rating, tone style, and its own camera geometry); null when there are none. Read once per session.</summary>
+    /// color, crop / rotation, rating, tone style, and its own camera geometry); null when there are none. Read once per session.</summary>
     public SavedRenderState? SavedState
     {
         get
@@ -554,7 +562,7 @@ public sealed class CaptureSession : IDisposable
         }
     }
 
-    /// <summary>The render settings a viewer of the capture starts from: Lumen's defaults with the saved depth effect, focus, tone and colour
+    /// <summary>The render settings a viewer of the capture starts from: Lumen's defaults with the saved depth effect, focus, tone and color
     /// settings and tone style on top (what <see cref="RenderAsync"/> uses when given no settings). The saved crop / rotation is
     /// <see cref="SavedTransform"/>; a render covers the uncropped level.</summary>
     public RenderSettings SavedRenderSettings()
@@ -597,7 +605,7 @@ public sealed class CaptureSession : IDisposable
             if (slot is not null) return slot;
             var geo = buildLevel == 0 ? saved.SessionGeometry!(Lri) : null;
             slot = ExportBuild.Build(Lri, Path, buildLevel, Options.Log, Options.Threads, _progress,
-                                     new BuildOptions { Geometry = geo, StoredTiles = null, KeepRegistration = false, SessionRender = true });
+                                     new BuildOptions { Geometry = geo, StoredTiles = null, KeepRegistration = false, SessionRender = true, Noise = _noise });
             return slot;
         }
     }
@@ -618,7 +626,7 @@ public sealed class CaptureSession : IDisposable
     public Task<Exporter.Result> ExportAsync(ExportRequest req, CancellationToken cancel = default) => Task.Run(() =>
     {
         var (st, r, notes) = PrepareExport(req, cancel);
-        if (st is null) return Exporter.Run(Path, r with { Context = Options.Context, CacheUse = CacheUse.None, UseSavedEdits = false }, Options.Log);
+        if (st is null) return Exporter.Run(Path, r with { Context = Options.Context, CacheUse = CacheUse.None, UseSavedEdits = false, Noise = _noise }, Options.Log);
         var res = Exporter.Run(st, r, Options.Log);
         return notes.Count == 0 ? res : res with { Notes = notes.Concat(res.Notes).ToList() };
     }, cancel);
@@ -703,6 +711,8 @@ public sealed class CaptureSession : IDisposable
             var g = st0.Geometry ?? throw new InvalidOperationException("this capture has no registration geometry");
             lock (_cacheLock) AnalysisCache.SaveGeometry(c, g);
         }
+        if (level >= CacheLevel.Linear13 && _noise is not null)
+            throw new InvalidOperationException("a session with noise controls cannot keep image tiles in the analysis cache: its tiles are not Lumen's");
         if (level >= CacheLevel.Linear13 && c.CompleteDescriptor(AnalysisCache.LinearTier) is null)
         {
             var st1 = _state0 is not null ? State(0) : State(1);   // either state's levels 1–4 are the same tiles

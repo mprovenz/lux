@@ -7,7 +7,7 @@ using Lux.Library;
 namespace Lux.App.Viewer;
 
 // The depth tools' overlays: the focus pin and the picked reference point (Markers), the brush circle and the stroke being drawn, the
-// lasso, the click-to-pick cursor (Cursor), and the pointer mirrored onto the depth view. Points are normalised in the picture as shown
+// lasso, the click-to-pick cursor (Cursor), and the pointer mirrored onto the depth view. Points are normalized in the picture as shown
 // (ViewerPointer.Frame), so the overlays stay attached to the picture while it pans and zooms, and what they report is what the user saw.
 
 /// <summary>Pins on the picture: the focus point (white ring) and match depth's picked reference point (accent ring with a dot).</summary>
@@ -48,7 +48,7 @@ public sealed class PinOverlay : ViewerOverlay
 
 /// <summary>
 /// A freehand brush: the circle at the pointer (its diameter <see cref="BrushPx"/> picture pixels at full size, so it grows with the zoom),
-/// and the stroke being drawn (a translucent band of the brush's width with a centre line — white when adding, dark when removing). The press
+/// and the stroke being drawn (a translucent band of the brush's width with a center line — white when adding, dark when removing). The press
 /// starts a stroke, every move reports the new points at once (the page forwards them without waiting), the release ends it. While
 /// <see cref="Enabled"/> is false the circle is drawn dimmed and a press is not taken (the tool explains why elsewhere).
 /// </summary>

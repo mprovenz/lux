@@ -4,11 +4,11 @@ using System.Text;
 namespace Lux.Engine.Pipeline.Export;
 
 /// <summary>
-/// The ICC profiles of the JPEG colour spaces, for exports that embed a profile. Embedding is an option and is off by default.
+/// The ICC profiles of the JPEG color spaces, for exports that embed a profile. Embedding is an option and is off by default.
 /// Lumen's JPEGs have no profile, only Exif ColorSpace = 1, so the default export does not change.
 /// This class builds the profiles in code: ICC v2.1 display profiles (RGB to XYZ, a matrix and tone curves). They use the D50-adapted
 /// (Bradford) colorants of the common profiles of these spaces. sRGB IEC 61966-2.1 uses the sRGB formula as a 1024-entry table.
-/// Adobe RGB (1998) uses gamma 563/256 = 2.19921875. The renderer's output colour space property selects the profile: 4 'srgb' (the JPEG
+/// Adobe RGB (1998) uses gamma 563/256 = 2.19921875. The renderer's output color space property selects the profile: 4 'srgb' (the JPEG
 /// default) and 5 'adobe_rgb'. The linear spaces (1–3) and 'none' (0) get no profile.
 /// </summary>
 public static class IccProfiles
@@ -23,7 +23,7 @@ public static class IccProfiles
     public static byte[] AdobeRgb => _adobe ??= Build("Adobe RGB (1998) compatible",
         (0.609741, 0.311111, 0.019470), (0.205276, 0.625671, 0.060867), (0.149185, 0.063217, 0.744568), new ushort[] { 563 });
 
-    /// <summary>Gets the profile of a renderer output colour space property (4 = srgb, 5 = adobe_rgb). Returns null for the other values.</summary>
+    /// <summary>Gets the profile of a renderer output color space property (4 = srgb, 5 = adobe_rgb). Returns null for the other values.</summary>
     public static byte[]? ForColorSpaceProperty(int property) => property switch { 4 => Srgb, 5 => AdobeRgb, _ => null };
 
     static ushort[] SrgbCurve()

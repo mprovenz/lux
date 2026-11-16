@@ -52,7 +52,7 @@ public sealed class Rgba
     }
 }
 
-/// <summary>A single-channel float plane — the metric depth (millimetres) pixel-aligned to an <see cref="Rgba"/>.</summary>
+/// <summary>A single-channel float plane — the metric depth (millimeters) pixel-aligned to an <see cref="Rgba"/>.</summary>
 public sealed class Plane
 {
     public readonly int W, H;
@@ -61,7 +61,7 @@ public sealed class Plane
     public Plane(int w, int h, float[] v) { W = w; H = h; V = v; }
     public float this[int x, int y] { get => V[(long)y * W + x]; set => V[(long)y * W + x] = value; }
 
-    /// <summary>Nearest-neighbour resample. Depth is piecewise-constant across object boundaries; interpolating it
+    /// <summary>Nearest-neighbor resample. Depth is piecewise-constant across object boundaries; interpolating it
     /// there invents surfaces that are not in the scene and shows up as a smeared halo after the warp.</summary>
     public Plane ResizeNearest(int ow, int oh)
     {

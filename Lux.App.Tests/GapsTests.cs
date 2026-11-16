@@ -822,7 +822,7 @@ public sealed class GapsErrorStatesUiTests
 }
 
 /// <summary>
-/// The JPG colour profile option. It is off by default, and then nothing in the file changes. When it is on, the only addition is the sRGB
+/// The JPG color profile option. It is off by default, and then nothing in the file changes. When it is on, the only addition is the sRGB
 /// profile (APP2 ICC_PROFILE after the Exif block), and decoders read the file as sRGB. The tests: the encoder on a test image, a small
 /// library export of a real capture (through a link) with the option off and on, and the checkbox of the export panel.
 /// </summary>
@@ -870,7 +870,7 @@ public sealed class GapsColourProfileTests
         Assert.Equal(1, n);
         Assert.Equal(plain, WithoutIcc(plain, out int none));
         Assert.Equal(0, none);
-        // decoders read it: the profile's colour space is sRGB's (matrix and curve)
+        // decoders read it: the profile's color space is sRGB's (matrix and curve)
         using var data = SkiaSharp.SKData.CreateCopy(withIcc);
         using var codec = SkiaSharp.SKCodec.Create(data);
         var cs = codec.Info.ColorSpace;
@@ -924,7 +924,7 @@ public sealed class GapsColourProfileTests
         Assert.Equal(off.Length, stripped.Length);
         Assert.True(off.Zip(stripped).Count(p => p.First != p.Second) <= 4, "with the profile removed, the file is the default one");
         Assert.Equal(off.Length + Lux.Engine.Pipeline.Export.IccProfiles.Srgb.Length + 18, on.Length);
-        Gaps.Record("figures.txt", $"colour profile: level-3 JPG {off.Length} B default, {on.Length} B with the sRGB profile (+{on.Length - off.Length} B = APP2), otherwise equal; no profile in the default file");
+        Gaps.Record("figures.txt", $"color profile: level-3 JPG {off.Length} B default, {on.Length} B with the sRGB profile (+{on.Length - off.Length} B = APP2), otherwise equal; no profile in the default file");
     }
 
     [AvaloniaFact]
@@ -940,6 +940,6 @@ public sealed class GapsColourProfileTests
         foreach (var f in p.Formats) f.IsOn = f.Key == "jpg";
         Assert.True(p.JpgChosen);
         p.EmbedColorProfile = true;
-        Assert.Contains("colour profile", p.Describe());
+        Assert.Contains("color profile", p.Describe());
     }
 }

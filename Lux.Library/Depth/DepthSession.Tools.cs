@@ -5,7 +5,7 @@ using Lux.Store;
 
 namespace Lux.Library.Depth;
 
-/// <summary>Lumen's depth tools (<see cref="IDepthEdit"/>): strokes in picture coordinates mapped to the capture's normalised coordinates, the
+/// <summary>Lumen's depth tools (<see cref="IDepthEdit"/>): strokes in picture coordinates mapped to the capture's normalized coordinates, the
 /// brush size mapped as Lumen's editor does, the operations run on the worker through the persistence (logged, saved, mirrored).</summary>
 internal sealed partial class DepthSession
 {
@@ -69,7 +69,7 @@ internal sealed partial class DepthSession
 
     // ================================================================================================================ coordinates
 
-    /// <summary>A picture point → the engine's point (normalised capture coordinates, as floats).</summary>
+    /// <summary>A picture point → the engine's point (normalized capture coordinates, as floats).</summary>
     EditPoint ToEngine(NormPoint p) { var (x, y) = _s.ViewImpl.ToCapture(p); return new EditPoint((float)x, (float)y); }
 
     /// <summary>The quick-select region of a scope: the bounding pixel rectangle at the scope's level of the capture region under the visible
@@ -374,7 +374,7 @@ internal sealed partial class DepthSession
         return job;
     }
 
-    /// <summary>`clearQuickSelectMask` (never called by Lumen's interface; scripted sessions use it): the selection emptied, its colour guide kept.</summary>
+    /// <summary>`clearQuickSelectMask` (never called by Lumen's interface; scripted sessions use it): the selection emptied, its color guide kept.</summary>
     internal DepthJob ClearSelectionMask() => _worker.Enqueue("Clear the selection mask", c => RunEdit(c, null, () => { _p!.ClearQuickSelectMask(); return true; }, quickSelection: true), cancellable: false);
 
     /// <summary>The eyedropper's depth: `getDepthAtPoint` on the editor's present depth (worker).</summary>

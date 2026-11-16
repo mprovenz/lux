@@ -9,7 +9,7 @@ namespace Lux.Engine.Pipeline.ResAmp;
 /// <summary>
 /// Lumen 2.3 super-resolution merge of one module 16×16 vec4 patch into the tile workspace:
 /// <c>Run(ws, blk) → float</c>, plus its two leaf helpers
-/// <c>GainNormalise</c> (gain normalise) and <c>Ssim8x8</c> (8×8 LL SSIM).
+/// <c>GainNormalise</c> (gain normalize) and <c>Ssim8x8</c> (8×8 LL SSIM).
 /// Every lane op is one IEEE-single op in Lumen's association order,
 /// rcpps/rcpss/rsqrtss are the raw host approximations (no Newton step unless the code does one),
 /// max/min follow Intel semantics (second operand returned when either is NaN).
@@ -19,7 +19,7 @@ namespace Lux.Engine.Pipeline.ResAmp;
 /// (stride 0x20), 0x1540/50/60/70 e1_ref..e4_ref, 0x1580 accumulated weighted coefficients 16×16 vec4 (in-place interleaved
 /// wavelet layout), 0x2580 five vec4 weight sums, 0x25d0 256-byte u8 slot table (read via <see cref="MemoryMarshal"/>),
 /// 0x26d0 vec4 Σ|ref|. <c>blk</c> is the module's 16×16 vec4 patch (1024 floats, row stride 64), transformed in place
-/// (after the call it holds the module's forward wavelet coefficients, gain-normalised).
+/// (after the call it holds the module's forward wavelet coefficients, gain-normalized).
 /// </para>
 /// </summary>
 internal static class ModuleMerge
@@ -84,14 +84,14 @@ internal static class ModuleMerge
     public static Action<string>? Dbg;
 
     /// <summary>
-    /// Merge one module patch: gain-normalise <paramref name="blk"/> against the reference, forward-wavelet it
+    /// Merge one module patch: gain-normalize <paramref name="blk"/> against the reference, forward-wavelet it
     /// (levels 1–4, in place), compute the per-level SSIM/detail-energy weights w1..w4 against the reference pyramid,
     /// accumulate <c>ws[0x2580 + (k−1)·16] += W_k</c> and <c>ws[0x1580 + pos] += W_k(slot(pos))·blk[pos]</c>, and return
     /// the module confidence <c>≈ sqrt(W1·W2)</c> (lane 0 of the result).
     /// </summary>
     public static float Run(float[] ws, float[] blk)
     {
-        // ---- A. gain normalise (GainNormalise)
+        // ---- A. gain normalize (GainNormalise)
         GainNormalise(ws, blk);
 
         // ---- B. 16×16 SSIM vs the reference patch (ws+0), sequential row-major accumulation, 2 vec4 per iteration
@@ -601,9 +601,9 @@ internal static class ModuleMerge
         }
     }
 
-    // ================================================================ GainNormalise(ws, blk): gain normalise
+    // ================================================================ GainNormalise(ws, blk): gain normalize
     /// <summary>
-    /// <c>s = Σ|blk|</c> per lane (accumulator initialised to 1e-5, per-row tree);
+    /// <c>s = Σ|blk|</c> per lane (accumulator initialized to 1e-5, per-row tree);
     /// <c>f = rcpss(s.x) · ws[0x26d0].x</c> (raw rcpss); <c>blk ·= (f, f, f, 1.0)</c> for all 256 vec4.
     /// Only ws[0x26d0] is read; blk is modified in place.
     /// </summary>

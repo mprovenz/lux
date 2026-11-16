@@ -5,7 +5,7 @@ using System.Runtime.Intrinsics.X86;
 
 namespace Lux.Engine.Pipeline.ResAmp;
 
-/// <summary>The inverse merge of Lumen 2.3 (x86-64 SSE), with Lumen's exact bits: normalise the accumulated wavelet
+/// <summary>The inverse merge of Lumen 2.3 (x86-64 SSE), with Lumen's exact bits: normalize the accumulated wavelet
 /// coefficients of one 16×16 vec4 tile by the per-slot weight sums and run the inverse CDF-9/7 (levels 4, 3, 2 fused/inlined,
 /// level 1 via <see cref="Cdf97Kernels"/>).
 /// <para>Workspace <paramref name="ws"/> is the 0x26e0-byte tile workspace viewed as <c>float[]</c> (index = byte offset / 4):
@@ -13,7 +13,7 @@ namespace Lux.Engine.Pipeline.ResAmp;
 /// 0x25d0–0x26cf = 256-byte slot table (one u8 per (row, col), read here via <see cref="MemoryMarshal.AsBytes{T}(Span{T})"/>,
 /// i.e. the bytes must live in the <c>float[]</c>'s memory exactly as in the native workspace).</para>
 /// <para>Fidelity: every lane op is one IEEE-single op in Lumen's association order; constants are loaded by bit pattern;
-/// <c>rcpps</c> is the modelled <see cref="IntelApprox.Reciprocal(Vector128{float})"/> with no Newton step.</para></summary>
+/// <c>rcpps</c> is the modeled <see cref="IntelApprox.Reciprocal(Vector128{float})"/> with no Newton step.</para></summary>
 internal static class InverseMerge
 {
     // Lifting constants. Lumen uses each value in all four lanes; one lane is shown.

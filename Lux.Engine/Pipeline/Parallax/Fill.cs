@@ -7,7 +7,7 @@ namespace Lux.Engine.Pipeline.Parallax;
 public sealed class Donor
 {
     public required string Name;
-    public required Rgba Colour;      // the module frame on the export grid, colour-matched to the reference
+    public required Rgba Colour;      // the module frame on the export grid, color-matched to the reference
     public required Plane Z;          // depth at that module's viewpoint, disocclusions filled with background depth
     public required double Bx, By;    // its baseline from the reference, mm, in image axes
 }
@@ -25,7 +25,7 @@ public sealed class Donor
 ///    reference-based synthesis has none. Modules are tried nearest-first, so the least additional warping wins.
 /// 2. <see cref="Inpaint"/> — whatever is still empty is filled from the surrounding pixels, biased towards the
 ///    **farther** side. A disocclusion is by definition background revealed from behind a foreground edge, so pulling
-///    the foreground colour into it is the one thing guaranteed to be wrong; that is what produces the halo that
+///    the foreground color into it is the one thing guaranteed to be wrong; that is what produces the halo that
 ///    single-image 3D photos are known for.
 ///
 /// The donor fill does not measurably beat plain inpainting: the two differ on under one percent of pixels. It is the
@@ -34,7 +34,7 @@ public sealed class Donor
 /// </summary>
 public static class Fill
 {
-    /// <summary>Build the donor set for a capture: every colour module of the reference's own group except the
+    /// <summary>Build the donor set for a capture: every color module of the reference's own group except the
     /// reference, from module frames already rendered at native resolution (<paramref name="native"/>, keyed by
     /// module name — the same renders the wigglegram uses), brought onto the export grid through the pipeline's own
     /// <c>AlignedCalib</c> and given the depth of its own viewpoint.</summary>
@@ -60,8 +60,8 @@ public static class Fill
         foreach (var (name, onGrid, bx, by) in placed)
         {
             var matched = ColourMatch(onGrid, src.Colour);
-            // The depth at this module's viewpoint: the z-buffer of synthesising it from the reference. Its own holes
-            // are exactly the places the reference could not see, so they are filled with the FARTHER neighbouring
+            // The depth at this module's viewpoint: the z-buffer of synthesizing it from the reference. Its own holes
+            // are exactly the places the reference could not see, so they are filled with the FARTHER neighboring
             // depth — background, which is what a disocclusion reveals.
             var v = Dibr.Synthesise(src.Colour, src.Depth, src.Geometry.FocalPx, bx, by, 0);
             var z = BackgroundFill(v.Z, v.Hole, src.W, src.H);
@@ -128,7 +128,7 @@ public static class Fill
         return o;
     }
 
-    /// <summary>Fill a synthesised view's holes from the real modules. Returns the number of pixels each donor
+    /// <summary>Fill a synthesized view's holes from the real modules. Returns the number of pixels each donor
     /// supplied, for reporting.</summary>
     public static Dictionary<string, int> FromDonors(View v, IReadOnlyList<Donor> donors, double focalPx, double convergeZmm, int w, int h)
     {
@@ -207,7 +207,7 @@ public static class Fill
             }
         });
         // The eight rays leave a visible cross-hatch inside a large hole — each output pixel is an average of eight
-        // point samples, and neighbouring pixels pick different ones. Three smoothing passes over the FILLED pixels
+        // point samples, and neighboring pixels pick different ones. Three smoothing passes over the FILLED pixels
         // only (never over the real ones) remove the lattice without touching anything that was photographed.
         for (int pass = 0; pass < 3; pass++)
         {
@@ -255,7 +255,7 @@ public static class Fill
         var has = new bool[(long)cw * ch];
         // The per-cell statistic is a MEDIAN, not a mean, and it is clamped. The overlap between the view and the
         // donor also contains genuine *geometric* disagreement at every depth edge, and those differences are large;
-        // a mean lets them set the correction and drags real colour into the patch.
+        // a mean lets them set the correction and drags real color into the patch.
         Parallel.For(0, ch, cy =>
         {
             var buf = new List<float>[3] { new(), new(), new() };

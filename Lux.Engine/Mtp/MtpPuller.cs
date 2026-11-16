@@ -10,7 +10,7 @@ public enum PullOutcome
 }
 
 /// <summary>Filter + download matching files from an MTP device (single device pipe = serial). Shared by <c>lux-light pull</c> and the desktop
-/// app's camera import: the same skip rule, the same safe write (<c>.part</c>, then rename; a cancelled or failed file leaves nothing behind)
+/// app's camera import: the same skip rule, the same safe write (<c>.part</c>, then rename; a canceled or failed file leaves nothing behind)
 /// and the same free-space check.</summary>
 public static class MtpPuller
 {

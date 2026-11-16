@@ -9,7 +9,7 @@ namespace Lux.App.Controls;
 
 /// <summary>
 /// Draws the player's current frame fitted into the control (letterboxed), the picked focus points as small rings with their labels, and —
-/// while picking — a crosshair cursor; a click inside the picture reports its normalised position (<see cref="PickedCommand"/>-style via
+/// while picking — a crosshair cursor; a click inside the picture reports its normalized position (<see cref="PickedCommand"/>-style via
 /// <see cref="Clicked"/>).
 /// </summary>
 public sealed class AnimationFrameView : Control
@@ -44,7 +44,7 @@ public sealed class AnimationFrameView : Control
     public string? PreparingDrawn => _spinner.LastLabel;
     int Turn => ((Rotation % 360) + 360) % 360;
 
-    /// <summary>A frame point (normalised) → where it shows in the turned picture (normalised).</summary>
+    /// <summary>A frame point (normalized) → where it shows in the turned picture (normalized).</summary>
     public static (double U, double V) FrameToShown(double x, double y, int turn) => (((turn % 360) + 360) % 360) switch
     {
         90 => (1 - y, x), 180 => (1 - x, 1 - y), 270 => (y, 1 - x), _ => (x, y),
@@ -55,7 +55,7 @@ public sealed class AnimationFrameView : Control
         90 => (v, 1 - u), 180 => (1 - u, 1 - v), 270 => (1 - v, u), _ => (u, v),
     };
 
-    /// <summary>A click inside the picture: normalised x, y of the frame (unturned).</summary>
+    /// <summary>A click inside the picture: normalized x, y of the frame (unturned).</summary>
     public event Action<double, double>? Clicked;
 
     /// <summary>Where the frame is drawn (letterboxed in the bounds).</summary>
@@ -88,7 +88,7 @@ public sealed class AnimationFrameView : Control
             if (Turn == 0) context.DrawImage(f, new Rect(0, 0, f.PixelSize.Width, f.PixelSize.Height), r);
             else
             {
-                // turned about the picture's centre: the unturned rect (its sides swapped for 90 / 270) drawn under the rotation
+                // turned about the picture's center: the unturned rect (its sides swapped for 90 / 270) drawn under the rotation
                 var c0 = r.Center;
                 double w0 = Turn is 90 or 270 ? r.Height : r.Width, h0 = Turn is 90 or 270 ? r.Width : r.Height;
                 var m = Matrix.CreateTranslation(-c0.X, -c0.Y) * Matrix.CreateRotation(Turn * Math.PI / 180) * Matrix.CreateTranslation(c0.X, c0.Y);

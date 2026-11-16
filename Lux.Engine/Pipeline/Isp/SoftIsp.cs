@@ -30,7 +30,7 @@ public sealed class CapturedFrame
         if (info.IsColour && info.Sensor == SensorType.SensorAr1335 && info.Noise is not null)
         {
             var (_, shadow) = CaptureState.SiteStats(mref.Module, raw, w, h);
-            // The neutral is the per-frame SoftISP's (manual_temp at the capture (CCT, tint) through the CAMERA'S OWN colour profile),
+            // The neutral is the per-frame SoftISP's (manual_temp at the capture (CCT, tint) through the CAMERA'S OWN color profile),
             // not the AsShot neutral. Lumen's frame-black estimate uses it with the arguments (42.0, 1.2, 40). For the reference module
             // the two neutrals give the same black; for the other modules the blacks differ.
             var colour = Color.LumenProfile.Compute(lri);
@@ -101,7 +101,7 @@ public sealed class SoftIsp
         if (frame is not null && red is not null && (red.X | red.Y) >= 0 && _tuning.Type("cross_talk_correction") == "ir_correction")
         {
             // CCT of the WB xy; light = median DN of the per-site histogram at
-            // index 1 × gain × exposure. Lumen stores that vector in colour order, so index 1 is the Gr site.
+            // index 1 × gain × exposure. Lumen stores that vector in color order, so index 1 is the Gr site.
             var noise = f.Noise ?? throw new InvalidOperationException("ir_correction needs the sensor black/white levels");
             var raster = CaptureState.SiteStats(frame.Module, frame.Raw, frame.Width, frame.Height).Hists;
             var hists = CaptureState.LumenHistograms(raster, red.X, red.Y);
@@ -229,7 +229,7 @@ public sealed class SoftIsp
     /// rect is its `(int)` conversion, no frame clamp). Returns the working image cropped to the request.</summary>
     /// <param name="roi">the runner's ROI = Lumen's `(0,0,src.w,src.h)`. Lumen derives it from the source
     /// image, NOT from the float rect (which on the display path is in sensor coordinates, not level coordinates);
-    /// the default keeps the fusion caller's behaviour of taking it from the float rect.</param>
+    /// the default keeps the fusion caller's behavior of taking it from the float rect.</param>
     public Image<Vec4F> ProcessColorFloat(CapturedFrame refFrame, IspStats stats, Image<Vec4F> rgb, Image<float>? std, RectF floatRect, int level, Action<string>? log = null, RectI? roi = null, Action<int, IStage, IspPayload>? afterStage = null)
     {
         if (rgb.Width < 1 || rgb.Height < 1) throw new InvalidOperationException("empty source image!");

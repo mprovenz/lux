@@ -1,4 +1,4 @@
-// The functions in this file are C# ports of the double-precision maths functions of musl libc, in the form that Wine's
+// The functions in this file are C# ports of the double-precision math functions of musl libc, in the form that Wine's
 // ucrtbase.dll contains them.
 //
 // sin, cos, atan, atan2, acos, log10, expm1, tanh and the pi/2 reduction (musl: FreeBSD msun, from fdlibm):
@@ -10,13 +10,13 @@
 //   Copyright (c) 2018, Arm Limited.
 //   SPDX-License-Identifier: MIT
 //
-// musl as a whole: Copyright © 2005-2020 Rich Felker, et al., MIT licence.
+// musl as a whole: Copyright © 2005-2020 Rich Felker, et al., MIT license.
 
 namespace Lux.Engine.Pipeline;
 
-// The C runtime's double maths as Lumen gets it. The summary of the class is in WineCrt.cs.
+// The C runtime's double math as Lumen gets it. The summary of the class is in WineCrt.cs.
 // Each function is a statement-by-statement port of the musl function that Wine's ucrtbase contains. The operation order is the order
-// of the C source. The code has no fused multiply-add, because the CRT has none. The results do not depend on the platform's maths
+// of the C source. The code has no fused multiply-add, because the CRT has none. The results do not depend on the platform's math
 // library: the functions use only +, −, ×, ÷, sqrt, rounding to an integer, the integer conversions and bit operations.
 // Each function gives the same bits as the CRT for every argument, the NaN results on an x86 processor included. On other processors
 // the bits of a NaN result can be different (the result is still a NaN).
@@ -552,7 +552,7 @@ public static partial class WineCrt
     const ulong PowOff = 0x3fe6955500000000UL;
     const uint PowSignBias = 0x800u << Exp2dTableBits;
 
-    /// <summary>`log_inline` of pow.c: y + tail = log(x). ix holds the bits of x, normalised when x is subnormal.</summary>
+    /// <summary>`log_inline` of pow.c: y + tail = log(x). ix holds the bits of x, normalized when x is subnormal.</summary>
     static double PowLog(ulong ix, out double tail)
     {
         ulong tmp = ix - PowOff;
@@ -705,7 +705,7 @@ public static partial class WineCrt
             }
             if (topx == 0)
             {
-                ix = Bits(x * 4503599627370496.0);                             // subnormal x: normalise with 2^52
+                ix = Bits(x * 4503599627370496.0);                             // subnormal x: normalize with 2^52
                 ix &= 0x7fffffffffffffffUL;
                 ix -= 52UL << 52;
             }
@@ -759,7 +759,7 @@ public static partial class WineCrt
             if (ix == 0x7ff0000000000000UL) return x;
             if ((top & 0x7ff0) == 0x7ff0 && (ix & 0xfffffffffffffUL) != 0) return x;
             if ((top & 0x8000) != 0) return InvalidNaN;
-            ix = Bits(x * 4503599627370496.0);                                 // subnormal x: normalise with 2^52
+            ix = Bits(x * 4503599627370496.0);                                 // subnormal x: normalize with 2^52
             ix -= 52UL << 52;
         }
         ulong tmp = ix - LogOff;

@@ -64,11 +64,11 @@ public sealed partial class ExportPanelViewModel : ObservableObject
         Formats = new ObservableCollection<FormatOption>
         {
             new("dng", "DNG", "Raw-style file for other editors", On("dng", true), true, Recalc),
-            new("jpg", "JPG", "With tone and colour adjustments", On("jpg", true), true, Recalc),
+            new("jpg", "JPG", "With tone and color adjustments", On("jpg", true), true, Recalc),
             new("jpg+depth", "JPG + depth", "Depth map embedded for apps that read it", On("jpg+depth", false), true, Recalc),
             new("hdr", "HDR", "Radiance, linear, for HDR tools", On("hdr", false), true, Recalc),
-            new("ppm", "PPM", "8-bit image before tone and colour, uncompressed", On("ppm", false), true, Recalc),
-            new("depth", "Depth map", "Separate depth image (millimetres + preview)", On("depth", false), true, Recalc),
+            new("ppm", "PPM", "8-bit image before tone and color, uncompressed", On("ppm", false), true, Recalc),
+            new("depth", "Depth map", "Separate depth image (millimeters + preview)", On("depth", false), true, Recalc),
         };
         Sizes = SizeChoices(items);
         _defaultFolder = s.Library.Settings.DefaultExportFolder;
@@ -170,7 +170,7 @@ public sealed partial class ExportPanelViewModel : ObservableObject
     public bool IsSetAperture => DepthEffect.Value == 2;
     public bool IsCustomSize => Size.Value == -1;
     public string FNumberText => Text.FNumber((float)FNumber);
-    public static string Note => "Tone and colour adjustments are applied to JPG files. DNG and HDR keep the unadjusted image, as in Lumen, so they can be developed later.";
+    public static string Note => "Tone and color adjustments are applied to JPG files. DNG and HDR keep the unadjusted image, as in Lumen, so they can be developed later.";
     public string CollisionNote => _s.Library.Settings.ExportIfExists switch
     {
         ExportCollisionSetting.Ask => "If a file already exists you are asked first (Settings → Export).",
@@ -261,7 +261,7 @@ public sealed partial class ExportPanelViewModel : ObservableObject
         else if (DepthEffect.Value == 1) parts.Add("all in focus");
         if (Edits.Value == 0) parts.Add("clean");
         if (Orientation.Value == 1 && HasTurnedPhotos) parts.Add("as captured");
-        if (EmbedColorProfile && JpgChosen) parts.Add("colour profile");
+        if (EmbedColorProfile && JpgChosen) parts.Add("color profile");
         if (ToneStyle.Value == 1) parts.Add("newer tone style");
         else if (ToneStyle.Value == 2) parts.Add("standard tone style");
         return string.Join(" · ", parts);
@@ -281,7 +281,7 @@ public sealed partial class ExportPanelViewModel : ObservableObject
         EmbedColorProfile = EmbedColorProfile && JpgChosen,
     };
 
-    /// <summary>Embeds the sRGB colour profile in JPG files. The default is off. The panel remembers the last choice.</summary>
+    /// <summary>Embeds the sRGB color profile in JPG files. The default is off. The panel remembers the last choice.</summary>
     [ObservableProperty] bool _embedColorProfile;
     /// <summary>A JPG format is ticked. The profile option applies to JPG files only.</summary>
     public bool JpgChosen => Formats.Any(f => f.IsOn && f.IsAvailable && f.Key is "jpg" or "jpg+depth");
@@ -390,7 +390,7 @@ public sealed partial class DialogChoice(string label, int value, bool isDefault
     [RelayCommand] void Choose() => choose(Value);
 }
 
-/// <summary>A question with several answers and Cancel; completes <see cref="Answer"/> with the chosen value (null = cancelled).</summary>
+/// <summary>A question with several answers and Cancel; completes <see cref="Answer"/> with the chosen value (null = canceled).</summary>
 public sealed partial class ChoiceDialogViewModel : ObservableObject
 {
     readonly TaskCompletionSource<int?> _tcs = new();

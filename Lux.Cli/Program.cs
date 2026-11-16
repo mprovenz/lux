@@ -258,7 +258,7 @@ namespace Lux.Cli
             return 0;
         }
 
-        /// <summary>Compute Lumen's colour profile (CCT ordering, ΔE2000 matrix fit, ForwardMatrix, HueSatMap)
+        /// <summary>Compute Lumen's color profile (CCT ordering, ΔE2000 matrix fit, ForwardMatrix, HueSatMap)
         /// and print it.</summary>
         private static int RunProfile(List<string> files)
         {
@@ -319,7 +319,7 @@ namespace Lux.Cli
             static string Str(Lux.Engine.Pipeline.Tuning t, string k) { var v = t.All.First(kv => kv.Key == k).Value; return v is double[] a ? "[" + string.Join(",", a) + "]" : System.Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture)!; }
         }
 
-        /// <summary>Run the module ISP on a centre ROI of the reference module at the requested level and write a
+        /// <summary>Run the module ISP on a center ROI of the reference module at the requested level and write a
         /// gamma-encoded PPM next to the .lri (smoke test of the ported stage chain).</summary>
         private static int RunIspRun(List<string> files, Options opts)
         {
@@ -360,185 +360,223 @@ namespace Lux.Cli
         private static int Help(int code = 0)
         {
             Console.WriteLine("""
-                lux-light — A CLI to convert Light L16 .lri captures into a variety of formats
+                lux-light: a CLI that converts Light L16 .lri captures into a variety of formats
 
                 USAGE:
                   lux-light <command> [options] [input...]
                   lux-light --help
 
                 COMMANDS:
-                  convert <input...>          Process a .lri and export it exactly as Lumen does: the image pipeline
-                                              run once, written out in any combination of export formats (see
-                                              below). Everything comes from the .lri, and no option changes the
-                                              Lumen pixels unless you pass one from ADJUSTMENTS;
-                                              --level/--size/--origin only pick the output grid.
-                  inspect <input...>          Print the load-time state derived (neutral, ev, multiplier)
-                  mod-info <input...>         Per-module CameraID, gain, exposure, frame black, relative_brightness
-                  profile <input...>          compute and print the colour profile (matrix fit, ForwardMatrix,
+                  convert <input...>          Process a .lri and export it as Lumen does. The image pipeline runs once,
+                                              and convert writes the result in any combination of export formats (see
+                                              below). All values come from the .lri. Only the options marked * change
+                                              Lumen's output. --level, --size and --origin only select the output grid
+                  inspect <input...>          Print the state that Lux derives when it loads a capture (neutral, ev,
+                                              multiplier)
+                  mod-info <input...>         Print the CameraID, gain, exposure, frame black and relative_brightness of
+                                              each module
+                  profile <input...>          Compute and print the color profile (matrix fit, ForwardMatrix,
                                               HueSatMap)
-                  isp <input...>              Module-ISP tuning per config level, stage list, white-balance state
-                  isp-run <input...>          Run the module ISP over a centre ROI, write a gamma-encoded PPM
-                  devices                     List connected MTP cameras
-                  pull [options]              Pull matching files off the camera
-                  version [--offline]         Print this build's version and check GitHub for a newer release
-                  edits-info <input...>       Show a capture's saved depth edits: the variants, which one is active,
-                                              how much is stored, and whether everything stored is intact.
-                                              --set-active <variant|none> chooses the variant `convert` uses
+                  isp <input...>              Print the module-ISP tuning per config level, the stage list and the
+                                              white-balance state
+                  isp-run <input...>          Run the module ISP on a center region and write a gamma-encoded PPM
+                  devices                     List the connected MTP cameras
+                  pull [options]              Copy matching files from the camera
+                  version [--offline]         Print the version of this build and check GitHub for a newer release
+                  edits-info <input...>       Show the saved depth edits of a capture: the variants, the active variant,
+                                              the amount of stored data, and whether all stored data is intact.
+                                              --set-active <variant|none> selects the variant that `convert` uses
                   import-lumen-edits <lris file or folder...>
-                                              Bring Lumen session files (.lris) into Lux: the depth map and depth
-                                              edits, the depth effect, tone and colour settings, crop / rotation
-                                              and rating Lumen saved for each photo; convert then renders the photo
-                                              as Lumen does. Each session's capture (.lri of the same name) must
-                                              sit beside it
+                                              Import Lumen session files (.lris) into Lux. An import contains what Lumen
+                                              saved for the photo: the depth map and depth edits, the depth effect, the
+                                              tone and color settings, the crop / rotation and the rating. convert then
+                                              renders the photo as Lumen does. The capture of each session (the .lri of
+                                              the same name) must be beside it
                   animate <input...> --anim-effect <effect>
-                                              An animation of each capture, as the desktop app makes them:
-                                              rack-focus and aperture-sweep (Lumen's depth effect, each frame
-                                              exactly the still convert writes with --f-number/--focus-depth),
-                                              wigglegram (the wide lenses' own pictures), parallax (a small camera
-                                              move drawn from the photo and its depth), lens-tour (every lens in
-                                              turn). GIF, APNG and WebP are written by Lux itself; MP4 and WebM
-                                              need ffmpeg
+                                              Make an animation of each capture, as the desktop app does. The effects
+                                              are:
+                                                rack-focus and aperture-sweep: Lumen's depth effect. Each frame is
+                                                exactly the still that convert writes with --f-number and --focus-depth.
+                                                wigglegram: the pictures of the wide lenses.
+                                                parallax: a small camera move made from the photo and its depth.
+                                                lens-tour: each lens in turn.
+                                              Lux writes GIF, APNG and WebP itself. MP4 and WebM need ffmpeg
                   cache <input...> [--level none|geometry|13mp|full]
-                                              Show a capture's analysis cache, or raise / lower it to a level:
-                                              geometry = the camera geometry and the depth map (later exports skip
-                                              that analysis, about half of a full-size export); 13mp = also the
-                                              13 MP image and the previews; full = also the full-size image (a
-                                              full-size export then only runs the output stage). Kept in
-                                              LuxImageContext/cache/ next to the capture; exports from the cache
-                                              are byte-identical to exports computed from scratch
+                                              Show the analysis cache of a capture, or change it to a level:
+                                                geometry: the camera geometry and the depth map. Later exports skip that
+                                                analysis, which is about half of a full-size export.
+                                                13mp: also the 13 MP image and the previews.
+                                                full: also the full-size image. A full-size export then runs only the
+                                                output stage.
+                                              The cache is in LuxImageContext/cache/ next to the capture. Exports from
+                                              the cache are byte-identical to exports computed from scratch
 
                 INPUT:
-                  convert, animate, inspect, mod-info, profile, isp, isp-run, edits-info and cache take one or more .lri files
-                  and/or directories (directories are scanned for *.lri). import-lumen-edits takes .lris files
-                  and/or directories. devices, pull and version take no input files.
+                  convert, animate, inspect, mod-info, profile, isp, isp-run, edits-info and cache take one or more .lri
+                  files, directories, or both. Directories are scanned for *.lri. import-lumen-edits takes .lris files,
+                  directories, or both. devices, pull and version take no input files.
 
                 REQUIREMENTS:
-                  - The .NET 10 runtime.
-                  - ffmpeg on PATH only for AVIF (--parallax-format avif), --parallax-encoder ffmpeg, and MP4 / WebM video
-                    (animate --anim-container mp4|webm). GIF, APNG and WebP animations are written by Lux itself.
-                    The commands check for it before rendering anything and stop with exit 2 if it is missing.
+                  - The .NET 10 runtime, for a build from source only. The release builds contain it.
+                  - ffmpeg on PATH, only for AVIF (--parallax-format avif), --parallax-encoder ffmpeg, and MP4 / WebM
+                    video (animate --anim-container mp4|webm). Lux writes GIF, APNG and WebP animations itself. A
+                    command that needs ffmpeg checks for it before it renders anything. If ffmpeg is missing, the
+                    command stops with exit status 2.
 
                 CONVERT OPTIONS:
-                  With no options specified, `convert` replicates Lumen output exactly: DNG (fmt 2) + companion JPG
-                  (fmt 0), full size, every value processed from the .lri. The flags marked * depart from that, and
-                  the run echoes which were applied.
+                  With no options, `convert` replicates Lumen's output pixel for pixel: DNG (fmt 2) + companion JPG (fmt
+                  0), full size, every value processed from the .lri. The options marked * change that output. The run
+                  prints which of them it applied.
 
                   OUTPUT
-                  -o, --out-directory <dir>   Write <stem>.<ext> per input (default: a lux_convert/ beside the .lri)
+                  -o, --out-directory <dir>   Write <stem>.<ext> for each input (default: a lux_convert/ folder beside
+                                              the .lri)
                       --out-file <path>       Name the output file (only when the run makes exactly one file)
-                  -j, --threads <n>           Inputs converted in parallel (default: CPU count)
-                      --render-threads <n>    Threads per input for the tile render (default: CPU
-                                              count ÷ the inputs converted at once; 1 = sequential)
-                      --formats <list>        Original (extended): dng, jpg, hdr, ppm, jpg+depth
-                                              New:   depth, lens-frames, parallax-wiggle, parallax-wiggle-interp,
-                                                     parallax-orbit, parallax-single, parallax-rack, parallax-dolly,
-                                                     parallax-dof, parallax-anaglyph, parallax-crosseye, parallax-sbs,
-                                                     parallax-still
-                                              all:   every format above except hdr and ppm
-                                              Comma-separated (default dng,jpg)
-                                              `depth` is the metric-millimetre stereo pair (<stem>_depth.f32 +
+                  -j, --threads <n>           Number of inputs converted in parallel (default: CPU count)
+                      --render-threads <n>    Threads per input for the tile render (default: CPU count ÷ the inputs
+                                              converted at once; 1 = sequential)
+                      --formats <list>        Comma-separated list of formats (default dng,jpg)
+                                                Lumen formats: dng, jpg, hdr, ppm, jpg+depth
+                                                Lux formats: depth, lens-frames, parallax-wiggle,
+                                                parallax-wiggle-interp, parallax-orbit, parallax-single, parallax-rack,
+                                                parallax-dolly, parallax-dof, parallax-anaglyph, parallax-crosseye,
+                                                parallax-sbs, parallax-still
+                                                all: every format above except hdr and ppm
+                                              `depth` is the stereo depth pair in metric millimeters (<stem>_depth.f32 +
                                               <stem>_depth.jpg) on the exported grid. The Lux formats are named
-                                              <stem>_<format>.<ext>; lens-frames writes <stem>_<module>.jpg.
+                                              <stem>_<format>.<ext>. lens-frames writes <stem>_<module>.jpg
 
-                  GRID (picks the pixel grid; leaves tone and colour alone)
-                      --level <n>             export level, 0 = full size (default)
-                      --size <w,h>            explicit output size (default: the level's export window)
-                      --origin <x,y>          level-0 export window origin
+                  GRID (picks the pixel grid; leaves tone and color alone)
+                      --level <n>             Export level, 0 = full size (default)
+                      --size <w,h>            Explicit output size (default: the export window of the level)
+                      --origin <x,y>          Origin of the export window at level 0
 
                   SHARED ADJUSTMENTS
-                    * --rotate <90|180|270>   bake the orientation (Orientation stays 1). All four raster formats; a
-                                              depth map written alongside them follows the same rotation. Not
-                                              combinable with the parallax formats (their rig geometry is in the
-                                              unrotated frame)
-                    * --transform <m;c>       a crop / turn / flip exactly as Lux and Lumen save it: the nine matrix
-                                              values, ';', the crop corners x0,y0,x1,y1 (decimal, or 0x + the float's
-                                              32-bit pattern); the size follows Lumen's full-size rule. All four raster
-                                              formats; not combinable with --rotate or the parallax formats
-                    * --upright               turn a photo the way the camera was held (its accelerometer), with
-                                              Lumen's own rotate — as the desktop app exports it by default. Only
-                                              when the photo's crop / rotation was never edited (a saved one is
-                                              followed anyway); without it convert writes the capture as recorded,
-                                              exactly as Lumen does. All four raster formats; not combinable with
-                                              --rotate, --transform or the parallax formats
+                    * --rotate <90|180|270>   Bake the orientation into the pixels (Orientation stays 1). Applies to all
+                                              four raster formats. A depth map written with them gets the same rotation.
+                                              Not combinable with the parallax formats, because their rig geometry is in
+                                              the unrotated frame
+                    * --transform <m;c>       Apply a crop / turn / flip exactly as Lux and Lumen save it: the nine
+                                              matrix values, ';', then the crop corners x0,y0,x1,y1 (decimal, or 0x +
+                                              the 32-bit pattern of the float). The size follows Lumen's full-size rule.
+                                              Applies to all four raster formats. Not combinable with --rotate or the
+                                              parallax formats
+                    * --upright               Turn the photo to the way the camera was held (from its accelerometer),
+                                              with Lumen's own rotate. The desktop app exports this way by default.
+                                              Applies only when the crop / rotation of the photo was never edited; a
+                                              saved crop / rotation is always used. Without --upright, convert writes
+                                              the capture as recorded, exactly as Lumen does. Applies to all four raster
+                                              formats. Not combinable with --rotate, --transform or the parallax formats
                     * --fnum <f>              Exif FNumber [dng, jpg, jpg+depth]
                     * --iso <n>               Exif ISO [dng, jpg, jpg+depth]
                     * --focal <n>             Exif focal length in mm [dng, jpg, jpg+depth]
 
                   DEPTH EFFECT (Lumen's synthetic depth of field; dng, jpg, jpg+depth, hdr, ppm)
-                    * --f-number <N>          blur the picture as a lens of aperture f/N would, using the capture's
-                                              depth map: the smaller N, the shallower the depth of field. Values at
-                                              or above the capture's own all-in-focus f-number (about f/15 for a
-                                              28 mm capture) leave the image unchanged, exactly as in Lumen, whose
-                                              slider runs from f/4 up to that value; smaller values are accepted.
-                                              The Exif FNumber becomes N. Needs the depth map, so the full
+                    * --f-number <N>          Blur the picture as a lens of aperture f/N does, using the depth map of
+                                              the capture. A smaller N gives a shallower depth of field. A value at or
+                                              above the all-in-focus f-number of the capture (about f/15 for a 28 mm
+                                              capture) does not change the image, exactly as in Lumen. Lumen's slider
+                                              goes from f/2 to that value; convert also accepts smaller values. The Exif
+                                              FNumber becomes N. This option needs the depth map, so the full
                                               registration runs even at a reduced --level
-                    * --focus-depth <mm>      distance that stays sharp, in millimetres (default: the distance the
+                    * --focus-depth <mm>      Distance that stays sharp, in millimeters (default: the distance the
                                               camera focused at, as Lumen chooses it). Needs --f-number
-                    * --focus-point <x,y>     focus on whatever is at this point of the picture instead, like
-                                              clicking with Lumen's focus tool: x and y from 0 to 1, 0,0 = top
-                                              left. Needs --f-number; not combinable with --focus-depth or --rotate
+                    * --focus-point <x,y>     Focus on the object at this point of the picture, as a click with Lumen's
+                                              focus tool does. x and y go from 0 to 1, and 0,0 is the top left. Needs
+                                              --f-number. Not combinable with --focus-depth or --rotate
 
-                  TONE & COLOUR ADJUSTMENTS (the controls of Lumen's editor; jpg and jpg+depth only)
-                    These change how the picture is rendered, like the sliders in Lumen's editor. They affect the
-                    JPG and jpg+depth images (and the on-screen preview) only: a DNG, PPM or HDR keeps the image as
-                    it is before this rendering and is written exactly as without them. A control left out keeps
-                    the picture as Lumen renders it.
-                    * --exposure <stops>      brighter (+) or darker (-), -3 to 3 stops
-                    * --contrast <v>          more (+) or less (-) contrast, -100 to 100
-                    * --temperature <K>       white balance: colour temperature in kelvin, 2000 to 20000 (default:
-                                              as shot); lower values make the picture bluer, higher warmer
-                    * --tint <v>              white balance: green (-) to magenta (+), -150 to 150 (default: as shot)
-                    * --vibrance <v>          strengthen (+) or mute (-) colours, the duller ones most, sparing
-                                              skin tones, -100 to 100
-                    * --saturation <v>        strengthen (+) or weaken (-) all colours, -100 (black and white) to 100
-                    * --sharpening <v>        sharpen (+) or soften (-), -100 to 100 (default 5, Lumen's own setting);
-                                              the same control as --jpeg-sharpening, give one of the two
-                    * --shadows <v>           lift (+) or deepen (-) the shadows, -100 to 100
-                    * --highlights <v>        recover (+) or brighten (-) the highlights, -100 to 100
-                    * --clarity <v>           more (+) or less (-) local contrast in the midtones, -100 to 100
-                    --shadows, --highlights and --clarity are Lux controls: the processing is part of Lumen's
-                    software, which never offered it as controls.
+                  TONE & COLOR ADJUSTMENTS (the controls of Lumen's editor; jpg and jpg+depth only)
+                    These options change how the picture is rendered, like the sliders in Lumen's editor. They affect
+                    only the jpg and jpg+depth images (and the on-screen preview). A DNG, PPM or HDR keeps the image as
+                    it is before this rendering, and is written exactly as without these controls. A control that you do
+                    not give keeps the picture as Lumen renders it.
+                    * --exposure <stops>      Brighter (+) or darker (-), -3 to 3 stops
+                    * --contrast <v>          More (+) or less (-) contrast, -100 to 100
+                    * --temperature <K>       White balance: color temperature in kelvin, 2000 to 20000 (default: as
+                                              shot). Lower values make the picture bluer, higher values warmer
+                    * --tint <v>              White balance: green (-) to magenta (+), -150 to 150 (default: as shot)
+                    * --vibrance <v>          Strengthen (+) or mute (-) colors, -100 to 100. The effect is strongest
+                                              on the duller colors and weakest on skin tones
+                    * --saturation <v>        Strengthen (+) or weaken (-) all colors, -100 (black and white) to 100
+                    * --sharpening <v>        Sharpen (+) or soften (-), -100 to 100 (default 5, Lumen's own setting). A
+                                              larger value never sharpens less, and a negative value softens at every
+                                              --level. The result is Lumen's for 0 to 20 at every level, for 20 to 100
+                                              at levels 0 and 1, and for negative values at full size. Outside those
+                                              ranges Lumen's own response fails (see --jpeg-sharpening) and Lux uses its
+                                              own. Give this or --jpeg-sharpening, not both
+                    * --shadows <v>           Lift (+) or deepen (-) the shadows, -100 to 100
+                    * --highlights <v>        Darken (+) or brighten (-) the brightest tones, -100 to 100. The effect is
+                                              small: Lumen's curve acts mainly on values above white, which the JPG
+                                              clips. At +100 a tone at white becomes about 2 % darker and a tone at 60 %
+                                              of white does not change. Clipped areas stay clipped: this control does
+                                              not recover highlights
+                    * --clarity <v>           More (+) or less (-) local contrast in the midtones, -100 to 100
+                    --shadows, --highlights and --clarity are Lux controls. The processing is part of Lumen's software,
+                    but Lumen never offered it as controls.
+
+                  NOISE (Lux controls of the per-lens processing; dng, jpg, jpg+depth, hdr, ppm)
+                    Lumen denoises each lens image before it merges the lenses. Then it adds a blurred copy of the
+                    removed luminance noise to the image again, as grain. These two controls change that step, so they
+                    change the merged image and every format written from it. A control that you do not give keeps
+                    Lumen's value. With neither control, the output is Lumen's, pixel for pixel. With one of them,
+                    convert does not read the image tiles kept in the analysis cache, because those tiles are Lumen's.
+                    It still uses the kept geometry and depth map. These controls do not apply to lens-frames or
+                    parallax-wiggle.
+                    * --grain-strength <v>    Scale of the grain added after the denoiser, 0 to 4: 1 = Lumen's amount
+                                              (default), 0 = no grain
+                    * --denoise-threshold <v> Scale of the denoiser's threshold, 0.25 to 4: 1 = Lumen's (default). A
+                                              larger value removes more noise and more fine detail. A smaller value
+                                              removes less
 
                   SAVED DEPTH EDITS (the LuxImageContext folder next to the captures)
-                    A capture whose depth map was edited — in Lux, or in Lumen and brought over with
-                    `import-lumen-edits` — keeps those edits in LuxImageContext/edits/. Wherever convert reads the
-                    depth (--f-number, jpg+depth, depth, the depth-based parallax formats) it uses the edited
-                    depth of the capture's active variant, and says so. A variant imported from Lumen also carries
-                    the photo's settings (depth effect, tone and colour, crop / rotation): convert then renders it
-                    as Lumen does after reopening it, and an option given here replaces only its own setting.
-                    Captures without saved edits are not affected in any way.
-                    * --no-edits              ignore saved depth edits and saved settings: use the depth computed
-                                              from the capture
-                    * --edits <variant>       use this variant instead of the active one (`edits-info` lists them)
+                    A capture with an edited depth map keeps those edits in LuxImageContext/edits/. The edits come from
+                    Lux, or from Lumen through `import-lumen-edits`. convert reads the depth for --f-number, jpg+depth,
+                    depth and the depth-based parallax formats. In each of these cases, it uses the edited depth of the
+                    capture's active variant and says so in its output. A variant imported from Lumen also has the
+                    photo's settings (depth effect, tone and color, crop / rotation). convert then renders the photo as
+                    Lumen does after it reopens the session. Each option that you give replaces only its own setting.
+                    Captures without saved edits are not affected.
+                    * --no-edits              Ignore saved depth edits and saved settings: use the depth computed from
+                                              the capture
+                    * --edits <variant>       Use this variant instead of the active one (`edits-info` lists them)
 
                   ANALYSIS CACHE (LuxImageContext/cache next to the captures; see the cache command)
-                    Whatever a capture's cache holds replaces the work that would produce it — the output is
-                    byte-identical either way. When the capture already has a LuxImageContext folder, convert also
-                    keeps the camera geometry and depth map it computed there, so the next export of that capture
-                    skips that analysis. convert never creates a LuxImageContext folder by itself.
-                      --no-cache              neither read nor write the analysis cache
-                      --memory-budget <GB>    keep a full-size render within about this much memory (default: no
-                                              limit, the fastest). The same pixels, more time; see the README
+                    convert uses what a capture's analysis cache holds and skips the work that would produce it. The
+                    output is byte-identical with and without the cache. When the capture already has a LuxImageContext
+                    folder, convert also keeps the camera geometry and depth map that it computed in that folder. The
+                    next export of that capture then skips that analysis. convert never creates a LuxImageContext folder
+                    by itself.
+                      --no-cache              Do not read or write the analysis cache
+                      --memory-budget <GB>    Keep a full-size render within about this much memory (default: no limit,
+                                              the fastest). The output is the same and the run takes more time; see the
+                                              README
 
                   DNG
-                    * --dng-cs <n>            colour-space property 0x13 (default 0 = none, the app path)
-                    * --dng-tone <profile>    acr | light_v1 | light_v1_lowlight | light_v2
-                    * --dng-comp <0|1>        0 uncompressed, 1 lossless JPEG (default)
+                    * --dng-cs <n>            Color space setting of Lumen's export, for the Exif ColorSpace tag
+                                              (default 0 = none, Lumen's value for a DNG)
+                    * --dng-tone <profile>    Tone curve written to the DNG: acr | light_v1 | light_v1_lowlight |
+                                              light_v2
+                    * --dng-comp <0|1>        0 = uncompressed, 1 = lossless JPEG (default)
 
                   JPEG   (each of these also applies to jpg+depth)
-                    * --jpeg-cs <n>           colour-space property 0x13 (default 4 = srgb)
-                    * --jpeg-quality <n>      libjpeg quality (default 98)
-                    * --jpeg-sub <0|1|2>      chroma subsampling (default 2 = 4:2:0)
-                    * --jpeg-v2               the renderer+0x64 v2 tone-mapping gate
-                    * --jpeg-sharpening <v>   the renderer's sharpening property (ParamFloat 13, -100..100; default 5 =
-                                              Lumen's export state, tone_mapping.sharpening 1.0; 0 = Lumen's headless API export);
-                                              the same control as --sharpening
-                    * --jpeg-modify <ts>      Exif 0x0132 ModifyDate, YYYY-MM-DDTHH:MM:SS (default: now)
-                    * --jpeg-comment <s>      the JPEG COM marker text
-                    * --jpeg-software <s>     the Exif Software string
+                    * --jpeg-cs <n>           Color space setting of Lumen's export, for the Exif ColorSpace tag
+                                              (default 4 = srgb)
+                    * --jpeg-quality <n>      JPEG quality on the libjpeg scale (default 98)
+                    * --jpeg-sub <0|1|2>      Chroma subsampling (default 2 = 4:2:0)
+                    * --jpeg-v2               Use Lumen's second tone-mapping variant (light_v2)
+                    * --jpeg-sharpening <v>   Sharpening amount of Lumen's JPG renderer, -100 to 100, with Lumen's
+                                              response at every value (default 5, the value in Lumen's exports; 0 = no
+                                              sharpening). Lumen scales its filter radii with the image. At --level 2 a
+                                              value above 30 sharpens less than a smaller value. At levels 3 and 4 no
+                                              value sharpens. Negative values soften less at each smaller level.
+                                              --sharpening is the same setting without these faults
+                    * --jpeg-modify <ts>      Exif ModifyDate, YYYY-MM-DDTHH:MM:SS (default: now)
+                    * --jpeg-comment <s>      Text of the JPEG COM marker
+                    * --jpeg-software <s>     Exif Software string
 
                   HDR
-                    * --hdr-cs <n>            colour-space property 0x13 (default 1 = linear_srgb)
+                    * --hdr-cs <n>            Color space setting of Lumen's export (default 1 = linear_srgb). The .hdr
+                                              file does not depend on it
 
                   PPM
                       (no options)
@@ -546,262 +584,289 @@ namespace Lux.Cli
                   DEPTH
                       (no options)
 
-                  LENS-FRAMES   (Each module of the capture as a display JPG through the ported module ISP. A
-                                 STACKED capture has several frames per module: `all` writes every one as
-                                 <stem>_f<k>_<module>.jpg, an index picks one, and the default is frame 0, the frame
-                                 Lumen's StackFusion references.)
+                  LENS-FRAMES
+                      This format writes each module of the capture as a display JPG through the ported module ISP. A
+                      stacked capture has several frames per module. `all` writes every frame as
+                      <stem>_f<k>_<module>.jpg. An index picks one frame. The default is frame 0, the frame that Lumen's
+                      StackFusion uses as its reference. Every module is brought to the exposure of A1: its exposure
+                      time and its analog gain.
                       --lens-quality <n>      JPEG quality 1-100 (default 92)
-                      --lens-ev <float>       exposure adjust in stops (default 0.95)
-                      --lens-level <n>        module-ISP config level (default 0 = full-res, no denoise)
-                      --lens-profile <p>      CIAPI RendererProfile 0-3 (default 3 = Desktop)
-                      --lens-modules <list>   comma-separated module filter, e.g. A1,B4
-                      --lens-stack <all|n>    which frame of a stacked capture (default 0)
+                      --lens-ev <float>       Exposure adjustment in stops (default 0.95)
+                      --lens-level <n>        Module-ISP config level (default 0 = full resolution, no denoise)
+                      --lens-profile <p>      Lumen's renderer profile, 0-3 (default 3 = Desktop). It selects the
+                                              module-ISP kernels
+                      --lens-modules <list>   Comma-separated module filter, e.g. A1,B4
+                      --lens-stack <all|n>    Frame of a stacked capture to write (default 0)
 
-                  PARALLAX   (EXPERIMENTAL: The base imagery is the pipeline's module-ISP frames, or this run's JPEG
-                              render and its metric depth. Only the 28 mm A array is a multi-view rig; a telephoto
-                              capture has no A modules, so parallax-wiggle refuses it and the depth formats run
-                              single-view.)
+                  PARALLAX   (experimental)
+                      The base imagery is the pipeline's module-ISP frames, or this run's JPEG render and its metric
+                      depth. Only the 28 mm A array is a multi-view rig. A telephoto capture has no A modules, so
+                      parallax-wiggle refuses it and the depth formats run single-view.
 
-                      parallax-wiggle         A-group frames, colour-matched, swept in spatial order. Module renders
+                      parallax-wiggle         A-group frames, color-matched, swept in spatial order. Module renders
                                               only, no registration
-                      parallax-wiggle-interp  N virtual viewpoints along the rig's axis, synthesised from the depth,
-                                              disocclusions filled from the other real modules
-                      parallax-orbit          the same synthesis on a closed circular path
-                      parallax-single         single-view 2.5D: the sweep with no multi-view fill
-                      parallax-rack           animated rack focus (the experimental layered blur; `animate --anim-effect
-                                              rack-focus` uses Lumen's depth effect)
-                      parallax-dolly          dolly zoom, pulling back while zooming in
-                      parallax-dof            synthetic depth of field, one PNG still
-                      parallax-anaglyph       red/cyan (Dubois) anaglyph of a synthesised stereo pair, PNG
-                      parallax-crosseye       cross-eye side-by-side stereo pair, PNG
-                      parallax-sbs            parallel-view side-by-side stereo pair, PNG
-                      parallax-still          one synthesised viewpoint, PNG
-                      Every format but parallax-wiggle forces the level-0 build (announced, as jpg+depth is) and
-                      synthesises from this run's JPEG render at --level, downscaled to --parallax-size: --level 2
-                      renders the base at 2608 px, plenty for a 1600 px animation and far faster than full size.
-                      --parallax-format <c>   animation container: gif (default) | webp | avif | apng. GIF, APNG and WebP
-                                              are Lux's own writers; AVIF goes through ffmpeg. WebP is now LOSSLESS by
-                                              default (every pixel exact), so it is several times larger than the
-                                              earlier lossy WebP (46 frames at 800 px: 14.7 MB); --parallax-encoder
-                                              ffmpeg gives the old lossy WebP (quality: --parallax-quality)
-                      --parallax-encoder <e>  lux (default) | ffmpeg: the earlier ffmpeg recipes for every container (GIF
-                                              with one palette and Bayer dithering, lossy WebP)
-                      --parallax-size <n>     long edge of the working image in px (default 1600; 0 = native, for
+                      parallax-wiggle-interp  N virtual viewpoints along the rig's axis, synthesized from the depth.
+                                              Disocclusions are filled from the other real modules
+                      parallax-orbit          The same synthesis on a closed circular path
+                      parallax-single         Single-view 2.5D: the sweep with no multi-view fill
+                      parallax-rack           Animated rack focus with the experimental layered blur (`animate
+                                              --anim-effect rack-focus` uses Lumen's depth effect)
+                      parallax-dolly          Dolly zoom: the camera pulls back while it zooms in
+                      parallax-dof            Synthetic depth of field, one PNG still
+                      parallax-anaglyph       Red/cyan (Dubois) anaglyph of a synthesized stereo pair, PNG
+                      parallax-crosseye       Cross-eye side-by-side stereo pair, PNG
+                      parallax-sbs            Parallel-view side-by-side stereo pair, PNG
+                                              The two eyes of these three formats are offset along the viewer's
+                                              horizontal. Thus, for a photo taken with the camera held turned (from its
+                                              accelerometer), the pair is written upright
+                      parallax-still          One synthesized viewpoint, PNG
+                      Every format except parallax-wiggle forces the level-0 build. The run announces this, as it does
+                      for jpg+depth. These formats synthesize from this run's JPEG render at --level, downscaled to
+                      --parallax-size. For example, --level 2 renders the base at 2608 px. That is sufficient for a 1600
+                      px animation and much faster than full size.
+                      --parallax-format <c>   Animation container: gif (default) | webp | avif | apng. Lux writes GIF,
+                                              APNG and WebP itself. AVIF goes through ffmpeg. WebP is lossless by
+                                              default (every pixel exact), so its files are several times larger than
+                                              lossy WebP (46 frames at 800 px: 14.7 MB). --parallax-encoder ffmpeg
+                                              writes lossy WebP (quality: --parallax-quality)
+                      --parallax-encoder <e>  Encoder: lux (default) | ffmpeg. With ffmpeg, every container goes through
+                                              ffmpeg (GIF with one palette and Bayer dithering, lossy WebP)
+                      --parallax-size <n>     Long edge of the working image in px (default 1600; 0 = native, for
                                               parallax-wiggle)
-                      --parallax-ms <n>       per-frame duration in ms (default 100 for parallax-wiggle, 70 for
+                      --parallax-ms <n>       Duration of each frame in ms (default 100 for parallax-wiggle, 70 for
                                               -rack and -dolly, 60 otherwise)
-                      --parallax-frames <n>   virtual viewpoints / animation frames (default 24)
-                      --parallax-loop <k>     pingpong (default) | forward (the orbit is closed and plays forward)
-                      --parallax-fill <k>     donors (default: disocclusions from the other real A modules, then
-                                              inpaint) | inpaint | none (holes left black, to see where they are)
-                      --parallax-path <k>     sweep (default, along the rig's dominant axis, 12 deg off horizontal
-                                              from the factory extrinsics) | arc | line, for parallax-wiggle-interp
-                                              and -single
+                      --parallax-frames <n>   Number of virtual viewpoints / animation frames (default 24)
+                      --parallax-loop <k>     Loop mode: pingpong (default) | forward. The orbit is closed and plays
+                                              forward
+                      --parallax-fill <k>     Hole filling: donors (default: disocclusions from the other real A
+                                              modules, then inpaint) | inpaint | none (holes stay black, to show where
+                                              they are)
+                      --parallax-path <k>     Camera path for parallax-wiggle-interp and -single: sweep (default: along
+                                              the rig's dominant axis, 12 deg off horizontal from the factory
+                                              extrinsics) | arc | line (along the viewer's horizontal, also when the
+                                              camera was held turned)
                       --parallax-baseline <mm>
-                                              peak-to-peak path extent (default 71.49, the widest physical colour
+                                              Peak-to-peak extent of the path (default 71.49, the widest physical color
                                               baseline A4-A5; usable to about twice that)
-                      --parallax-converge <k>
-                                              convergence plane: auto (default, the median depth) | none | metres.
+                      --parallax-converge <k> Convergence plane: auto (default, the median depth) | none | meters.
                                               Everything at that depth stays fixed and the scene swings around it
-                      --parallax-converge-at <x,y> read the convergence depth off the depth map at that pixel of the
-                      working image instead
-                      --parallax-ipd <mm>     stereo interocular distance (default 25 for the anaglyph, 63 for the
+                      --parallax-converge-at <x,y>
+                                              Read the convergence depth from the depth map at that pixel of the working
+                                              image instead
+                      --parallax-ipd <mm>     Stereo interocular distance (default 25 for the anaglyph, 63 for the
                                               side-by-side pairs; 63 with a near foreground is hard to view)
-                      --parallax-anaglyph <k>
-                                              dubois (default, least-squares de-ghosting) | colour | grey
-                      --parallax-focus <m>    parallax-dof focus distance in metres (default: the 10th-percentile
+                      --parallax-anaglyph <k> Anaglyph method: dubois (default, least-squares de-ghosting) | color |
+                                              gray. The spellings colour and grey are also accepted
+                      --parallax-focus <m>    Focus distance of parallax-dof in meters (default: the 10th-percentile
                                               depth)
-                      --parallax-focus-at <x,y> read the focus depth off the depth map at that pixel instead
+                      --parallax-focus-at <x,y>
+                                              Read the focus depth from the depth map at that pixel instead
                       --parallax-aperture <mm>
-                                              aperture DIAMETER for -dof and -rack (default 20 = f/1.4 on the A
-                                              group's 28 mm equivalent)
-                      --parallax-layers <n>   depth layers in the composite (default 8)
-                      --parallax-rack <m1,m2>
-                                              rack the focus from m1 to m2 metres (default: the 10th- to the
+                                              Aperture diameter for -dof and -rack (default 20 = f/1.4 on the A group's
+                                              28 mm equivalent)
+                      --parallax-layers <n>   Number of depth layers in the composite (default 8)
+                      --parallax-rack <m1,m2> Rack the focus from m1 to m2 meters (default: the 10th- to the
                                               90th-percentile depth)
-                      --parallax-rack-at <x1,y1;x2,y2> rack between the depths at two pixels instead
-                      --parallax-subject <m>  parallax-dolly: the depth held constant, metres (default: the 10th
+                      --parallax-rack-at <x1,y1;x2,y2>
+                                              Rack between the depths at two pixels instead
+                      --parallax-subject <m>  Depth that parallax-dolly holds constant, in meters (default: the 10th
                                               percentile)
-                      --parallax-subject-at <x,y> read it off the depth map at that pixel instead
-                      --parallax-dz <mm>      dolly travel (default 400; positive pulls back and zooms in, the one
-                                              direction a single capture can carry — negative is clamped)
-                      --parallax-t <tx,ty>    parallax-still: the virtual camera translation in mm (default 40,0)
-                      --parallax-quality <n>  ffmpeg's lossy WebP quality (default 88) [--parallax-format webp --parallax-encoder ffmpeg]
+                      --parallax-subject-at <x,y>
+                                              Read that depth from the depth map at that pixel instead
+                      --parallax-dz <mm>      Dolly travel (default 400). A positive value pulls back and zooms in, the
+                                              one direction that a single capture supports. A negative value is clamped
+                      --parallax-t <tx,ty>    Translation of the virtual camera for parallax-still, in mm (default 40,0)
+                      --parallax-quality <n>  Quality of ffmpeg's lossy WebP (default 88) [--parallax-format webp
+                                              --parallax-encoder ffmpeg]
                       --parallax-crf <n>      AVIF encoder crf (default 18) [--parallax-format avif]
-                      --parallax-order <k>    parallax-wiggle frame order: sweep (default, along the rig's dominant
+                      --parallax-order <k>    Frame order of parallax-wiggle: sweep (default, along the rig's dominant
                                               axis from the factory extrinsics) | label (module-name order) | an
                                               explicit list, e.g. A5,A1,A3,A4
-                      --parallax-pivot <x,y,w,h> parallax-wiggle: hold a region still so the scene swings around it;
-                      integer shift only, no resampling. Native sensor pixels
+                      --parallax-pivot <x,y,w,h>
+                                              Hold a region of parallax-wiggle still so that the scene swings around it.
+                                              Integer shift only, no resampling. Native sensor pixels
 
                 ANIMATE OPTIONS:
-                      --anim-effect <e>       rack-focus | aperture-sweep | wigglegram | parallax | lens-tour (required)
-                      --anim-container <c>    gif (default) | apng | webp (lossless) | mp4 | webm (these two need ffmpeg)
-                  -o, --out-directory <dir>   write <stem>_<effect>.<ext> (default: a lux_animate/ beside the .lri)
-                      --anim-size <px>        long edge of the frames (default 1040); the frames come from the smallest
-                                              export level at least that size
-                      --level <n>             render from this export level instead
-                      --anim-frames <n>       distinct frames (default 24; the wigglegram and lens tour have one per lens)
-                      --anim-ms <n>           time per frame in ms (default 70; wigglegram 100, parallax 60, lens tour 500)
-                      --anim-loop <k>         pingpong (default; the lens tour and the orbit: forward) | forward
-                      --anim-repeat <n>       times it plays (default 0 = forever)
-                      --f-number <N>          rack-focus: the aperture; aperture-sweep: the widest it opens to (default 2,
-                                              the widest Lumen's slider offers)
-                      --anim-f-from <N>       aperture-sweep: where it starts (default: all in focus)
-                      --anim-focus <m1,m2>    rack-focus: pull the focus from m1 to m2 metres (default: the 10th to the 90th
-                                              percentile of the scene's depth)
-                      --focus-depth <mm>      aperture-sweep: the focus distance (default: as the camera focused)
-                      --anim-path <k>         parallax: sweep (default) | arc | line | orbit
-                      --anim-baseline <mm>    parallax: how far the virtual camera travels (default 71.49)
-                      --anim-converge <k>     parallax: the distance that stays still: auto (median depth) | metres
-                      --anim-single-view      parallax from the main view only (gaps painted in)
-                      --anim-gif-dither <k>   ordered (default) | diffusion | none
-                      --anim-gif-palette <k>  global (default: one palette, no flicker) | frame
-                      --anim-no-diff          store every frame whole (by default only what changed is stored)
-                      --anim-keep-frames <d>  also write each distinct frame as an exact PNG, the plan (with the convert
-                                              options of each depth-effect frame) and the frames a viewer shows
-                      --no-edits, --edits <v> as for convert
-                      --upright               as for convert: a photo held turned comes out upright (the desktop app's
-                                              default); the parallax, wigglegram and lens-tour frames are turned the same way
+                      --anim-effect <e>       Effect: rack-focus | aperture-sweep | wigglegram | parallax | lens-tour
+                                              (required)
+                      --anim-container <c>    Container: gif (default) | apng | webp (lossless) | mp4 | webm. mp4 and
+                                              webm need ffmpeg
+                  -o, --out-directory <dir>   Write <stem>_<effect>.<ext> (default: a lux_animate/ folder beside the
+                                              .lri)
+                      --anim-size <px>        Long edge of the frames (default 1040). The frames come from the smallest
+                                              export level that is at least that size
+                      --level <n>             Render from this export level instead
+                      --anim-frames <n>       Number of distinct frames (default 24). The wigglegram and the lens tour
+                                              have one frame per lens
+                      --anim-ms <n>           Time per frame in ms (default 70; wigglegram 100, parallax 60, lens tour
+                                              500)
+                      --anim-loop <k>         Loop mode: pingpong (default) | forward. The default for the lens tour and
+                                              the orbit is forward
+                      --anim-repeat <n>       Number of times the animation plays (default 0 = forever)
+                      --f-number <N>          Aperture of rack-focus, or the widest aperture of aperture-sweep (default
+                                              2, the widest that Lumen's slider offers)
+                      --anim-f-from <N>       Start aperture of aperture-sweep (default: all in focus)
+                      --anim-focus <m1,m2>    Pull the focus of rack-focus from m1 to m2 meters (default: the 10th to
+                                              the 90th percentile of the scene's depth)
+                      --focus-depth <mm>      Focus distance of aperture-sweep (default: as the camera focused)
+                      --anim-path <k>         Camera path of parallax: sweep (default) | arc | line | orbit
+                      --anim-baseline <mm>    Travel of the virtual camera for parallax (default 71.49)
+                      --anim-converge <k>     Distance that stays still in parallax: auto (median depth) | meters
+                      --anim-single-view      Make parallax from the main view only (gaps are painted in)
+                      --anim-gif-dither <k>   GIF dithering: ordered (default) | diffusion | none
+                      --anim-gif-palette <k>  GIF palette: global (default: one palette, no flicker) | frame
+                      --anim-no-diff          Store every frame whole (by default only the changes are stored)
+                      --anim-keep-frames <d>  Also write each distinct frame as an exact PNG, the plan (with the convert
+                                              options of each depth-effect frame) and the frames that a viewer shows
+                      --no-edits, --edits <v> As for convert
+                      --upright               As for convert: a photo held turned comes out upright (the default of the
+                                              desktop app). The parallax, wigglegram and lens-tour frames are turned the
+                                              same way
 
                 INSPECT OPTIONS:
-                      (none — inspect takes only input paths)
+                      (none: inspect takes only input paths)
 
                 MOD-INFO OPTIONS:
-                      (none — mod-info takes only input paths)
+                      (none: mod-info takes only input paths)
 
                 PROFILE OPTIONS:
-                      (none — profile takes only input paths)
+                      (none: profile takes only input paths)
 
                 ISP OPTIONS:
-                      --isp-level <n>         module-ISP config level (default 0; -1 prints every level 0-5)
-                      --profile <p>           CIAPI RendererProfile 0-3 (default 3 = Desktop)
+                      --isp-level <n>         Module-ISP config level (default 0; -1 prints every level 0-5)
+                      --profile <p>           Lumen's renderer profile, 0-3 (default 3 = Desktop). It selects the
+                                              module-ISP kernels
 
                 ISP-RUN OPTIONS:
-                      --isp-level <n>         module-ISP config level (default 0)
-                      --profile <p>           CIAPI RendererProfile 0-3 (default 3 = Desktop)
+                      --isp-level <n>         Module-ISP config level (default 0)
+                      --profile <p>           Lumen's renderer profile, 0-3 (default 3 = Desktop). It selects the
+                                              module-ISP kernels
                       (the PPM is written beside the .lri as <stem>_isp_l<n>.ppm)
 
                 DEVICES OPTIONS:
                       (none)
 
                 PULL OPTIONS:
-                  -o, --out-directory <dir>   file destination (default: ./lux_pull)
-                      --ext <list>            extensions to include (default .lri)
-                      --glob <pattern>        filename glob, e.g. "L16_004*"
-                      --since <date>          only files modified on/after this date
-                      --overwrite             re-download even if a same-size file exists locally
-                      --list                  list matching files without downloading
+                  -o, --out-directory <dir>   Destination folder (default: ./lux_pull)
+                      --ext <list>            Extensions to include (default .lri)
+                      --glob <pattern>        Filename glob, e.g. "L16_004*"
+                      --since <date>          Only files modified on or after this date
+                      --overwrite             Download again even if a file of the same size exists locally
+                      --list                  List the matching files without downloading
 
                 VERSION OPTIONS:
-                      --offline               print the version only, without asking GitHub
-                  Exit status: 0 up to date (or no release published yet), 1 a newer release is available,
-                  2 the check could not be made (no network, GitHub error). The release page is
+                      --offline               Print the version only, without asking GitHub
+                  Exit status: 0 up to date (or no release published yet), 1 a newer release is available, 2 the check
+                  could not be made (no network, GitHub error). The release page is
                   https://github.com/mprovenz/lux/releases
 
                 GLOBAL OPTIONS:
-                  -h, --help                  this help
+                  -h, --help                  Show this help
 
                 ENVIRONMENT VARIABLES:
                   * For diagnostic / development use only
 
                   LOGGING
-                      LUX_VERBOSE=1           convert: per-file progress detail, and the full exception trace when a
-                      LUX_NO_PROGRESS=1       convert: no in-place progress lines (they are also off when stderr is not a terminal or
-                                              LUX_VERBOSE=1 is set)
-                      LUX_PROGRESS_TRACE=1    convert: print every progress update as a line (phase, done/total) — for
-                                              debugging the phase flow
-                                              file fails instead of just its message
+                      LUX_VERBOSE=1           Print per-file progress detail in convert, and the full exception trace
+                                              when a file fails (not only its message)
+                      LUX_NO_PROGRESS=1       Do not draw in-place progress lines in convert. They are also off when
+                                              stderr is not a terminal or LUX_VERBOSE=1 is set
+                      LUX_PROGRESS_TRACE=1    Print every progress update of convert as a line (phase, done/total), to
+                                              debug the phase flow
 
-                  BEHAVIOUR — these change what the pipeline computes
-                      LUX_CC_FM=<fm1;fm2>     replace the fitted ForwardMatrix1/ForwardMatrix2 in colour correction
-                                              with two space-separated 9-float matrices
-                      LUX_CC_M=<m>            replace the camera→working matrix outright (9 floats, or 0x-prefixed
-                                              bit patterns), bypassing the fit and the CCT interpolation
-                      LUX_CNR_NEUTRAL=r,g,b   colour-noise reduction uses this neutral instead of the ISP stats'
-                      LUX_CNR_NOEXT=1         colour-noise reduction reads no pixels outside its own region (drops
-                                              the ±2-pixel ring)
-                      LUX_FRAME_BLACK=<f>     linearize uses this black level instead of the stats'/frame's
-                      LUX_FUSION_SRC_BLACK=db|estimate the black level for the fusion's non-reference source frames:
-                      db = the sensor database value, estimate = the per-frame estimate
-                      LUX_GUIDE_SKIP=<list>   set these comma-separated stages to type "none" in the reference-guide
-                                              ISP tuning
-                      LUX_JPEG_ROUND=rne      the JPEG export stores through the display path's round-half-to-even
-                                              convert instead of the export path's round-half-away-from-zero
-                      LUX_LU_RANK=rank        the Ceres line search's FullPivLU uses the Eigen 3.3 rank threshold
-                                              instead of the 3.2 nonzero-pivot rule Lumen's ceres.dll behaves like
-                      LUX_NO_GUIDE=1          registration runs without building the reference guide image
-                      LUX_NO_MONO=1           force the colour fusion branch on a capture that has a monochrome
-                                              module
-                      LUX_SGM_XSW=1           the SGM cost sweep clamps its forward x start to W instead of W-1
-                      LUX_SKIP_MISSING=1      an unimplemented stage is skipped with a warning instead of throwing
-                      LUX_SKIP_STAGE=<list>   these comma-separated stages keep their padding and alignment but are
-                                              never run
-                      LUX_STACK_MARGIN=<n>    ISP tile margin for a stacked capture's reference fusion, instead of
-                                              the halo the sensor gain selects
-                      LUX_STEREO_DEMOSAIC=<t>
-                                              the demosaicking type of the stereo ISP tuning (default collapse2)
-                      LUX_STEREO_SKIP=<list>  set these comma-separated stages to type "none" in the stereo ISP
+                  BEHAVIOR: these change what the pipeline computes
+                      LUX_CC_FM=<fm1;fm2>     Replace the fitted ForwardMatrix1/ForwardMatrix2 in color correction with
+                                              two space-separated 9-float matrices
+                      LUX_CC_M=<m>            Replace the camera→working matrix (9 floats, or 0x-prefixed bit patterns).
+                                              This bypasses the fit and the CCT interpolation
+                      LUX_CNR_NEUTRAL=r,g,b   Color-noise reduction uses this neutral instead of the neutral from the
+                                              ISP stats
+                      LUX_CNR_NOEXT=1         Color-noise reduction reads no pixels outside its own region (drops the
+                                              ±2-pixel ring)
+                      LUX_FRAME_BLACK=<f>     Linearize uses this black level instead of the level from the stats or the
+                                              frame
+                      LUX_FUSION_SRC_BLACK=db|estimate
+                                              Black level for the non-reference source frames of the fusion: db = the
+                                              sensor database value, estimate = the per-frame estimate
+                      LUX_GUIDE_SKIP=<list>   Set these comma-separated stages to type "none" in the reference-guide ISP
                                               tuning
-                      LUX_STEREO_TILE=<n>     the stereo ISP work-image tile size (default 256, Lumen's)
-                      LUX_TELE_CFG=<n>        the telephoto module's ISP config level (default 1, Lumen's)
-                      LUX_TELE_ONLYRECT=x0,y0,x1,y1 run the telephoto ISP only for that one grown rect; every other
-                      rect comes back zeroed
-                      LUX_TELE_SET=k=v;k=v    apply these tuning overrides to the telephoto module's ISP tuning
-                      LUX_WARP_ORDER=cols|rows|swap|prod accumulation order of the 6-tap warp interpolation (default
-                      cols)
+                      LUX_JPEG_ROUND=rne      The JPEG export rounds half to even, as the display path does, instead of
+                                              half away from zero, as the export path does
+                      LUX_LU_RANK=rank        The Ceres line search's FullPivLU uses the Eigen 3.3 rank threshold
+                                              instead of the Eigen 3.2 nonzero-pivot rule that Lumen's ForwardMatrix fit
+                                              follows
+                      LUX_NO_GUIDE=1          Registration does not build the reference guide image
+                      LUX_NO_MONO=1           Force the color fusion branch on a capture that has a monochrome module
+                      LUX_SGM_XSW=1           The SGM cost sweep clamps its forward x start to W instead of W-1
+                      LUX_SKIP_MISSING=1      Skip an unimplemented stage with a warning instead of an exception
+                      LUX_SKIP_STAGE=<list>   These comma-separated stages keep their padding and alignment but never
+                                              run
+                      LUX_STACK_MARGIN=<n>    ISP tile margin for the reference fusion of a stacked capture, instead of
+                                              the halo that the sensor gain selects
+                      LUX_STEREO_DEMOSAIC=<t> Demosaicking type of the stereo ISP tuning (default collapse2)
+                      LUX_STEREO_SKIP=<list>  Set these comma-separated stages to type "none" in the stereo ISP tuning
+                      LUX_STEREO_TILE=<n>     Tile size of the stereo ISP work image (default 256, Lumen's)
+                      LUX_TELE_CFG=<n>        ISP config level of the telephoto module (default 1, Lumen's)
+                      LUX_TELE_ONLYRECT=x0,y0,x1,y1
+                                              Run the telephoto ISP only for that one grown rect. Every other rect comes
+                                              back zeroed
+                      LUX_TELE_SET=k=v;k=v    Apply these tuning overrides to the ISP tuning of the telephoto module
+                      LUX_WARP_ORDER=cols|rows|swap|prod
+                                              Accumulation order of the 6-tap warp interpolation (default cols)
 
-                  PRINTING — stderr only; the pixels are unaffected
-                      LUX_BIL_DEBUG=1         the bilateral kernel window and size at each call
-                      LUX_CC_DEBUG=1          the colour-correction CCT interpolation inputs, with bit patterns
-                      LUX_CNR_DEBUG=<any>     the colour-noise-reduction per-tile statistics for the (0,0) tile
-                      LUX_HP_DEBUG=x0,y0,x1,y1 per-pixel hot-pixel decisions inside that rect
-                      LUX_ISP_DEBUG=1         the ISP runner's stage list and per-stage rects (once), plus the
-                                              linearize black/white, the crosstalk blend and the hybrid-denoise
-                                              thresholds
-                      LUX_PP_DEBUG=x,y        the post-processing tile arithmetic around the pixel at x,y
-                      LUX_TELE_DEBUG=1        per-telephoto-module white balance, black, IR blend and tone tuning
+                  PRINTING: stderr only; the pixels are unaffected
+                      LUX_BIL_DEBUG=1         The bilateral kernel window and size at each call
+                      LUX_CC_DEBUG=1          The color-correction CCT interpolation inputs, with bit patterns
+                      LUX_CNR_DEBUG=<any>     The color-noise-reduction per-tile statistics for the (0,0) tile
+                      LUX_HP_DEBUG=x0,y0,x1,y1
+                                              The per-pixel hot-pixel decisions inside that rect
+                      LUX_ISP_DEBUG=1         The ISP runner's stage list and per-stage rects (once), plus the linearize
+                                              black/white, the crosstalk blend and the hybrid-denoise thresholds
+                      LUX_PP_DEBUG=x,y        The post-processing tile arithmetic around the pixel at x,y
+                      LUX_TELE_DEBUG=1        The white balance, black, IR blend and tone tuning of each telephoto
+                                              module
 
-                  WRITING FILES — each writes raw intermediate images beside the prefix you give
-                      LUX_CNR_DUMP=<prefix>   colour-noise reduction: the kernel input region, its arguments and
-                                              every pyramid level, as <prefix>_cnr_*.f32 / _cnr_args.txt
-                      LUX_DEMOSAIC_DUMP=<dir>
-                                              the light_v1 demosaic's A/B/C planes, as A.f32/B.f32/C.f32 in <dir>
-                      LUX_HP_DUMP=<prefix>    hot-pixel removal: the per-channel sensor σ tables, as
+                  WRITING FILES: each writes raw intermediate images beside the prefix you give
+                      LUX_CNR_DUMP=<prefix>   Color-noise reduction: the kernel input region, its arguments and every
+                                              pyramid level, as <prefix>_cnr_*.f32 / _cnr_args.txt
+                      LUX_DEMOSAIC_DUMP=<dir> The A/B/C planes of the light_v1 demosaic, as A.f32/B.f32/C.f32 in <dir>
+                      LUX_HP_DUMP=<prefix>    Hot-pixel removal: the per-channel sensor σ tables, as
                                               <prefix>_sigma<c>.f32
-                      LUX_HYB_DUMP=<prefix>   hybrid denoise: every intermediate, as <prefix>_hyb_<tag>.f32
-                      LUX_MONO_DUMP=<prefix>  mono fusion: the per-stage RGB and float-Bayer images of the mono
-                                              module's own ISP, as <prefix>_own_st<i>_<stage>.<kind>.bin
-                      LUX_TELE_ISPDUMP=<pre>  the telephoto level-0 cache's whole grown-rect ISP output, as
-                                              <prefix>_<module>_isp_<x0>_<y0>_<x1>_<y1>.bin (on a stacked capture also
-                                              the runner's inputs, <prefix>_<module>_stkin_<rect>_{bayer,std}.bin);
+                      LUX_HYB_DUMP=<prefix>   Hybrid denoise: every intermediate, as <prefix>_hyb_<tag>.f32
+                      LUX_MONO_DUMP=<prefix>  Mono fusion: the per-stage RGB and float-Bayer images of the mono module's
+                                              own ISP, as <prefix>_own_st<i>_<stage>.<kind>.bin
+                      LUX_TELE_ISPDUMP=<pre>  The whole grown-rect ISP output of the telephoto level-0 cache, as
+                                              <prefix>_<module>_isp_<x0>_<y0>_<x1>_<y1>.bin. On a stacked capture also
+                                              the runner's inputs, <prefix>_<module>_stkin_<rect>_{bayer,std}.bin.
                                               LUX_TELE_ISPDUMP_RECTS="x0,y0,x1,y1;..." limits it to those grown rects
-                      LUX_REF_ISPDUMP=<pre>   stacked capture: the reference cache's level ISP output and input of the
-                                              stacked branch, <prefix>_ref_L<level>_src_<rect>_{out,bayer}.bin;
+                      LUX_REF_ISPDUMP=<pre>   Stacked capture: the level ISP output and input of the reference cache's
+                                              stacked branch, as <prefix>_ref_L<level>_src_<rect>_{out,bayer}.bin.
                                               LUX_REF_ISPDUMP_RECTS limits it to those source rects
-                      LUX_DENSE_DUMP=<pre>    dense stereo (level-0 builds): the six pyramid depths, the full depth, the
-                                              layer-0 inputs and (layers <= LUX_DENSE_DUMP_CV, default 2) the cost volumes,
-                                              as raw dumps (int32 {w,h,stride,bpp} header + rows; cost volumes packed as
-                                              in StereoAsyncApi.DumpCostVolume), <prefix>_<stem>_dense_L<i>_*; plus the
-                                              registration stages as raw binary records (<prefix>_<stem>_{refpts,
-                                              drv<i>_match<l>, flt<i>_cam<c>_{pre,post}, tri_*_points, bac<i>_{in,out},
-                                              final<i>_slots, calibwrite<i>_{before,after}, tdrv<i>_*}.bin; layouts in
-                                              RegDump.cs)
-                      LUX_DENSE_OVERRIDE=<f>  inject a Lumen layer-5 depth dump (<out>_dense_L5_depth.f32) instead of
-                                              computing the dense stereo (race-closure test; output is Lumen's schedule)
-                      LUX_HYB_DUMP=<pre>      module ISP hybrid denoiser: every intermediate of every call as raw RGBA float
-                                              rows, <prefix>_hyb_<tag>_<w>x<h>.f32 (the size keeps calls apart)
-                      LUX_PP_DUMP=<pre>       module ISP PostProcessing: input, companion and output of every call as raw
-                                              RGBA float rows, <prefix>_pp_{src,comp,out}_er<ratio>_<x0>_<y0>_<w>x<h>.f32,
-                                              plus the parameters on stderr
-                      LUX_STAGE_DUMP=<pre>    module ISP: the RGB working image after every stage as raw RGBA float rows,
-                                              <prefix>_st_er<ratio>_o<x>_<y>_<index>_<stage>_<w>x<h>.f32
-                      LUX_FUSION_DUMP=<pre>   level-1 fusion: every per-source float frame (<prefix>_srcframe_cam<id>.bin),
-                                              the mono sources (<prefix>_mono_src<i>.bin), the fusion tiles listed in
-                                              LUX_FUSION_DUMP_TILES="x0,y0,x1,y1;..." (<prefix>_tile_<rect>_{out,w}.bin) and
-                                              the render inputs of the first 8 renders — or of the grown rect(s) in
-                                              LUX_FUSION_DUMP_RECT — (<prefix>_render_<rect>_{bayer,std,...}.bin); all in
-                                              int32 {w,h,stride,bpp} header + rows
+                      LUX_DENSE_DUMP=<pre>    Dense stereo (level-0 builds): the six pyramid depths, the full depth, the
+                                              layer-0 inputs and (layers <= LUX_DENSE_DUMP_CV, default 2) the cost
+                                              volumes, as raw dumps <prefix>_<stem>_dense_L<i>_* (int32 {w,h,stride,bpp}
+                                              header + rows; cost volumes packed as in StereoAsyncApi.DumpCostVolume).
+                                              Also the registration stages as raw binary records:
+                                              <prefix>_<stem>_{refpts, drv<i>_match<l>, flt<i>_cam<c>_{pre,post},
+                                              tri_*_points, bac<i>_{in,out}, final<i>_slots,
+                                              calibwrite<i>_{before,after}, tdrv<i>_*}.bin (layouts in RegDump.cs)
+                      LUX_DENSE_OVERRIDE=<f>  Read the layer-5 depth from this dump file (<out>_dense_L5_depth.f32)
+                                              instead of computing the dense stereo. For tests of the dense-stereo race
+                      LUX_HYB_DUMP=<pre>      Module ISP hybrid denoiser: every intermediate of every call as raw RGBA
+                                              float rows, <prefix>_hyb_<tag>_<w>x<h>.f32 (the size keeps calls apart)
+                      LUX_PP_DUMP=<pre>       Module ISP PostProcessing: input, companion and output of every call as
+                                              raw RGBA float rows,
+                                              <prefix>_pp_{src,comp,out}_er<ratio>_<x0>_<y0>_<w>x<h>.f32, plus the
+                                              parameters on stderr
+                      LUX_STAGE_DUMP=<pre>    Module ISP: the RGB working image after every stage as raw RGBA float
+                                              rows, <prefix>_st_er<ratio>_o<x>_<y>_<index>_<stage>_<w>x<h>.f32
+                      LUX_FUSION_DUMP=<pre>   Level-1 fusion: every per-source float frame
+                                              (<prefix>_srcframe_cam<id>.bin), the mono sources
+                                              (<prefix>_mono_src<i>.bin), the fusion tiles listed in
+                                              LUX_FUSION_DUMP_TILES="x0,y0,x1,y1;..." (<prefix>_tile_<rect>_{out,w}.bin)
+                                              and the render inputs of the first 8 renders, or of the grown rect(s) in
+                                              LUX_FUSION_DUMP_RECT (<prefix>_render_<rect>_{bayer,std,...}.bin). All
+                                              files have an int32 {w,h,stride,bpp} header + rows
                 """);
             return code;
         }

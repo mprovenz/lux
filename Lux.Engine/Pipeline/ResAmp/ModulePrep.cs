@@ -3,7 +3,7 @@ using static Lux.Engine.Pipeline.ResAmp.SseOps;
 namespace Lux.Engine.Pipeline.ResAmp;
 
 /// <summary>Per tele module — WarpField projection of the 8-px coarse grid, module render (gain+√ by the generator),
-/// colour decorrelation, Lanczos-2 9-tap blur, luma/alpha, 81×81 box-normalised u8 luma, the nine 1/3-px phase maps, bilinear↓ +
+/// color decorrelation, Lanczos-2 9-tap blur, luma/alpha, 81×81 box-normalized u8 luma, the nine 1/3-px phase maps, bilinear↓ +
 /// B-spline↑ high-pass, and the record push.</summary>
 internal static class ModulePrep
 {
@@ -58,7 +58,7 @@ internal static class ModulePrep
         var render = ResAmpKernels.RenderGen(gen, minx - m2, miny - m2, maxx + 4 + m1, maxy + 4 + m1);
         trace?.Emit(tp + "render", render);
         int boxSize = s32i | 1;
-        // colour decorrelation in place: out_k = (G·M[k][1] + R·M[k][0]) + B·M[k][2]
+        // color decorrelation in place: out_k = (G·M[k][1] + R·M[k][0]) + B·M[k][2]
         {
             var d = render.Data;
             for (int i = 0; i < d.Length; i += 4)
@@ -104,7 +104,7 @@ internal static class ModulePrep
         luma = luma.Crop(hh, hh, cx1, cy1); alpha = alpha.Crop(hh, hh, cx1, cy1);
         render = render.Crop(hh, hh, cx1, cy1); blur = blur.Crop(hh, hh, cx1, cy1);
         int uw = bw + 2 * Nm, uh = bh + 2 * Nm;
-        // normalised-luma u8 map
+        // normalized-luma u8 map
         var boxLuma = ResAmpKernels.BoxFilter(luma, boxSize, boxSize);
         var boxAlpha = ResAmpKernels.BoxFilter(alpha, boxSize, boxSize);
         var u8data = ResAmpKernels.FloatToU8(luma, boxLuma, boxAlpha, F(0x30800000), 127.0f, 127.0f);

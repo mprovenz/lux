@@ -10,7 +10,7 @@ namespace Lux.Engine.Pipeline.Isp.Stages;
 
 /// <summary>
 /// `ToneMapping:acr` / `light_v1` / `light_v1_lowlight` / `light_v2` — slot 15 (`setToneMapping` enums 3–6 →
-/// `new TMO_ACR(enum − 3)`, colour body → `TMO_ACR::process` → tile kernel, meta 1/1/1). Per 256×256 tile: `exp2f(ev_offset)`
+/// `new TMO_ACR(enum − 3)`, color body → `TMO_ACR::process` → tile kernel, meta 1/1/1). Per 256×256 tile: `exp2f(ev_offset)`
 /// once, then per pixel a DNG `dng_function_exposure_ramp`
 /// (white 1, black 0.005, radius 0.0025), three truncating LUT lookups with the fraction taken against the **clamped**
 /// index and no output clamp, and a hue-preserving `RGBTone` whose middle channel is rebuilt with a raw `rcpss`

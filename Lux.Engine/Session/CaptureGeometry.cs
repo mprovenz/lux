@@ -17,7 +17,7 @@ namespace Lux.Engine.Session;
 /// warp fields, the depth cache, `jpg+depth`, the depth map, the depth effect and the depth editor read. The stereo images, the
 /// sparse matches, the dense cost volumes and the guide are intermediates of the chain only.</para>
 ///
-/// <para>Every value is kept bit for bit (floats as their bit patterns), so a render from a deserialised geometry is the render
+/// <para>Every value is kept bit for bit (floats as their bit patterns), so a render from a deserialized geometry is the render
 /// from the chain itself.</para>
 /// </summary>
 public sealed class CaptureGeometry
@@ -58,7 +58,7 @@ public sealed class CaptureGeometry
     /// <summary>
     /// The geometry a Lumen session file restores (its Stereo record): the ctor state of the capture
     /// (<see cref="StereoAsyncApi.Setup"/>) with the stored refined calibration put back (<see cref="StereoAsyncApi.RestoreCalibration"/>), and
-    /// the depth map the session stored (the decoded ".dpc", 14-bit quantised) as the full-frame depth every depth reader — the level-0 warp
+    /// the depth map the session stored (the decoded ".dpc", 14-bit quantized) as the full-frame depth every depth reader — the level-0 warp
     /// fields included — then uses. No image is decoded and nothing of the registration chain runs.
     /// </summary>
     public static CaptureGeometry FromSession(Lux.Engine.Lri.LriFile lri, IReadOnlyDictionary<int, (float[] K, float[] R, float[] T)> calibration, (float[] Depth, int W, int H) depth)
@@ -80,7 +80,7 @@ public sealed class CaptureGeometry
     static CameraCalib Clone(CameraCalib c) => c with { K = (float[])c.K.Clone(), T = (float[])c.T.Clone(), R = (float[])c.R.Clone() };
     static ViewPose Clone(ViewPose p) => new() { P = (float[])p.P.Clone(), U = (float[])p.U.Clone(), Q = (float[])p.Q.Clone(), Scale1 = p.Scale1, Shift1 = p.Shift1, Scale2 = p.Scale2, Shift2 = p.Shift2, Shift3 = p.Shift3, Scale3 = p.Scale3 };
 
-    // ------------------------------------------------------------------------------------------------ serialisation
+    // ------------------------------------------------------------------------------------------------ serialization
     // Little-endian; floats as raw bit patterns. The depth plane is a separate block (it is 99.9 % of the bytes and compresses on
     // its own as 32-bit values); <see cref="SerializeHeader"/> carries everything else.
 

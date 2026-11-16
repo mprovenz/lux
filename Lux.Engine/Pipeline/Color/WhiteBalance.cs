@@ -18,7 +18,7 @@ public static class WhiteBalance
     public const float ConvergenceEps = 9.999999974752427e-07f;   // also the singular-determinant floor
     public const int MaxPasses = 30;                     // passes −1 … 28 = 30 passes, average on the last
 
-    // SSE forms that Lumen's colour code uses: rsqrtss/rcpps + one Newton step.
+    // SSE forms that Lumen's color code uses: rsqrtss/rcpps + one Newton step.
     private static float RsqrtSs(float x) => IntelApprox.ReciprocalSqrtScalar(System.Runtime.Intrinsics.Vector128.CreateScalar(x)).ToScalar();
     private static float RcpSs(float x) => IntelApprox.ReciprocalScalar(System.Runtime.Intrinsics.Vector128.CreateScalar(x)).ToScalar();
     /// <summary>1/√x as `rs·(−0.5)·((x·rs)·rs + (−3))` (rsqrtss + Newton), 0 when x == 0.</summary>
@@ -133,7 +133,7 @@ public static class WhiteBalance
     /// </summary>
     public static (float X, float Y) NeutralToXy(float[] neutral, LumenProfile p)
     {
-        // Lumen's operation order: start at the colour-space-5 white (D50), ≤ 30 passes
+        // Lumen's operation order: start at the color-space-5 white (D50), ≤ 30 passes
         float x = IlluminantX[IllumD50], y = IlluminantY[IllumD50];
         float t1 = IlluminantCctF(p.Low.InternalIlluminant), t2 = IlluminantCctF(p.High.InternalIlluminant);
         for (int pass = -1; ; pass++)
@@ -157,7 +157,7 @@ public static class WhiteBalance
     }
 
     /// <summary>Profile illuminant temperature as Lumen computes it: the illuminant's xy
-    /// renormalised through XYZ in float — X = x·(1/y), Z = ((1−y)−x)·(1/y), s = 1/((X + 1) + Z), (x', y') = (X·s, s) — then `XyToCctF`.</summary>
+    /// renormalized through XYZ in float — X = x·(1/y), Z = ((1−y)−x)·(1/y), s = 1/((X + 1) + Z), (x', y') = (X·s, s) — then `XyToCctF`.</summary>
     public static float IlluminantCctF(int illum)
     {
         float x = IlluminantX[illum], y = IlluminantY[illum];
@@ -167,7 +167,7 @@ public static class WhiteBalance
         return XyToCctF(X * s, 1f * s).Cct;
     }
 
-    /// <summary>xy → G-normalised neutral: T = CCT(xy), M = CM(T), n = M·XYZ(xy), n / n.G.</summary>
+    /// <summary>xy → G-normalized neutral: T = CCT(xy), M = CM(T), n = M·XYZ(xy), n / n.G.</summary>
     public static float[] NeutralFromXy(float x, float y, LumenProfile p)
     {
         // Lumen's operation order

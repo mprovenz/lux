@@ -139,6 +139,7 @@ public static class AnalysisCache
     /// <summary>Store tiles of a state that are in memory (generated or loaded); never generates. Returns how many were written.</summary>
     public static int SaveTiles(IAnalysisCache cache, ExportState st, int level, IEnumerable<(int Tx, int Ty)> tiles)
     {
+        if (!st.Noise.IsLumen) throw new InvalidOperationException("the tiles of a state with noise controls are not Lumen's tiles: they cannot go into the analysis cache");
         string? tier = TierOfTile(level, st.BuildLevel);
         if (tier is null) return 0;
         var have = new HashSet<string>(cache.Keys(tier));

@@ -8,6 +8,10 @@ namespace Lux.Engine.Pipeline.Isp.Stages;
 /// sensor_analog_gain. The body is <see cref="PostProcessingLumen.Run"/>.</summary>
 public sealed class PostProcessingStage : IStage
 {
+    /// <summary>The tuning key that selects the monotone sharpening response of Lux (a value other than 0). See
+    /// <see cref="PostProcessingLumen.MonotoneSharpenSigmas"/>.</summary>
+    public const string MonotoneSharpeningKey = "tone_mapping.sharpening_monotone";
+
     public StageName Stage => StageName.PostProcessing;
     public string TypeString => "default";
     public StageMeta Meta => new(7, 1, 1f);   // slot 11 = (pad 7, align 1, scale 1) as in Lumen's live pipeline
@@ -19,6 +23,8 @@ public sealed class PostProcessingStage : IStage
         float sat = Get("tone_mapping.saturation", 1f), vib = Get("tone_mapping.vibrance", 1f);
         float c = Get("tone_mapping.sharpening", 0f), d = Get("tone_mapping.sharpening_scale", 1f);
         float a = Get("tone_mapping.grain_power", 0f), b = Get("tone_mapping.grain_sigma", 1f);
+        // A Lux key. Lumen's tuning does not have it. When it is absent, the stage uses Lumen's sharpening response.
+        bool monotone = Get(MonotoneSharpeningKey, 0f) != 0f;
         var abs = p.ToAbsolute(p.IntRect).Intersect(img.Rect);
         if (abs.IsEmpty) return;
         // gather the payload rect as a dense RGBA float buffer, run the Lumen body, scatter back
@@ -57,7 +63,7 @@ public sealed class PostProcessingStage : IStage
             File.WriteAllBytes($"{ppd}_pp_src_{key}.f32", MemoryMarshal.AsBytes(buf.AsSpan(0, w * h * 4)).ToArray());
             if (comp is not null) File.WriteAllBytes($"{ppd}_pp_comp_{key}.f32", MemoryMarshal.AsBytes(comp.AsSpan()).ToArray());
         }
-        PostProcessingLumen.Run(buf, w, h, p.Frame.AnalogGain, a, b, c, d, sat, vib, comp, ext, compExt);
+        PostProcessingLumen.Run(buf, w, h, p.Frame.AnalogGain, a, b, c, d, sat, vib, comp, ext, compExt, monotone);
         if (ppd is not null) File.WriteAllBytes($"{ppd}_pp_out_er{p.Frame.ExposureRatio:R}_{abs.X0}_{abs.Y0}_{w}x{h}.f32", MemoryMarshal.AsBytes(buf.AsSpan(0, w * h * 4)).ToArray());
         for (int y = 0; y < h; y++)
             buf.AsSpan(y * w * 4, w * 4).CopyTo(MemoryMarshal.Cast<Vec4F, float>(img.Row(abs.Y0 - img.Rect.Y0 + y).Slice(abs.X0 - img.Rect.X0, w)));

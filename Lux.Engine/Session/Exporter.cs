@@ -21,7 +21,7 @@ namespace Lux.Engine.Session;
 ///   <item>fmt 1 / 2 / 3 (PPM, DNG, HDR) take the `vec4x32f` float render — the DNG through the 2048² writer
 ///   blocks, PPM and HDR as one region, so those two share a single float image here.</item>
 /// </list>
-/// <para>The colour-space property is per format, by Lumen's own rule
+/// <para>The color-space property is per format, by Lumen's own rule
 /// (<see cref="ExportRequest.ColorSpaceOf"/>). So a `convert` DNG carries `ColorSpace` 65535 and no Interop IFD
 /// while its companion JPEG carries `ColorSpace` 1. (The output-tuning rewrite of the export is inert for fmt 1/2/3 — the
 /// gate above means those never read the output tuning — but it is applied and restored anyway, as Lumen does.)</para>
@@ -130,9 +130,12 @@ public static class Exporter
             if (geoKept && geo is null) notes.Add("analysis cache: the kept geometry + depth was damaged; it was discarded and computed again");
             bool geoFromCache = geo is not null;
             if (session && buildLevel == 0) geo = saved!.SessionGeometry!(lriFile);
-            var tiles = cache is null ? null : AnalysisCache.TileSource(cache, buildLevel, log);
+            // The noise controls change the image tiles. The kept tiles are Lumen's, so such an export does not read them. The geometry
+            // and the depth do not depend on the module ISP: they are read and kept as usual.
+            var noise = req.Noise is { IsLumen: false } nc ? nc.Validate() : null;
+            var tiles = cache is null || noise is not null ? null : AnalysisCache.TileSource(cache, buildLevel, log);
             var st = ExportBuild.Build(lriFile, lriPath, buildLevel, eng, req.RenderThreads, pr,
-                                       new BuildOptions { Geometry = geo, StoredTiles = tiles, KeepRegistration = false, Cancel = req.Cancel, SessionRender = session });
+                                       new BuildOptions { Geometry = geo, StoredTiles = tiles, KeepRegistration = false, Cancel = req.Cancel, SessionRender = session, Noise = noise });
             // saved depth edits: only a run that reads the depth looks for them, and only a capture with a context database has any
             string? editsNote = req.NeedsDepth && req.UseSavedEdits ? req.Context?.ApplySavedEdits(st, req.EditsVariant, log) : null;
             if (editsNote is not null) notes.Add(editsNote);
@@ -303,7 +306,7 @@ public static class Exporter
                         log?.Invoke($"tuning (renderer+0x650[{lv}], output ISP): property 0x13 = {csProp} → output.color_space = '{outputTuning.Str("output.color_space")}' (was '{saved.ColorSpace ?? "<unset>"}'), "
                                   + $"tone_mapping.type = '{outputTuning.Str("tone_mapping.type")}' (was '{saved.ToneMapping ?? "<unset>"}')");
                         log?.Invoke("        …neither is read on the HDR render path: Lumen runs the output ISP only for the JPG formats, "
-                                  + "so the DNG and HDR formats take the linear float tiles. Lumen's .hdr files are the same for every colour space.");
+                                  + "so the DNG and HDR formats take the linear float tiles. Lumen's .hdr files are the same for every color space.");
                     }
                     var img = s.FloatImage();
                     s.Progress.Begin(f == ExportImageFormat.Hdr ? "hdr write" : "ppm write", 1);
@@ -325,7 +328,7 @@ public static class Exporter
         }
 
         // ---- the stereo depth map itself (a Lux extra, not a Lumen ExportImageFormat): the SAME depth the GDepth
-        // block carries, written before the gray8 quantisation. `_depth.f32` is metric millimetres at full float
+        // block carries, written before the gray8 quantization. `_depth.f32` is metric millimeters at full float
         // precision with the project's {w,h,stride,bpp} header; `_depth.jpg` is the gray8 rendering, byte-for-byte
         // the image embedded in `GDepth:Data`, so it can just be looked at.
         if (req.DepthMap)
@@ -351,7 +354,7 @@ public static class Exporter
 
     /// <summary>The request with the saved render settings filled in wherever it does not set them itself (<see cref="ExportRequest.OverriddenSettings"/>):
     /// the f-number (`ParamFloat 0`, the depth effect and the Exif FNumber), the focus depth (`ParamFloat 1`; a stored value ≤ 0 means Lumen's
-    /// default focus), the ten tone and colour settings, the photo transform, and Lumen's newer tone style
+    /// default focus), the ten tone and color settings, the photo transform, and Lumen's newer tone style
     /// (the v2 tone gate: `JpegV2` + the `light_v2` DNG tone curve) when the variant was imported with it.</summary>
     public static ExportRequest WithSavedSettings(ExportRequest req, SavedRenderState s)
     {
@@ -376,9 +379,9 @@ public static class Exporter
                     Exposure = O(2) ? g.Exposure : a.Exposure, Temperature = O(3) ? g.Temperature : a.Temperature, Tint = O(4) ? g.Tint : a.Tint,
                     Shadows = O(5) ? g.Shadows : a.Shadows, Highlights = O(6) ? g.Highlights : a.Highlights, Contrast = O(7) ? g.Contrast : a.Contrast,
                     Saturation = O(8) ? g.Saturation : a.Saturation, Vibrance = O(9) ? g.Vibrance : a.Vibrance, Clarity = O(10) ? g.Clarity : a.Clarity,
-                    Sharpening = O(13) ? g.Sharpening : a.Sharpening,
+                    Sharpening = O(13) ? g.Sharpening : a.Sharpening, MonotoneSharpening = O(13) ? g.MonotoneSharpening : a.MonotoneSharpening,
                 };
-            else if (O(13)) a = a with { Sharpening = req.JpegSharpening };
+            else if (O(13)) a = a with { Sharpening = req.JpegSharpening, MonotoneSharpening = false };
             r = r with { Adjustments = a };
         }
         if (r.FocusPoint is not null && r.Transform is not null)
@@ -407,7 +410,7 @@ public static class Exporter
     static LuxFormatsWriter LuxFormatsOf(ExportRequest req) =>
         req.LuxFormats ?? throw new ExportRequestException("the Lux-only formats (lens-frames, parallax-*) need a writer: ExportRequest.LuxFormats is not set");
 
-    /// <summary>The exporter/Exif values from the `.lri` and the colour profile (as `exportImage` sets them),
+    /// <summary>The exporter/Exif values from the `.lri` and the color profile (as `exportImage` sets them),
     /// with the <see cref="ExportRequest"/>'s overrides applied. <c>ColorSpaceProperty</c> is left at the
     /// CIAPI default here and set per format by the caller from <see cref="ExportRequest.ColorSpaceOf"/>.</summary>
     public static DngExportTags BuildTags(ExportState st, ExportRequest req)

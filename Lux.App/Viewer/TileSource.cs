@@ -42,10 +42,10 @@ public sealed record TileRequest(int Channel, int Level, Rect ImageRect, IReadOn
 }
 
 /// <summary>Tiles held for <paramref name="Channel"/> at an older version are valid at <paramref name="Version"/> unless they meet a changed region
-/// of their level (level −1 = every level; rectangles normalised in the picture). From the library's changed regions.</summary>
+/// of their level (level −1 = every level; rectangles normalized in the picture). From the library's changed regions.</summary>
 public sealed record TileRevalidation(int Channel, long Version, long GeometryVersion, IReadOnlyList<(int Level, Lux.Library.NormRect Rect)> Changed);
 
-/// <summary>Channels of a source: the edited picture, and the same picture without tone and colour adjustments.</summary>
+/// <summary>Channels of a source: the edited picture, and the same picture without tone and color adjustments.</summary>
 public static class Channels
 {
     public const int After = 0;

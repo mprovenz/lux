@@ -42,7 +42,7 @@ public sealed class DofImage
     public float[] ToArray() => IsPlain ? D : Compact().D;
 }
 
-/// <summary>Lumen's <c>DualLayerBuffer</c>: visible colour and occluded colour (vec4), visible depth,
+/// <summary>Lumen's <c>DualLayerBuffer</c>: visible color and occluded color (vec4), visible depth,
 /// occluded depth and matte (float). Absent planes are null (Lumen: empty images).</summary>
 public sealed class DualLayerBuffer
 {

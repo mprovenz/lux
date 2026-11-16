@@ -156,7 +156,7 @@ public static class DofFilters
     /// <summary>`ImageResample&lt;4,unsigned char&gt;`: the same B-spline
     /// resample on bytes. Rows are filtered horizontally into floats ((w1·s1 + w0·s0) + (w3·s3 + w2·s2)); the vertical sum is rounded
     /// v + copysign(0.5, v), clamped to [0, 255] and truncated. The lambda runs per 256×256 `Tiler` tile of the destination and
-    /// vectorises four pixels at a time: those use (w0·r0 + w1·r1) + (w2·r2 + w3·r3), the last (tile width &amp; 3) pixels of each tile row use
+    /// vectorizes four pixels at a time: those use (w0·r0 + w1·r1) + (w2·r2 + w3·r3), the last (tile width &amp; 3) pixels of each tile row use
     /// (w0·r0 + w2·r2) + (w1·r1 + w3·r3) (the horizontal-add order of Lumen's tail). Float results depend on these orders.</summary>
     public static byte[] Resample4U8(byte[] src, int sw, int sh, int dw, int dh, double offX, double offY, double scX, double scY)
     {

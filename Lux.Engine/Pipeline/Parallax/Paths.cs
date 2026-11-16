@@ -8,7 +8,7 @@ namespace Lux.Engine.Pipeline.Parallax;
 /// count is free, so the same swing can be played in as many frames as the container will carry.
 ///
 /// The **axis** is not invented either. The A modules are bolted to the body, so their layout is a property of the
-/// camera; the dominant eigenvector of the colour modules' centres is the direction the rig is actually spread along
+/// camera; the dominant eigenvector of the color modules' centers is the direction the rig is actually spread along
 /// (about 12° off horizontal), and a sweep along it is the widest baseline the camera can offer.
 /// </summary>
 public static class Paths
@@ -24,10 +24,10 @@ public static class Paths
         _ => throw new ArgumentException($"unknown path '{s}' (sweep, orbit, arc, line)"),
     };
 
-    /// <summary>The rig's dominant axis, as a unit vector in image axes, from the module centres.</summary>
+    /// <summary>The rig's dominant axis, as a unit vector in image axes, from the module centers.</summary>
     public static (double X, double Y) Axis(ParallaxGeometry g)
     {
-        // Only the reference module's own colour group defines the rig axis. A B-reference capture usually has
+        // Only the reference module's own color group defines the rig axis. A B-reference capture usually has
         // canonical extrinsics for the reference alone (the movable-mirror B/C modules carry none), and there is then
         // no measured axis at all — horizontal is the honest default, not a PCA over a different group's modules.
         if (g.PathModules.Count < 3) return (1, 0);
@@ -49,9 +49,22 @@ public static class Paths
         return (vx, vy);
     }
 
-    /// <summary>The camera positions of a path, in millimetres, centred on the reference module.</summary>
+    /// <summary>The viewer's horizontal (the direction to the viewer's right) in the axes of the recorded image, for a capture that
+    /// is shown upright after a turn of <paramref name="heldTurn"/> degrees clockwise (0, 90, 180, 270). Held level: (1, 0). For a
+    /// turn of 90 degrees the top of the scene is at the left of the recorded image, and the viewer's right is the image's up: (0, −1).</summary>
+    public static (double X, double Y) ViewerHorizontal(int heldTurn) => (((heldTurn % 360) + 360) % 360) switch
+    {
+        90 => (0, -1),
+        180 => (-1, 0),
+        270 => (0, 1),
+        _ => (1, 0),
+    };
+
+    /// <summary>The camera positions of a path, in millimeters, centered on the reference module.</summary>
     /// <param name="baselineMm">peak-to-peak extent of the path (its diameter, for an orbit)</param>
-    public static List<(double X, double Y)> Generate(Kind kind, int n, double baselineMm, (double X, double Y) axis, double arcRise = 0.25)
+    /// <param name="heldTurn">How the camera was held (see <see cref="ViewerHorizontal"/>). The `line` path runs along the viewer's
+    /// horizontal, from the viewer's left to the viewer's right. The other paths follow the rig axis and do not use it.</param>
+    public static List<(double X, double Y)> Generate(Kind kind, int n, double baselineMm, (double X, double Y) axis, double arcRise = 0.25, int heldTurn = 0)
     {
         var pts = new List<(double, double)>(n);
         double r = baselineMm / 2;
@@ -61,7 +74,7 @@ public static class Paths
             case Kind.Sweep:
             case Kind.Line:
             {
-                var a = kind == Kind.Line ? (X: 1.0, Y: 0.0) : axis;
+                var a = kind == Kind.Line ? ViewerHorizontal(heldTurn) : axis;
                 for (int i = 0; i < n; i++)
                 {
                     // cosine-eased so the ends of a ping-pong do not snap; the middle moves fastest, as a real swing does

@@ -25,7 +25,7 @@ public static class ParallaxFormats
     public static bool IsAnimated(ParallaxFormat f) =>
         f is ParallaxFormat.Wiggle or ParallaxFormat.WiggleInterp or ParallaxFormat.Orbit or ParallaxFormat.Single or ParallaxFormat.Rack or ParallaxFormat.Dolly;
 
-    /// <summary>Every format but the physical wigglegram synthesises from the metric depth, and so needs the level-0 build.</summary>
+    /// <summary>Every format but the physical wigglegram synthesizes from the metric depth, and so needs the level-0 build.</summary>
     public static bool NeedsDepth(ParallaxFormat f) => ParallaxRequest.NeedsDepthFormat(f);
 
     /// <summary>The formats whose disocclusions can be filled from the other real modules.</summary>

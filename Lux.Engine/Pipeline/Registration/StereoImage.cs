@@ -7,7 +7,7 @@ using Lux.Engine.Pipeline.Isp;
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
-/// `lt::StereoISP::CreateStereoImage`, colour-sensor path: the stereo SoftISP (`collapse2`, hot pixels, IR
+/// `lt::StereoISP::CreateStereoImage`, color-sensor path: the stereo SoftISP (`collapse2`, hot pixels, IR
 /// crosstalk, lens shading; no WB/CC/tone), exposure-gain scaling, rotation+CRA warp into the half-resolution view with a
 /// 6-tap Lanczos-3 resampler (64 phases, fill 0), `ConvertToYUV` with the sensor's luma basis divided by the AsShot neutral
 /// (fast log2/exp2 polynomials, gamma 1/2.2, offsets 128 on U/V) and the 8-bit RGBA store (`cvtps2dq` + saturation, alpha 1).
@@ -207,7 +207,7 @@ public static class StereoImage
         return o;
     }
 
-    /// <summary>Lanczos-3 tap table (64 phases × 6 taps), `sinc(x)·sinc(x/3)` normalised, as built per call by the warp.</summary>
+    /// <summary>Lanczos-3 tap table (64 phases × 6 taps), `sinc(x)·sinc(x/3)` normalized, as built per call by the warp.</summary>
     public static float[] LanczosTable()
     {
         var tbl = new float[64 * 6];

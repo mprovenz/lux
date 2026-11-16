@@ -10,7 +10,7 @@ namespace Lux.Engine.Pipeline.BayerFusion;
 
 /// <summary>
 /// `lt::MonoFusion` (Lumen 2.3; ctor, `initialize`, render side and merge kernel). Created by `FusionCacheBayer` when the reference camera's group holds
-/// a mono module (red position (−1,−1), e.g. A2): the fused colour Bayer is rendered through this object's own SoftISP into camera-space
+/// a mono module (red position (−1,−1), e.g. A2): the fused color Bayer is rendered through this object's own SoftISP into camera-space
 /// RGB, its luma `L = (c·rgb)·range + black` is merged with the mono frame(s) in a float 16×16 wavelet domain (full resolution, 5-level flow) and
 /// the merged luma replaces the luma component of the RGB through the basis `M` / `N = M⁻¹`. Float arithmetic follows Lumen's operation order;
 /// `rcpss`/`rsqrtss` approximations use the hardware instructions.
@@ -28,7 +28,7 @@ public sealed class MonoFusion
     static readonly float MinusHalf = BitConverter.Int32BitsToSingle(unchecked((int)0xbf000000));
     static readonly float MinusThree = BitConverter.Int32BitsToSingle(unchecked((int)0xc0400000));
 
-    /// <summary>Luma coefficients (c0, c1, c2) and the mono/colour
+    /// <summary>Luma coefficients (c0, c1, c2) and the mono/color
     /// sensitivity ratio c3 per sensor type.</summary>
     public static (float C0, float C1, float C2, float C3) LumaCoefficients(SensorType t) => t switch
     {
@@ -365,7 +365,7 @@ public sealed class MonoFusion
     // ---------------------------------------------------------------------------------------------------------------------------------
     public sealed record ProcessResult(Image<Vec4F> Rgb, float[] Weight, float[] Mono, float[] Luma, Image<Vec4F> RefC);
 
-    /// <summary>Process (out, weightOut, F, grown): the fused colour Bayer <paramref name="fused"/> (grown-rect size, raw DN) → the RGB image of
+    /// <summary>Process (out, weightOut, F, grown): the fused color Bayer <paramref name="fused"/> (grown-rect size, raw DN) → the RGB image of
     /// the grown rect with the luma replaced by the mono merge, plus the mono weight image.</summary>
     public ProcessResult Process(RectI grown, float[] fused)
     {

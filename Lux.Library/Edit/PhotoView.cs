@@ -8,7 +8,7 @@ namespace Lux.Library.Edit;
 
 /// <summary>
 /// The progressive viewport renderer (<see cref="IPhotoView"/>). One worker takes the newest request: the whole level-4 picture first, then
-/// the visible tiles of the target level centre-out, several at once (each through <see cref="PictureRenderer"/> and the engine's stage cache);
+/// the visible tiles of the target level center-out, several at once (each through <see cref="PictureRenderer"/> and the engine's stage cache);
 /// a newer request cancels the pass between tiles. While a slider is dragged the pass renders the visible tiles at the drag level — the finest
 /// level whose expected restart cost fits the frame budget (measured cost per megapixel and property class, updated from every drag frame) —
 /// and the refined pass follows when the drag ends.
@@ -385,7 +385,7 @@ internal sealed class PhotoViewImpl : IPhotoView
         if (req.RefreshOnly is { } only2) main = main.Where(t => MeetsAny(g, t, only2, req.RefreshAreas)).ToList();
         else if (!drag && req.Needed is { } need && req.Level == level)
         {
-            // the tiles in the order the viewer gives them (its own centre-out / swap policy)
+            // the tiles in the order the viewer gives them (its own center-out / swap policy)
             var mine = main.ToHashSet(); main = need.Where(mine.Remove).ToList();
         }
         plan.AddRange(main);
@@ -452,7 +452,7 @@ internal sealed class PhotoViewImpl : IPhotoView
         return false;
     }
 
-    /// <summary>Whether a tile meets a normalised rectangle.</summary>
+    /// <summary>Whether a tile meets a normalized rectangle.</summary>
     static bool Meets(PictureGeometry g, TileId t, NormRect r)
     {
         var s = g.LevelSizes[t.Level]; var rc = g.TileRect(t.Level, t.Col, t.Row);
@@ -460,7 +460,7 @@ internal sealed class PhotoViewImpl : IPhotoView
         return x0 < r.Right && r.X < x1 && y0 < r.Bottom && r.Y < y1;
     }
 
-    /// <summary>The tiles of a level covering a rectangle, centre-out.</summary>
+    /// <summary>The tiles of a level covering a rectangle, center-out.</summary>
     static List<TileId> CentreOut(PictureGeometry g, int level, NormRect r)
     {
         var tiles = g.TilesCovering(level, r);
@@ -643,7 +643,7 @@ internal sealed class PhotoViewImpl : IPhotoView
     // ---- the mapping the depth tools use: the picture as shown now (the layout's transform and the display rotation), never clamped — a stroke
     //      may leave the picture (Lumen handles points outside the image). Same arithmetic as PictureToCapture for points inside.
 
-    /// <summary>Picture point (normalised, as shown) → the capture's normalised export-window coordinates, unclamped (double).</summary>
+    /// <summary>Picture point (normalized, as shown) → the capture's normalized export-window coordinates, unclamped (double).</summary>
     internal (double X, double Y) ToCapture(NormPoint picture, RenderSpec? spec = null)
     {
         spec ??= _s.EditImpl.Spec;
@@ -660,7 +660,7 @@ internal sealed class PhotoViewImpl : IPhotoView
     /// 2^-49 of the width — 3·10^-11 pixels — otherwise).</summary>
     static double Snap(double v) => Math.Round(v * 281474976710656.0) / 281474976710656.0;
 
-    /// <summary>Capture point (normalised export window) → picture point as shown, unclamped (the exact inverse of <see cref="ToCapture"/> in double).</summary>
+    /// <summary>Capture point (normalized export window) → picture point as shown, unclamped (the exact inverse of <see cref="ToCapture"/> in double).</summary>
     internal (double X, double Y) ToPicture(double cx, double cy, RenderSpec? spec = null)
     {
         spec ??= _s.EditImpl.Spec;
@@ -675,7 +675,7 @@ internal sealed class PhotoViewImpl : IPhotoView
         return (r.X, r.Y);
     }
 
-    /// <summary>A capture rectangle (normalised export window) → the bounding picture rectangle (normalised, clamped to the picture); null when
+    /// <summary>A capture rectangle (normalized export window) → the bounding picture rectangle (normalized, clamped to the picture); null when
     /// it lies outside the picture.</summary>
     internal NormRect? CaptureRectToPicture(double x0, double y0, double x1, double y1, RenderSpec? spec = null)
     {

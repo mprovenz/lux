@@ -48,7 +48,7 @@ public readonly record struct RectF(float X0, float Y0, float X1, float Y1);
 
 /// <summary>Pipeline statistics (`SoftISP::Stats`): the WB neutral
 /// (consumed by crosstalk / demosaic / CNR), temp/tint, the camera→output matrix (identity when
-/// `output.color_space = none`), and the colour profile object.</summary>
+/// `output.color_space = none`), and the color profile object.</summary>
 public sealed class IspStats
 {
     public float[] Neutral { get; init; } = { 1f, 1f, 1f };

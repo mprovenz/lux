@@ -9,7 +9,7 @@ namespace Lux.Engine.Pipeline.Export;
 ///
 /// <para>The palette: median cut over a 6-bit-per-channel histogram of every frame (or of the one frame), the box chosen to split being the
 /// one with the largest squared error, then a few rounds of k-means on the histogram. The ordered dither is the default because its pattern
-/// is fixed to the pixel grid: a still part of the scene quantises to the same indices in every frame, so it does not crawl and the frame
+/// is fixed to the pixel grid: a still part of the scene quantizes to the same indices in every frame, so it does not crawl and the frame
 /// differencing finds it unchanged.</para>
 /// </summary>
 public static class GifWriter
@@ -27,12 +27,12 @@ public static class GifWriter
 
         Palette? global = o.GifPalette == GifPalette.Global ? Palette.Build(frames, real) : null;
         var bw = new BufferedStream(s, 1 << 16);
-        // ---- header, logical screen, global colour table, loop
+        // ---- header, logical screen, global color table, loop
         bw.Write("GIF89a"u8);
         WriteU16(bw, w); WriteU16(bw, h);
         int gctBits = global is null ? 0 : TableBits(global.Count + (diff ? 1 : 0));
-        bw.WriteByte((byte)(global is null ? 0x70 : 0x80 | 0x70 | (gctBits - 1)));   // GCT flag, colour resolution 8 bits, GCT size
-        bw.WriteByte(0);   // background colour index
+        bw.WriteByte((byte)(global is null ? 0x70 : 0x80 | 0x70 | (gctBits - 1)));   // GCT flag, color resolution 8 bits, GCT size
+        bw.WriteByte(0);   // background color index
         bw.WriteByte(0);   // pixel aspect ratio: none
         if (global is not null) WriteTable(bw, global, gctBits);
         if (o.Loops != 1)
@@ -44,7 +44,7 @@ public static class GifWriter
         var shown = new uint[(long)w * h];          // what a decoder displays after the frames so far (0xRRGGBB; bit 24 = never drawn)
         Array.Fill(shown, 0x1000000u);
         var displayed = keep ? new List<Rgba>(frames.Count) : null;
-        var q = new uint[(long)w * h];               // this frame's colours after reduction
+        var q = new uint[(long)w * h];               // this frame's colors after reduction
         var qi = new byte[(long)w * h];              // … and palette indices
         var lzw = new Lzw();
         for (int f = 0; f < frames.Count; f++)
@@ -67,7 +67,7 @@ public static class GifWriter
                 rect = x1 < 0 ? new RectI(0, 0, 1, 1) : new RectI(x0, y0, x1 + 1, y1 + 1);
                 transparent = true;
             }
-            int tIndex = pal.Count;   // the "unchanged" index sits right after the real colours
+            int tIndex = pal.Count;   // the "unchanged" index sits right after the real colors
             int tableBits = global is null ? TableBits(pal.Count + (diff ? 1 : 0)) : gctBits;
             // ---- the rectangle's indices, twice for a later frame: unchanged pixels transparent, or every pixel as it is — the smaller wins
             //      (transparency pays when little changes; when most of the frame changes it only breaks the runs LZW codes)
@@ -105,7 +105,7 @@ public static class GifWriter
             if (global is null) { bw.WriteByte((byte)(0x80 | (tableBits - 1))); WriteTable(bw, pal, tableBits); }
             else bw.WriteByte(0);
             bw.Write(data);
-            // what a viewer now shows: the rectangle's pixels replaced (a transparent index leaves the same colour in place)
+            // what a viewer now shows: the rectangle's pixels replaced (a transparent index leaves the same color in place)
             for (int y = rect.Y0; y < rect.Y1; y++) Array.Copy(q, (long)y * w + rect.X0, shown, (long)y * w + rect.X0, rect.Width);
             if (displayed is not null)
             {
@@ -146,7 +146,7 @@ public static class GifWriter
         15, 47,  7, 39, 13, 45,  5, 37, 63, 31, 55, 23, 61, 29, 53, 21,
     };
 
-    /// <summary>Map a frame to the palette: <paramref name="q"/> = the colour shown (0xRRGGBB), <paramref name="qi"/> = its index.</summary>
+    /// <summary>Map a frame to the palette: <paramref name="q"/> = the color shown (0xRRGGBB), <paramref name="qi"/> = its index.</summary>
     static void Reduce(Rgba img, Palette pal, AnimationEncodeOptions o, uint[] q, byte[] qi)
     {
         int w = img.W, h = img.H; var P = img.P;
@@ -201,7 +201,7 @@ public static class GifWriter
 
     static int Clamp(int v) => v < 0 ? 0 : v > 255 ? 255 : v;
 
-    /// <summary>A palette and its nearest-colour lookup (cached per 6-bit cell).</summary>
+    /// <summary>A palette and its nearest-color lookup (cached per 6-bit cell).</summary>
     sealed class Palette
     {
         public readonly byte[] R, G, B;
@@ -217,7 +217,7 @@ public static class GifWriter
             int key = ((r >> (8 - Bits)) << (2 * Bits)) | ((g >> (8 - Bits)) << Bits) | (b >> (8 - Bits));
             int c = _cache[key];
             if (c >= 0) return c;
-            // the cell's centre
+            // the cell's center
             int half = 1 << (7 - Bits);
             c = Search((r & ~(2 * half - 1)) + half, (g & ~(2 * half - 1)) + half, (b & ~(2 * half - 1)) + half);
             _cache[key] = c;

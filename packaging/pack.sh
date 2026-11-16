@@ -47,7 +47,7 @@ echo "== publish lux-app"
 publish Lux.App/Lux.App.csproj "$WORK/app" -p:IncludeNativeLibrariesForSelfExtract=true
 rm -f "$WORK/app"/*.xml "$WORK/cli"/*.xml           # API documentation files are not part of a release
 
-# the app folder also carries the command line tool, the licence and the notes
+# the app folder also carries the command line tool, the license and the notes
 cp "$WORK/cli/lux-light$EXE" "$WORK/app/"
 cp LICENSE README.md "$WORK/app/"
 cp LICENSE README.md "$WORK/cli/"

@@ -66,7 +66,7 @@
               <TextBlock Grid.Row="1" Grid.Column="1" Classes="small secondary wrap" Text="{Binding OrientationHint}" />
             </Grid>
             <Grid ColumnDefinitions="110,*" ColumnSpacing="12" IsVisible="{Binding JpgChosen}">
-              <TextBlock Text="Colour profile" VerticalAlignment="Center" />
+              <TextBlock Text="Color profile" VerticalAlignment="Center" />
               <CheckBox Grid.Column="1" x:Name="EmbedProfileBox" IsChecked="{Binding EmbedColorProfile}" Content="Embed the sRGB profile in JPG files"
                         AutomationProperties.Name="Embed the sRGB profile in JPG files"
                         ToolTip.Tip="Off: JPG files as Lumen writes them (no profile; apps assume sRGB). On: the sRGB profile is added, for apps that need it." />

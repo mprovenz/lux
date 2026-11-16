@@ -9,7 +9,7 @@ namespace Lux.Engine.Pipeline.Registration;
 /// view-transformed stage-1 calibrations (rotation vector = OpenCV Rodrigues of the polar factor), observation records (points
 /// with Z &gt; 0, per-camera observations &gt; 0), `LightBA` when ≥ 10 points, and the per-camera write-back for cameras with ≥ 26 usable
 /// observations: <c>DoubleCamToCalib</c> (doubles → CalibData, double Rodrigues) followed by <c>InverseApply</c> (the exact inverse of `Apply`) into the
-/// module's CURRENT slot. Also the reprojection evaluator, the camera centre and the WIDE/TELE acceptance rules.
+/// module's CURRENT slot. Also the reprojection evaluator, the camera center and the WIDE/TELE acceptance rules.
 /// </summary>
 public static class SparseBaCaller
 {
@@ -62,7 +62,7 @@ public static class SparseBaCaller
         return o;
     }
 
-    /// <summary>Camera centre `−(Rᵀ·t)` of a slot.</summary>
+    /// <summary>Camera center `−(Rᵀ·t)` of a slot.</summary>
     public static float[] Centre(float[] R, float[] t) => new[] { -((R[0] * t[0] + R[3] * t[1]) + R[6] * t[2]), -((R[1] * t[0] + R[4] * t[1]) + R[7] * t[2]), -((R[2] * t[0] + R[5] * t[1]) + R[8] * t[2]) };
 
     /// <summary>Mean reprojection distance of the points with positive observations through `Apply(pose, slot)` (view K only).</summary>

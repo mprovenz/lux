@@ -16,7 +16,7 @@ namespace Lux.App.Tests;
 
 /// <summary>
 /// 10 000 captures in each view: scroll from top to bottom in steps of a quarter screen (a fast wheel / drag), then jump around; the
-/// realised containers and thumbnail views must stay bounded, thumbnail requests that scroll away must be cancelled, and every step's
+/// realized containers and thumbnail views must stay bounded, thumbnail requests that scroll away must be canceled, and every step's
 /// layout and render time is recorded (a text file in the first UI output folder).
 /// </summary>
 public sealed class VirtualisationTests
@@ -97,7 +97,7 @@ public sealed class VirtualisationTests
         int blurred = ImageStateView.BlurredMade - blurred0;
 
         var sb = new StringBuilder();
-        sb.AppendLine($"Virtualisation, 10 000 fake captures, window 1440×900, headless Skia (CPU raster) on {Environment.ProcessorCount} threads — {DateTime.Now:yyyy-MM-dd HH:mm}");
+        sb.AppendLine($"Virtualization, 10 000 fake captures, window 1440×900, headless Skia (CPU raster) on {Environment.ProcessorCount} threads — {DateTime.Now:yyyy-MM-dd HH:mm}");
         sb.AppendLine("After an unmeasured warm-up of 120 steps, each step scrolls a quarter of the viewport, top to bottom, then 33 jumps (end, start, middle, random).");
         sb.AppendLine("layout = offset change + layout pass; frame = layout + one render tick of the window (Skia CPU raster). Times in ms.");
         sb.AppendLine();
@@ -106,7 +106,7 @@ public sealed class VirtualisationTests
         sb.AppendLine($"blurred copies made during those three runs: {blurred} (one per thumbnail delivered while processing, never per frame).");
         sb.AppendLine("rows / cells built = row containers and grid / timeline cell controls created during the run (recycled rows keep theirs).");
         sb.AppendLine();
-        sb.AppendLine("view            steps  rows   layout p50/p95/max      frame p50/p95/max       max realised rows  max thumb views  rows/cells built  thumbs requested/cancelled/delivered");
+        sb.AppendLine("view            steps  rows   layout p50/p95/max      frame p50/p95/max       max realized rows  max thumb views  rows/cells built  thumbs requested/canceled/delivered");
         foreach (var r in results)
             sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
                 $"{r.View,-15} {r.Steps,5}  {r.Rows,5}  {r.LayoutMedian,6:0.0}/{r.LayoutP95,6:0.0}/{r.LayoutMax,6:0.0}   {r.FrameMedian,6:0.0}/{r.FrameP95,6:0.0}/{r.FrameMax,6:0.0}   {r.MaxRealised,17}  {r.MaxThumbViews,15}  {$"{r.RowsBuilt}/{r.CellsBuilt}",16}  {r.Requested}/{r.Cancelled}/{r.Delivered}"));
@@ -117,9 +117,9 @@ public sealed class VirtualisationTests
 
         foreach (var r in results)
         {
-            Assert.True(r.MaxRealised < 60, $"{r.View}: {r.MaxRealised} rows realised");
+            Assert.True(r.MaxRealised < 60, $"{r.View}: {r.MaxRealised} rows realized");
             Assert.True(r.MaxThumbViews < 400, $"{r.View}: {r.MaxThumbViews} thumbnail views alive");
-            Assert.True(r.Cancelled > 0, $"{r.View}: no request was cancelled while scrolling");
+            Assert.True(r.Cancelled > 0, $"{r.View}: no request was canceled while scrolling");
         }
         Assert.True(processing >= ids.Count);
         Assert.True(blurred <= results.Where(r => r.View.EndsWith("+proc", StringComparison.Ordinal)).Sum(r => r.Delivered) + 64,

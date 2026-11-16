@@ -13,7 +13,7 @@ public static class Calibration
         return new[] { awb.R != 0 ? 1f / awb.R : 1f, 1f, awb.B != 0 ? 1f / awb.B : 1f };
     }
 
-    /// <summary>Green VST noise model (var(I)=A·I+B on normalised intensity, σ floored at Threshold), for the
+    /// <summary>Green VST noise model (var(I)=A·I+B on normalized intensity, σ floored at Threshold), for the
     /// gain bucket nearest this module's analog gain. Drives the noise-adaptive denoise. Null if absent.</summary>
     public static (float A, float B, float Threshold)? GreenVst(LightHeader h, float analogGain)
     {
@@ -26,7 +26,7 @@ public static class Calibration
 
     /// <summary>
     /// All calibration records for a module. A module's calibration can be SPLIT across several
-    /// <c>module_calibration</c> entries (colour in one, geometry/vignetting in others), so callers
+    /// <c>module_calibration</c> entries (color in one, geometry/vignetting in others), so callers
     /// must scan all of them (matches the Python <c>lri_meta.calib</c> which gathers across entries).
     /// </summary>
     public static IEnumerable<FactoryModuleCalibration> ForModule(LightHeader h, CameraID id)

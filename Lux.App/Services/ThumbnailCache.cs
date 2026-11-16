@@ -5,8 +5,8 @@ using Lux.Library;
 namespace Lux.App.Services;
 
 /// <summary>
-/// Decoded thumbnails for the browse views. Requests come only from realised (on-screen) items, newest first per the contract, and are
-/// cancelled when the item scrolls away: a request is shared by every view showing the same capture and cancelled at the library when
+/// Decoded thumbnails for the browse views. Requests come only from realized (on-screen) items, newest first per the contract, and are
+/// canceled when the item scrolls away: a request is shared by every view showing the same capture and canceled at the library when
 /// its last requester lets go. Decoding runs off the UI thread; decoded bitmaps are kept in a least-recently-used cache under a memory
 /// budget. Every member is called on the UI thread.
 /// </summary>

@@ -6,7 +6,7 @@ namespace Lux.Engine.Pipeline.Dof.Edit;
 /// <summary>
 /// `MattingLaplacianTiling(image vec4, trimap u8, MattingParams)` → alpha u8, as the edge heal calls it
 /// (with `MattingParams` tiled = 1, tile overlap 0.1, window radius 2, epsilon 0.00025, known-pixel weight 10,
-/// unknown-pixel weight 0.1 × confidence 0.01, no foreground / background colour estimation).
+/// unknown-pixel weight 0.1 × confidence 0.01, no foreground / background color estimation).
 ///
 /// The trimap is cut into tiles (<see cref="Tiles"/>); each tile is solved on its own — closed-form matting Laplacian over the unknown
 /// band grown by 12 px, soft constraints, conjugate gradient (<see cref="SolveTile"/>) — and the u8 tile alphas are blended with separable
@@ -218,7 +218,7 @@ public static class MattingLaplacian
     /// One tile: build the Laplacian, then solve.
     /// 1. The image is padded by 2r = 4 px with a mirror that repeats the edge.
     /// 2. System region = the pixels within 12 px (box 25 × 25) of a trimap byte 0x7f / 0x80, numbered in raster order.
-    /// 3. Window statistics: 5 × 5 box means of the colour, of its squares and of its cross products on the padded image;
+    /// 3. Window statistics: 5 × 5 box means of the color, of its squares and of its cross products on the padded image;
     ///    per pixel the inverse of the 3 × 3 covariance + (ε/25)·I.
     /// 4. Matrix: for pixels i ≤ j of the region within 4 px of each other, the sum over every 5 × 5 window that holds
     ///    both — and whose top-left pixel is in the region — of <c>δij + (−1 − (Ci − μ)ᵀ Σ⁻¹ (Cj − μ)) · (1/25)</c>.

@@ -13,7 +13,7 @@ namespace Lux.Engine.Session;
 /// One capture's renders, shared by every output of an <see cref="ExportRequest"/>: the grid, the two distinct
 /// renders (`exportImage::lambda_2` gates the display/output ISP on `(fmt | 4) == 4`, so fmt 0/4
 /// take an 8-bit output-ISP re-run and fmt 1/2/3 a `vec4x32f` float render), the metric depth warped onto the same
-/// grid, and the parallax source built from those two. Every member is memoised, so the JPEG, the depth map and the
+/// grid, and the parallax source built from those two. Every member is memoized, so the JPEG, the depth map and the
 /// parallax formats cost one render between them — the point of putting them on one command.
 /// </summary>
 public sealed class ExportSession

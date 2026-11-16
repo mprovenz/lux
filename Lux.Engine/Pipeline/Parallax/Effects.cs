@@ -5,7 +5,7 @@ namespace Lux.Engine.Pipeline.Parallax;
 ///
 /// <b>Synthetic depth of field.</b> The blur diameter of a point at depth Z, for a lens of aperture diameter A focused
 /// at Z_f, is <c>c = A·f·|1/Z − 1/Z_f|</c> with f in pixels — the ordinary thin-lens circle of confusion, and the
-/// reason the control here is an aperture in millimetres rather than a blur radius: it makes the effect a statement
+/// reason the control here is an aperture in millimeters rather than a blur radius: it makes the effect a statement
 /// about a lens the L16 does not have. f/1.4 on the A group's 28 mm-equivalent is a 20 mm aperture, which is the
 /// default.
 ///
@@ -140,13 +140,13 @@ public static class Effects
 /// <summary>
 /// Stereo pair presentation.
 ///
-/// The widest physical colour baseline on the camera is A4→A5 at 71.49 mm, so a human interocular distance (63 mm by
-/// convention) is *inside* the range the modules themselves cover — the pair can be synthesised without extrapolating
+/// The widest physical color baseline on the camera is A4→A5 at 71.49 mm, so a human interocular distance (63 mm by
+/// convention) is *inside* the range the modules themselves cover — the pair can be synthesized without extrapolating
 /// past anything the rig has seen, which is unusual for depth-based stereo.
 ///
 /// The anaglyph matrices are Dubois's least-squares red/cyan projection rather than a naive channel swap. A naive
 /// anaglyph leaves each eye a strong ghost of the other's image, because the red filter passes some of the cyan
-/// channel and vice versa; Dubois solves for the pair of 3×3 matrices that minimise the perceived error through
+/// channel and vice versa; Dubois solves for the pair of 3×3 matrices that minimize the perceived error through
 /// measured filter spectra. It is applied in **linear light**, since it is a physical mixing model and the export
 /// image is sRGB-encoded.
 /// </summary>
@@ -182,7 +182,7 @@ public static class StereoView
             for (int x = 0; x < W; x++)
             {
                 long p = ((long)y * W + x) * 4;
-                if (kind == "grey")
+                if (kind == "gray" || kind == "grey")
                 {
                     double gl = 0.299 * left.P[p] + 0.587 * left.P[p + 1] + 0.114 * left.P[p + 2];
                     double gr = 0.299 * right.P[p] + 0.587 * right.P[p + 1] + 0.114 * right.P[p + 2];

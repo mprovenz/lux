@@ -10,7 +10,7 @@ namespace Lux.App.Develop;
 // geometry operations and crop tool, groups for copy / paste / presets) and adds what the page needs on top: a history list with labels,
 // formatted read-outs, and the tile source the viewer draws.
 
-/// <summary>The tone and colour adjustment keys, in the order the panel lists them.</summary>
+/// <summary>The tone and color adjustment keys, in the order the panel lists them.</summary>
 public static class AdjustmentKeys
 {
     public const string Exposure = "exposure", Contrast = "contrast", Highlights = "highlights", Shadows = "shadows", Clarity = "clarity",
@@ -18,7 +18,7 @@ public static class AdjustmentKeys
 
     public static readonly IReadOnlyList<string> All = new[] { Exposure, Contrast, Highlights, Shadows, Clarity, Temperature, Tint, Vibrance, Saturation, Sharpening };
 
-    /// <summary>The copy / paste group of a key (the library's groups: tone, colour, sharpening).</summary>
+    /// <summary>The copy / paste group of a key (the library's groups: tone, color, sharpening).</summary>
     public static EditGroups GroupOf(string key) => key switch
     {
         Temperature or Tint or Vibrance or Saturation => EditGroups.Colour,
@@ -94,7 +94,7 @@ public sealed record AdjustmentSpec(string Key, string Name, double Min, double 
         new AdjustmentSpec(AdjustmentKeys.Shadows, "Shadows", -100, 100, 0, 1, 0, Tip: "Lift or deepen the shadows (a Lux control; Lumen never offered it)"),
         new AdjustmentSpec(AdjustmentKeys.Clarity, "Clarity", -100, 100, 0, 1, 0, Tip: "Local contrast (a Lux control; Lumen never offered it)"),
         new AdjustmentSpec(AdjustmentKeys.Temperature, "Temp", 2000, 20000, temperature, 10, 0, " K", Signed: false, Scale: SliderScale.Log,
-                           Tip: "White balance: colour temperature (the default is the photo's own)"),
+                           Tip: "White balance: color temperature (the default is the photo's own)"),
         new AdjustmentSpec(AdjustmentKeys.Tint, "Tint", -150, 150, tint, 1, 0, Tip: "White balance: green (−) to magenta (+)"),
         new AdjustmentSpec(AdjustmentKeys.Vibrance, "Vibrance", -100, 100, 0, 1, 0),
         new AdjustmentSpec(AdjustmentKeys.Saturation, "Saturation", -100, 100, 0, 1, 0),
@@ -103,17 +103,20 @@ public sealed record AdjustmentSpec(string Key, string Name, double Min, double 
 }
 
 /// <summary>A photo's crop, rotation and flips as the editor shows them: quarter turns clockwise, mirrored left ↔ right after the turn, the
-/// crop in the turned picture (normalised), and the crop's aspect preset.</summary>
+/// crop in the turned picture (normalized), and the crop's aspect preset.</summary>
 public sealed record GeometryState(int TurnDegrees, bool Mirrored, NormRect Crop, CropAspect Aspect = CropAspect.Free)
 {
     public static readonly GeometryState Identity = new(0, false, NormRect.Full);
-    public bool IsIdentity => TurnDegrees % 360 == 0 && !Mirrored && Crop.IsFull();
+    /// <summary>The level rotation in degrees, added to the quarter turns. Positive = the content turns counter-clockwise. 0 = none.</summary>
+    public double LevelDegrees { get; init; }
+    public bool HasLevel => LevelDegrees != 0;
+    public bool IsIdentity => TurnDegrees % 360 == 0 && !Mirrored && Crop.IsFull() && !HasLevel;
     public bool HasCrop => !Crop.IsFull();
     public bool HasTurnOrFlip => TurnDegrees % 360 != 0 || Mirrored;
     public Turn Turn => new Turn((TurnDegrees / 90) & 3, false).Then(Mirrored ? new Turn(0, true) : Viewer.Turn.Identity);
 }
 
-/// <summary>Edits to copy, paste or keep as a preset: the groups they carry, the tone and colour values, the geometry.</summary>
+/// <summary>Edits to copy, paste or keep as a preset: the groups they carry, the tone and color values, the geometry.</summary>
 /// <param name="Native">The library's own value object this set was read from (kept so a round trip loses nothing); null when made here.</param>
 public sealed record EditSet(EditGroups Groups, IReadOnlyDictionary<string, double> Values, GeometryState Geometry, object? Native = null)
 {
@@ -201,7 +204,7 @@ public interface IDevelopSession : IDisposable
     IReadOnlyList<AdjustmentSpec> Specs { get; }
     double Get(string key);
 
-    // ---- tone and colour
+    // ---- tone and color
     /// <summary>A slider drag starts: the following <see cref="DragTo"/> calls render at a coarser level and make no history step.</summary>
     void BeginDrag(string key);
     void DragTo(string key, double value);
@@ -211,9 +214,9 @@ public interface IDevelopSession : IDisposable
     void SetValue(string key, double value);
     /// <summary>Back to the unedited value (double-click on the label).</summary>
     void Reset(string key);
-    /// <summary>The tone and colour section's reset (one step).</summary>
+    /// <summary>The tone and color section's reset (one step).</summary>
     void ResetToneAndColour();
-    /// <summary>Lumen's "revert to original": every tone, colour and geometry edit removed (one step, undoable).</summary>
+    /// <summary>Lumen's "revert to original": every tone, color and geometry edit removed (one step, undoable).</summary>
     void RevertToOriginal();
     /// <summary>Paste or a preset into this photo: the groups of <paramref name="set"/> replace the current ones (one step). False when its
     /// crop could not be applied (another aspect ratio).</summary>
@@ -239,9 +242,14 @@ public interface IDevelopSession : IDisposable
     /// <summary>Whether the camera was held turned and the photo is not turned that way yet.</summary>
     bool CanRotateAsHeld { get; }
     void RotateAsHeld();
+    /// <summary>The rotation that makes the photo level, from the gravity direction that the camera recorded, or the reason why there
+    /// is none.</summary>
+    LevelSuggestion LevelSuggestion { get; }
+    /// <summary>Set the level rotation to the suggestion (one step). The crop becomes smaller so that it has no empty corners.</summary>
+    void Level();
     void ResetGeometry();
     bool IsCropping { get; }
-    /// <summary>The crop frame while cropping, normalised in the uncropped (turned) picture.</summary>
+    /// <summary>The crop frame while cropping, normalized in the uncropped (turned) picture.</summary>
     NormRect CropFrame { get; }
     CropAspect CropAspect { get; }
     void EnterCrop();

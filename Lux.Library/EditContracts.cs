@@ -1,5 +1,5 @@
 // The contract between the library core and the app's Develop page: viewing a photo through a viewport-driven picture
-// source, its non-depth edits (tone and colour, crop, rotation, flips), undo / redo, automatic saving, the histogram, copy / paste and
+// source, its non-depth edits (tone and color, crop, rotation, flips), undo / redo, automatic saving, the histogram, copy / paste and
 // presets. UI-framework-free, like Contracts.cs, and under the same rules:
 //  * Events are raised on library threads (never the UI thread): marshal before touching UI state.
 //  * Every member is thread-safe. Calls that change an edit return at once; the picture follows through TileReady.
@@ -57,7 +57,7 @@ public interface IPhotoSession : IDisposable, IAsyncDisposable
 
 // ====================================================================================================================== geometry types
 
-/// <summary>A rectangle in normalised picture coordinates: (0, 0) = top left of the picture as shown, (1, 1) = bottom right.</summary>
+/// <summary>A rectangle in normalized picture coordinates: (0, 0) = top left of the picture as shown, (1, 1) = bottom right.</summary>
 public readonly record struct NormRect(double X, double Y, double Width, double Height)
 {
     public double Right => X + Width;
@@ -65,7 +65,7 @@ public readonly record struct NormRect(double X, double Y, double Width, double 
     public static NormRect Full { get; } = new(0, 0, 1, 1);
 }
 
-/// <summary>A point in normalised coordinates (0–1 across and down).</summary>
+/// <summary>A point in normalized coordinates (0–1 across and down).</summary>
 public readonly record struct NormPoint(double X, double Y);
 
 /// <summary>A rectangle in whole pixels of one level (X, Y = top left; exclusive right / bottom = X + Width, Y + Height).</summary>
@@ -111,7 +111,7 @@ public sealed record PictureGeometry(IReadOnlyList<PixelSize> LevelSizes, int Ti
         int x = col * TileSize, y = row * TileSize;
         return new PixelRect(x, y, Math.Min(TileSize, s.Width - x), Math.Min(TileSize, s.Height - y));
     }
-    /// <summary>The tiles of a level covering a normalised rectangle (clamped to the picture).</summary>
+    /// <summary>The tiles of a level covering a normalized rectangle (clamped to the picture).</summary>
     public IReadOnlyList<TileId> TilesCovering(int level, NormRect r)
     {
         var s = LevelSizes[level]; var (cols, rows) = Grid(level);
@@ -161,21 +161,21 @@ public enum ViewMode
 {
     /// <summary>The photo with its current edits.</summary>
     Edited = 0,
-    /// <summary>The same photo without tone and colour adjustments (Lumen's own rendering), with the same crop, rotation and depth
+    /// <summary>The same photo without tone and color adjustments (Lumen's own rendering), with the same crop, rotation and depth
     /// effect — the "before" of a before / after view.</summary>
     Original = 1,
-    /// <summary>The depth map as a picture ("Photo + depth"): same geometry, tiles, transforms and display rotation as the photo; Lux's own grey
-    /// mapping (<see cref="DepthViewMapping"/>). Needs the depth (an unanalysed photo delivers nothing until the depth is ready).</summary>
+    /// <summary>The depth map as a picture ("Photo + depth"): same geometry, tiles, transforms and display rotation as the photo; Lux's own gray
+    /// mapping (<see cref="DepthViewMapping"/>). Needs the depth (an unanalyzed photo delivers nothing until the depth is ready).</summary>
     Depth = 2,
 }
 
 // ====================================================================================================================== the viewer
 
 /// <summary>What the viewer wants now (<see cref="IPhotoView.RequestViewport"/>). The newest request wins: work for older requests is
-/// cancelled between tiles.</summary>
+/// canceled between tiles.</summary>
 public sealed record ViewportRequest
 {
-    /// <summary>The visible part of the picture, normalised (may reach outside 0–1; clamped).</summary>
+    /// <summary>The visible part of the picture, normalized (may reach outside 0–1; clamped).</summary>
     public required NormRect Visible { get; init; }
     /// <summary>Device pixels the visible rectangle covers on screen (its width and height). The renderer refines to the coarsest level that
     /// has at least this many picture pixels across it (level 0 at 100 % and above), capped by the quality.</summary>
@@ -194,7 +194,7 @@ public sealed record ViewportRequest
     public bool Interactive { get; init; }
     /// <summary>The tiles the viewer still needs at the target level (it holds the others at the current version); null = every tile of the
     /// visible rectangle. The coarse level-4 picture always comes whole unless the viewer already holds it. The tiles are rendered
-    /// in the order of this collection (give an ordered list, e.g. centre-out); null = centre-out.</summary>
+    /// in the order of this collection (give an ordered list, e.g. center-out); null = center-out.</summary>
     public IReadOnlyCollection<TileId>? Needed { get; init; }
     /// <summary>Whether the viewer already holds the whole level-4 picture at the current version.</summary>
     public bool HasCoarse { get; init; }
@@ -273,7 +273,7 @@ public interface IPhotoView
     /// drop every held tile and request again.</summary>
     event EventHandler<PictureGeometry>? GeometryChanged;
 
-    /// <summary>Ask for the tiles of a viewport. Returns the request number (tiles carry it). Older requests are cancelled between tiles,
+    /// <summary>Ask for the tiles of a viewport. Returns the request number (tiles carry it). Older requests are canceled between tiles,
     /// whatever their mode: a request for the depth view cancels one for the photo, and the reverse. Two viewers of one photo view (the photo
     /// and its depth map) must take turns.</summary>
     long RequestViewport(ViewportRequest request);
@@ -296,13 +296,13 @@ public interface IPhotoView
     /// null when nothing exists yet (show a neutral square).</summary>
     Task<StandInImage?> GetStandInAsync(CancellationToken cancel = default);
 
-    /// <summary>A picture point (normalised, as shown in <see cref="PictureLayout.Picture"/>) → the capture's own coordinates: normalised over
+    /// <summary>A picture point (normalized, as shown in <see cref="PictureLayout.Picture"/>) → the capture's own coordinates: normalized over
     /// the full-size export window, unrotated and uncropped (what focus points and depth tools take). Null outside the picture.</summary>
     NormPoint? PictureToCapture(NormPoint picture);
     /// <summary>The inverse of <see cref="PictureToCapture"/>; null when the capture point is cropped away.</summary>
     NormPoint? CaptureToPicture(NormPoint capture);
     /// <summary>The scene depth (mm) at a picture point — Lumen's click to focus (3×3 mean of the depth cache). Null when the photo is not
-    /// analysed yet and <paramref name="analyseIfNeeded"/> is false (an analysis takes about a minute).</summary>
+    /// analyzed yet and <paramref name="analyseIfNeeded"/> is false (an analysis takes about a minute).</summary>
     Task<float?> DepthAtAsync(NormPoint picture, bool analyseIfNeeded = false, CancellationToken cancel = default);
 
     /// <summary>Render a region of a level at once (tests and exports of a view): the same pixels the tiles carry. Not progressive.</summary>
@@ -311,7 +311,7 @@ public interface IPhotoView
 
 // ====================================================================================================================== edits
 
-/// <summary>The tone and colour controls, in the order of Lumen's panel (the last three are Lux's: Lumen implements them but never offered them).</summary>
+/// <summary>The tone and color controls, in the order of Lumen's panel (the last three are Lux's: Lumen implements them but never offered them).</summary>
 public enum AdjustmentKey
 {
     Exposure = 0,
@@ -343,7 +343,7 @@ public enum EditGroups
     RotationAndMirror = 16,
     /// <summary>The depth effect's f-number and focus (edited in a later version; carried by copy / paste and presets already).</summary>
     DepthEffect = 32,
-    /// <summary>Every tone and colour control.</summary>
+    /// <summary>Every tone and color control.</summary>
     ToneAndColour = Tone | Colour | Sharpening,
     /// <summary>Crop, rotation and mirroring.</summary>
     Geometry = Crop | RotationAndMirror,
@@ -397,7 +397,10 @@ public sealed record PhotoTransform
     public int TurnDegrees { get; init; }
     /// <summary>Mirrored left ↔ right after the turn.</summary>
     public bool Mirrored { get; init; }
-    /// <summary>The crop rectangle in the turned, uncropped picture (normalised); <see cref="NormRect.Full"/> = not cropped.</summary>
+    /// <summary>The level rotation in degrees, added to the quarter turns (<see cref="IPhotoEdit.Level"/>). Positive = the content of the
+    /// capture is turned counter-clockwise. 0 = none. Rounded for display; the exact rotation is in <see cref="Matrix"/>.</summary>
+    public double LevelDegrees { get; init; }
+    /// <summary>The crop rectangle in the turned, uncropped picture (normalized); <see cref="NormRect.Full"/> = not cropped.</summary>
     public NormRect Crop { get; init; } = NormRect.Full;
     /// <summary>Whether anything is set at all (the identity transform, not cropped).</summary>
     public bool IsIdentity { get; init; } = true;
@@ -413,13 +416,33 @@ public sealed record PhotoTransform
     public float CropY1 { get; init; } = 1f;
 }
 
+/// <summary>The rotation that makes a photo level, from the gravity direction that the camera recorded. It is a suggestion: the
+/// accelerometer is typically right to a few tenths of a degree, and less when the camera moved.</summary>
+/// <param name="Available">The capture has a usable gravity direction.</param>
+/// <param name="Degrees">The rotation in degrees. Positive = the content of the capture turns counter-clockwise.</param>
+/// <param name="Reason">Why there is no suggestion (plain language); null when there is one.</param>
+public sealed record LevelSuggestion(bool Available, float Degrees, string? Reason)
+{
+    /// <summary>No suggestion, without a stated reason.</summary>
+    public static readonly LevelSuggestion None = new(false, 0f, "This photo has no level data.");
+
+    /// <summary>The suggestion for a result of the motion data reader.</summary>
+    public static LevelSuggestion From(float? degrees, Lux.Engine.Lri.LevelState state) => state switch
+    {
+        Lux.Engine.Lri.LevelState.Available when degrees is float d => new(true, d, null),
+        Lux.Engine.Lri.LevelState.PointsUpOrDown => new(false, 0f, "The camera pointed up or down, so it could not sense which way is level."),
+        Lux.Engine.Lri.LevelState.BetweenLandscapeAndPortrait => new(false, 0f, "The camera was held between landscape and portrait, so the level direction is not certain."),
+        _ => new(false, 0f, "This photo has no motion data."),
+    };
+}
+
 /// <summary>A complete, portable set of edit values (one photo's state, the clipboard, a preset). Which parts are meaningful is
 /// <see cref="Groups"/>; the rest are the neutral values.</summary>
 public sealed record EditValues
 {
     /// <summary>The parts this set carries.</summary>
     public EditGroups Groups { get; init; } = EditGroups.All;
-    /// <summary>Tone and colour (Lux's engine type: exposure, contrast, temperature / tint — null = the photo's own white balance —, vibrance,
+    /// <summary>Tone and color (Lux's engine type: exposure, contrast, temperature / tint — null = the photo's own white balance —, vibrance,
     /// saturation, sharpening, shadows, highlights, clarity).</summary>
     public Adjustments Adjustments { get; init; } = Adjustments.Default;
     /// <summary>Crop, rotation and mirroring.</summary>
@@ -445,7 +468,7 @@ public sealed record EditHistoryStep(int Index, string Label, bool Done);
 /// <param name="Version">The content version it was computed for.</param>
 public sealed record Histogram(int[] Red, int[] Green, int[] Blue, int[] Luminance, int Level, PixelSize Size, long Version)
 {
-    /// <summary>The largest bin over the three colour channels, for scaling bars.</summary>
+    /// <summary>The largest bin over the three color channels, for scaling bars.</summary>
     public int Peak => Math.Max(Red.Max(), Math.Max(Green.Max(), Blue.Max()));
 }
 
@@ -513,7 +536,7 @@ public sealed class EditChangedEventArgs : EventArgs
 }
 
 /// <summary>
-/// The current edit state of the open photo: tone and colour sliders, crop / rotation / flips, undo / redo, automatic saving, histogram and
+/// The current edit state of the open photo: tone and color sliders, crop / rotation / flips, undo / redo, automatic saving, histogram and
 /// info. Every change is applied to the picture at once (<see cref="IPhotoView"/>) and saved automatically into the photo's context
 /// database (next to the photo in <c>LuxImageContext</c>, or in the local store when its folder cannot be written), debounced
 /// (<see cref="ViewerSettings.SaveDelayMs"/>). The library's mirror and thumbnail follow each save.
@@ -542,7 +565,7 @@ public interface IPhotoEdit
     void Reset(AdjustmentKey key);
     /// <summary>Reset a group (Lumen's per-section reset: TONE &amp; COLOR, GEOMETRY).</summary>
     void ResetGroups(EditGroups groups);
-    /// <summary>Lumen's "revert to original": every tone, colour, crop and rotation edit removed (one undo step). Depth edits are untouched.</summary>
+    /// <summary>Lumen's "revert to original": every tone, color, crop and rotation edit removed (one undo step). Depth edits are untouched.</summary>
     void RevertToOriginal();
     /// <summary>Apply a set of values (a preset, a paste into the open photo): the groups it carries replace the current ones (one undo step).
     /// Returns false when its crop could not be applied (another aspect ratio) — the rest is applied.</summary>
@@ -565,19 +588,25 @@ public interface IPhotoEdit
     void RotateAsHeld();
     /// <summary>Crop, rotation and flips back to none (Lumen's GEOMETRY reset).</summary>
     void ResetGeometry();
+    /// <summary>The rotation that makes this photo level, or the reason why there is none.</summary>
+    LevelSuggestion LevelSuggestion => LevelSuggestion.None;
+    /// <summary>Set the level rotation to <see cref="LevelSuggestion"/> (one undo step). The picture turns about the center of its crop, and
+    /// the crop becomes smaller until it has no empty corners. Quarter turns and flips keep the level rotation. Copy / paste and presets do
+    /// not carry it, because the angle belongs to one capture. No effect when there is no suggestion.</summary>
+    void Level() { }
 
     /// <summary>The crop tool (Lumen: the crop button; zoom is fixed to fit while it is shown).</summary>
     CropState CropState { get; }
     /// <summary>Show the crop frame over the uncropped picture (the view switches to <see cref="PictureLayout.Uncropped"/>).</summary>
     void EnterCrop();
-    /// <summary>The aspect preset of the frame; choosing one reshapes the frame as Lumen does (same area, centred, kept inside).</summary>
+    /// <summary>The aspect preset of the frame; choosing one reshapes the frame as Lumen does (same area, centered, kept inside).</summary>
     CropAspect CropAspect { get; }
     void SetCropAspect(CropAspect aspect);
-    /// <summary>The frame in the uncropped picture (normalised). Setting it (while dragging) only moves the frame; values are clamped to the
+    /// <summary>The frame in the uncropped picture (normalized). Setting it (while dragging) only moves the frame; values are clamped to the
     /// picture. With an aspect preset the UI keeps the aspect (<see cref="FitCropFrame"/> helps).</summary>
     NormRect CropFrame { get; }
     void SetCropFrame(NormRect frame, bool dragging = false);
-    /// <summary>The largest rectangle of the current preset's aspect centred in <paramref name="frame"/> (identity for Free).</summary>
+    /// <summary>The largest rectangle of the current preset's aspect centered in <paramref name="frame"/> (identity for Free).</summary>
     NormRect FitCropFrame(NormRect frame);
     /// <summary>Apply the frame (one undo step) and hide the tool. Lumen applies an open crop before any other tool.</summary>
     void ApplyCrop();
@@ -652,7 +681,7 @@ public interface IEditClipboard
     /// <summary>Paste the clipboard (its groups ∩ <paramref name="groups"/>) into photos. A photo open in the editor gets the change in its
     /// session too (undoable there).</summary>
     Task<EditBatchResult> PasteAsync(IReadOnlyCollection<string> captureIds, EditGroups groups, CancellationToken cancel = default);
-    /// <summary>Paste with a per-slider choice: <paramref name="sliders"/> = exactly the tone / colour sliders to paste (null = by groups); the
+    /// <summary>Paste with a per-slider choice: <paramref name="sliders"/> = exactly the tone / color sliders to paste (null = by groups); the
     /// geometry and depth groups come from <paramref name="groups"/>.</summary>
     Task<EditBatchResult> PasteAsync(IReadOnlyCollection<string> captureIds, EditGroups groups, IReadOnlySet<AdjustmentKey>? sliders, CancellationToken cancel = default)
         => PasteAsync(captureIds, groups, cancel);

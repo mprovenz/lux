@@ -56,7 +56,7 @@ public sealed class ViewerTimingTests
             return (frame, v.Stats.RenderMs.ToList());
         }
 
-        // 1:1 at the centre, settled
+        // 1:1 at the center, settled
         v.ZoomToActual(new Point(v.Bounds.Width / 2, v.Bounds.Height / 2), animate: false);
         await h.SettlePictureAsync();
         Assert.Equal(0, v.LevelOnScreen);
@@ -72,7 +72,7 @@ public sealed class ViewerTimingTests
         report.AppendLine("  " + Stats("tile arrival → drawn", panLatency));
         report.AppendLine($"  frames with a slot not covered: {panGaps} · tiles drawn per frame max {v.Stats.MaxTilesDrawn} · requests {v.Stats.Requests}");
 
-        // smooth zoom: fit → 200 % → fit in 90 frames about a point off centre
+        // smooth zoom: fit → 200 % → fit in 90 frames about a point off center
         v.ZoomToFit();
         await h.SettlePictureAsync();
         var anchor = new Point(v.Bounds.Width * 0.6, v.Bounds.Height * 0.4);

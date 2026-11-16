@@ -16,12 +16,12 @@ public sealed class QuickSelectTrace
 /// <summary>
 /// The quick-select object of the depth editor (Lumen creates it with (levelSize, 0, 1.0)).
 /// It keeps, at the editor's level size, a byte <see cref="Mask"/> and a float seed map, and for the current ROI a
-/// grey guide, its CIELAB image and the edge-avoiding-wavelet pyramid of the grey guide.
+/// gray guide, its CIELAB image and the edge-avoiding-wavelet pyramid of the gray guide.
 ///
 /// A stroke is stamped into the seed map with the brush kernel (hardness 0.9) scaled by ±100 000 (positive strokes
 /// add, negative strokes overwrite), the seeds — with a two-pixel frame of negative values where nothing constrains the border — are
-/// propagated through the wavelet pyramid, thresholded at 0.2, pruned with two k-means colour models of the
-/// positively and negatively stroked pixels, smoothed with a domain-transform filter guided by the grey image and
+/// propagated through the wavelet pyramid, thresholded at 0.2, pruned with two k-means color models of the
+/// positively and negatively stroked pixels, smoothed with a domain-transform filter guided by the gray image and
 /// cleaned. When the stroke level is coarser than the editor's level the seeds / mask are resampled to and from the working size.
 /// </summary>
 public sealed class QuickSelect
@@ -66,7 +66,7 @@ public sealed class QuickSelect
         WorkRect = LevelRect = new RectI(0, 0, level.W, level.H);
     }
 
-    /// <summary>Load the image (qs, image, roi, scale): "Input image is too small for QuickSelection!" below 5×5; grey image, pyramid
+    /// <summary>Load the image (qs, image, roi, scale): "Input image is too small for QuickSelection!" below 5×5; gray image, pyramid
     /// (<c>floor(log2(min side)) − 1</c> levels, distance type 0, parameter 1.0), CIELAB image; the two rects
     /// (<c>levelRect = (cvtt(x0·s), cvtt(y0·s), cvtt(w·s) + cvtt(x0·s), cvtt(h·s) + cvtt(y0·s))</c>);
     /// "ROI should have the same size as the input image!"; state 2 → 1.</summary>
@@ -178,11 +178,11 @@ public sealed class QuickSelect
     }
 
     /// <summary>
-    /// The mask build (qs, out, input, P): <c>mask = P &gt; 0.2</c>; colour samples from the CIELAB image, classified by
+    /// The mask build (qs, out, input, P): <c>mask = P &gt; 0.2</c>; color samples from the CIELAB image, classified by
     /// the <b>diffusion input</b> (seeds with the frame, so the −100000 frame of a first stroke counts as negative): above 50000 →
     /// positive set, below −50000 → negative set, the rest where the mask is set → candidates. With more than four samples in
     /// both sets, a 4-means model of each (positive first) and each candidate's distance to both: a candidate nearer to the negative
-    /// model is dropped unless P ≥ 1.2. Then `ImageFilterDT` (σs 10, σr 20/255, one pass, grey guide) and the clean-up (<see cref="QuickSelectFilters.Cleanup"/>).
+    /// model is dropped unless P ≥ 1.2. Then `ImageFilterDT` (σs 10, σr 20/255, one pass, gray guide) and the clean-up (<see cref="QuickSelectFilters.Cleanup"/>).
     /// </summary>
     byte[] BuildMask(float[] seeds, float[] P, int w, int h, QuickSelectTrace? trace)
     {

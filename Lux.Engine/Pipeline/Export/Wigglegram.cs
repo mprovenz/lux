@@ -14,11 +14,11 @@ namespace Lux.Engine.Pipeline.Export;
 ///
 /// * <b>Which modules.</b> The A group only. B and C aim at different parts of the scene to be stitched, not the
 ///   same framing from offset positions. Within A, the <b>monochrome module is excluded</b> (on the L16 this is
-///   A2, `sensor_bayer_red_override = (-1,-1)`); leaving it in makes every fourth frame greyscale.
+///   A2, `sensor_bayer_red_override = (-1,-1)`); leaving it in makes every fourth frame grayscale.
 /// * <b>What order.</b> By projecting the modules' factory camera positions onto their own dominant axis, so the
 ///   animation sweeps once across the rig rather than backtracking. See <see cref="SweepOrder"/>.
-/// * <b>Colour.</b> The modules disagree about white balance by 30–43 levels of 255; untouched, the result strobes
-///   between colour casts and the parallax stops being the thing you notice. See <see cref="MatchColour"/>.
+/// * <b>Color.</b> The modules disagree about white balance by 30–43 levels of 255; untouched, the result strobes
+///   between color casts and the parallax stops being the thing you notice. See <see cref="MatchColour"/>.
 ///
 /// Deliberately NOT done: any warping or rectification. Measured on Lux's own module renders, whole-frame drift
 /// between A modules is 24–28 px on a 4160 px frame while the differential disparity that carries the depth is
@@ -40,7 +40,7 @@ public static class Wigglegram
         return r is not null && (r.X | r.Y) < 0;
     }
 
-    /// <summary>The modules a wigglegram should use: one optical group, colour sensors only, in sweep order.</summary>
+    /// <summary>The modules a wigglegram should use: one optical group, color sensors only, in sweep order.</summary>
     public static IReadOnlyList<string> SelectModules(LriFile lri, int group = 0, bool includeMono = false)
     {
         var names = new List<string>();
@@ -59,11 +59,11 @@ public static class Wigglegram
     /// The modules are bolted to the body, so their layout is a property of the camera rather than of any one
     /// photo — which means it can be read straight from the factory extrinsics instead of estimated per scene.
     /// Each module's calibration gives a rotation and translation relative to the canonical camera; the camera
-    /// centre is `−(Rᵀ·t)`. Those centres are projected onto their own dominant axis (the principal component)
+    /// center is `−(Rᵀ·t)`. Those centers are projected onto their own dominant axis (the principal component)
     /// and sorted along it.
     ///
     /// Label order is wrong and visibly so: A1→A3→A4→A5 backtracks, giving three small steps and one
-    /// hard snap. The dominant axis for the four colour A modules comes out ~12° off horizontal. The order can come out
+    /// hard snap. The dominant axis for the four color A modules comes out ~12° off horizontal. The order can come out
     /// reversed, which is immaterial to a ping-pong loop.
     /// </summary>
     public static IReadOnlyList<string> SweepOrder(LriFile lri, IReadOnlyList<string> names)
@@ -77,7 +77,7 @@ public static class Wigglegram
             pts.Add((n, c.Value.X, c.Value.Y));
         }
         double mx = pts.Average(p => p.X), my = pts.Average(p => p.Y);
-        // 2x2 covariance of the centred positions, then its dominant eigenvector — the axis the rig is spread along.
+        // 2x2 covariance of the centered positions, then its dominant eigenvector — the axis the rig is spread along.
         double sxx = 0, syy = 0, sxy = 0;
         foreach (var p in pts) { double dx = p.X - mx, dy = p.Y - my; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; }
         double tr = sxx + syy, det = sxx * syy - sxy * sxy;
@@ -92,7 +92,7 @@ public static class Wigglegram
         return pts.OrderBy(p => (p.X - mx) * vx + (p.Y - my) * vy).Select(p => p.Name).ToArray();
     }
 
-    /// <summary>`−(Rᵀ·t)` from the module's canonical factory extrinsics, in millimetres; null if uncalibrated.</summary>
+    /// <summary>`−(Rᵀ·t)` from the module's canonical factory extrinsics, in millimeters; null if uncalibrated.</summary>
     public static (double X, double Y, double Z)? CameraCentre(LriFile lri, Ltpb.CameraID id)
     {
         var ext = Calibration.CanonicalExtrinsics(lri.Header, id);
@@ -108,7 +108,7 @@ public static class Wigglegram
     ///
     /// Matching to the group average rather than to a chosen reference avoids privileging one module's cast. This
     /// typically takes a 30–43 level per-channel spread down to under 1, which is the difference between a
-    /// wigglegram that reads as depth and one that reads as a colour-strobing fault. Frames are corrected one at a
+    /// wigglegram that reads as depth and one that reads as a color-strobing fault. Frames are corrected one at a
     /// time so the whole set is never held in float at once.
     /// </summary>
     public static void MatchColour(IReadOnlyList<Frame> frames)
@@ -203,7 +203,7 @@ public static class Wigglegram
         return v;
     }
 
-    /// <summary>Integer-accurate phase correlation — robust to the exposure and colour differences between sensors,
+    /// <summary>Integer-accurate phase correlation — robust to the exposure and color differences between sensors,
     /// which is why it is used here rather than intensity-domain matching.</summary>
     static (int X, int Y) PhaseCorrelate(double[] a, double[] b, int w, int h)
     {
@@ -225,7 +225,7 @@ public static class Wigglegram
     }
 
     /// <summary>Ping-pong: play the sweep out and back, minus the repeated endpoints. A straight loop snaps from the
-    /// last module to the first across the whole baseline, which is exactly the artefact the sweep order avoids.</summary>
+    /// last module to the first across the whole baseline, which is exactly the artifact the sweep order avoids.</summary>
     public static IReadOnlyList<Frame> Boomerang(IReadOnlyList<Frame> frames)
     {
         if (frames.Count < 3) return frames;

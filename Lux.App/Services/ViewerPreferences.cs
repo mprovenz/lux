@@ -5,7 +5,7 @@ namespace Lux.App.Services;
 
 /// <summary>
 /// How a changed picture replaces the one on screen (the tile-swap policy of <see cref="Viewer.PhotoViewer"/>): on / off, how long to wait for
-/// the whole visible picture before showing it part by part from the centre, and the fade of each part. Kept in the library's settings
+/// the whole visible picture before showing it part by part from the center, and the fade of each part. Kept in the library's settings
 /// (<c>viewer.swap</c>, <c>viewer.swap_window_ms</c>, <c>viewer.swap_fade_ms</c>).
 /// </summary>
 public sealed class ViewerPreferences

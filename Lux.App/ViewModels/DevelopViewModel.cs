@@ -20,7 +20,7 @@ public enum CompareStyle { Split, Toggle }
 
 /// <summary>
 /// The Develop page: one capture open in the viewer with its non-depth edits — header (name, size, lens, view modes), the quality selector,
-/// histogram, info, the depth-effect placeholder, the ten tone and colour sliders, geometry (crop tool, aspect presets, rotation, flips,
+/// histogram, info, the depth-effect placeholder, the ten tone and color sliders, geometry (crop tool, aspect presets, rotation, flips,
 /// rotate as held), revert, history with undo / redo, presets and copy / paste, the filmstrip with rating and next / previous, the export side
 /// panel, and the status bar's zoom, quality on screen and save state. Opening, saving and everything heavy run off the UI thread; the
 /// session's events are applied once per UI turn.
@@ -345,7 +345,7 @@ public sealed partial class DevelopViewModel : ObservableObject, IAsyncDisposabl
     public event Action? StatusPointerChanged;
     public string StatusPointer => Item == null ? "" : Depth.PointerText;
 
-    /// <summary>The Depth effect section's card: the depth map is not ready (with "Analyse now").</summary>
+    /// <summary>The Depth effect section's card: the depth map is not ready (with "Analyze now").</summary>
     public bool ShowDepthCard => Session != null && Depth.HasDepth && !Depth.IsReady && !Depth.HasOptionBar;
     /// <summary>The card over the picture: a depth tool is chosen but the depth map is not ready.</summary>
     public bool ShowDepthNotReady => Session != null && Depth.HasOptionBar && !Depth.IsReady;
@@ -358,7 +358,7 @@ public sealed partial class DevelopViewModel : ObservableObject, IAsyncDisposabl
         foreach (var p in new[]
                  {
                      nameof(HasItem), nameof(HasSession), nameof(IsEditable), nameof(HeaderText), nameof(CanUndo), nameof(CanRedo), nameof(UndoTip), nameof(RedoTip),
-                     nameof(IsCropping), nameof(CropAspectChoice), nameof(CanRotateAsHeld), nameof(RotateAsHeldLabel), nameof(RotateAsHeldTip), nameof(GeometryText),
+                     nameof(IsCropping), nameof(CropAspectChoice), nameof(CanRotateAsHeld), nameof(RotateAsHeldLabel), nameof(RotateAsHeldTip), nameof(GeometryText), nameof(CanLevel), nameof(LevelNote),
                      nameof(CanRevert), nameof(SaveText), nameof(StatusSaved), nameof(StatusQuality), nameof(StatusZoom), nameof(IsProcessing), nameof(ProcessingProgress),
                      nameof(ViewerState), nameof(OnScreenText), nameof(OnScreenQuality), nameof(IsPreviewOnScreen), nameof(Is13OnScreen), nameof(IsFullOnScreen),
                      nameof(CanPaste), nameof(ClipboardText), nameof(RatingStars), nameof(Rating), nameof(CanPrevious), nameof(CanNext), nameof(ShowEmpty),
@@ -528,7 +528,7 @@ public sealed partial class DevelopViewModel : ObservableObject, IAsyncDisposabl
         else Mode = DevelopMode.Single;
     }
 
-    // ============================================================================================================ tone and colour
+    // ============================================================================================================ tone and color
 
     [RelayCommand]
     void ResetTone()
@@ -607,8 +607,41 @@ public sealed partial class DevelopViewModel : ObservableObject, IAsyncDisposabl
             if (g.HasCrop) p.Add(g.Aspect == CropAspect.Free ? "Cropped" : $"Cropped {AspectPreset.Of(g.Aspect).Label}");
             if (g.TurnDegrees % 360 != 0) p.Add($"turned {g.TurnDegrees}°");
             if (g.Mirrored) p.Add("flipped");
+            if (g.HasLevel) p.Add("leveled " + LevelAngleText(g.LevelDegrees));
             return p.Count == 0 ? "Not cropped or turned" : string.Join(" · ", p);
         }
+    }
+
+    // ---- level: a suggestion from the gravity direction that the camera recorded
+
+    /// <summary>"1.4° left" (counter-clockwise, as Rotate left) or "0.8° right".</summary>
+    static string LevelAngleText(double degrees) =>
+        Math.Abs(degrees).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "° " + (degrees >= 0 ? "left" : "right");
+
+    /// <summary>The photo already has the suggested level rotation.</summary>
+    bool IsLevelled => Session is { LevelSuggestion: { Available: true } l } s && s.Geometry.HasLevel && Math.Abs(s.Geometry.LevelDegrees - l.Degrees) < 0.005;
+
+    public bool CanLevel => Session?.LevelSuggestion.Available == true && !IsCropping && !IsLevelled;
+
+    /// <summary>The line under the Level button: the suggested angle, that it is applied, or why there is no suggestion.</summary>
+    public string LevelNote
+    {
+        get
+        {
+            if (Session is not { } s) return "";
+            var l = s.LevelSuggestion;
+            if (!l.Available) return l.Reason ?? "This photo has no level data.";
+            return IsLevelled ? "Leveled as the camera sensed it. Undo if it does not look right." : "Suggested: turn " + LevelAngleText(l.Degrees);
+        }
+    }
+
+    public string LevelTip => "Turn the photo so that it is level, by the angle the camera's motion sensor suggests. The crop gets a little smaller. It is a suggestion: undo it if the photo does not look right.";
+
+    [RelayCommand]
+    void Level()
+    {
+        if (!CanLevel) return;
+        GeometryOp(s => s.Level(), mapCrop: false);
     }
 
     void Hint(Turn turn, NormRect? source = null, NormRect? target = null) => _viewer?.ExpectGeometryChange(turn, source, target);

@@ -14,7 +14,7 @@ namespace Lux.Engine.Session;
 /// exactly the `GetExportTransformOutput` transform the image writers resolve — including its rotation, so a depth
 /// map written alongside a rotated raster format lands on the same grid as that image.
 ///
-/// Values are **metric millimetres** (`InverseDepth` → `DepthImageCache`, far clipped at 100 000 mm), so a sample
+/// Values are **metric millimeters** (`InverseDepth` → `DepthImageCache`, far clipped at 100 000 mm), so a sample
 /// is a real distance and two captures are directly comparable.
 /// </summary>
 public static class DepthMapExport
@@ -36,7 +36,7 @@ public static class DepthMapExport
     }
 
     /// <summary>Write a depth already on the export grid as `&lt;stem&gt;_depth.f32` (the `{w,h,stride,bpp=4}` header +
-    /// float32 millimetres) plus `&lt;stem&gt;_depth.jpg` (the gray8 preview, byte for byte the image the `GDepth:Data`
+    /// float32 millimeters) plus `&lt;stem&gt;_depth.jpg` (the gray8 preview, byte for byte the image the `GDepth:Data`
     /// block carries).</summary>
     public static Result Write(float[] warped, (int W, int H) size, string outDir, string stem)
     {

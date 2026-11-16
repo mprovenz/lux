@@ -608,7 +608,7 @@ internal sealed class JobQueue : IJobQueue
     }
 }
 
-/// <summary>(De)serialisation of job requests for the job table.</summary>
+/// <summary>(De)serialization of job requests for the job table.</summary>
 internal static class JobRequests
 {
     static readonly JsonSerializerOptions Opt = new() { IncludeFields = false, WriteIndented = false };

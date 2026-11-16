@@ -12,7 +12,7 @@ namespace Lux.Engine.Pipeline.Isp.Stages;
 /// below → <see cref="Down"/>). Both share the no-vibrance kernel's line factories (Lab line, LDiff, sharpen/blur) and its
 /// Lab → RGB tail; they differ only in how the a/b chroma (and, for v &gt; 1, the lightness) of a pixel is rescaled before the
 /// reconstruction, using its hue h = atan2(b, a) (a polynomial atan, `rcpps` without a Newton step) and the 361-entry per-degree table
-/// that Lumen's static initialiser copies from its constant data.
+/// that Lumen's static initializer copies from its constant data.
 ///
 /// <para>Each kernel has a 4-wide body (columns `0 … (w &amp; ~3) − 1` of a 256-px Tiler column tile) and a scalar tail (the last
 /// `w &amp; 3` columns) that compute the same formula with different instructions: the tail evaluates the atan polynomial in double,

@@ -5,7 +5,7 @@ using Lux.Store;
 namespace Lux.Library.Core;
 
 /// <summary>The library implementation (<see cref="ILibrary"/>). Split over <c>LibraryCore.*.cs</c>: folders and lifetime here, queries,
-/// organising, scanning, the context mirror, thumbnails and the job runners in their own files.</summary>
+/// organizing, scanning, the context mirror, thumbnails and the job runners in their own files.</summary>
 internal sealed partial class LibraryCore : ILibrary
 {
     internal readonly LibraryDb Db;

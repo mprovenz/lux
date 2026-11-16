@@ -6,7 +6,7 @@ namespace Lux.App.Controls;
 
 /// <summary>
 /// One row of equal-width cells (the grid and the timeline cards). Unlike an inner ItemsControl, it keeps its cell controls when the
-/// virtualising list recycles the row for other captures: only the cells' data contexts change, so scrolling builds no new controls once
+/// virtualizing list recycles the row for other captures: only the cells' data contexts change, so scrolling builds no new controls once
 /// the screen is filled. Spare cells (a short last row) are hidden, not removed.
 /// </summary>
 public sealed class RowCells : Panel

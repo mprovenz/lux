@@ -160,7 +160,7 @@ public sealed class DepthEditStore : IDisposable
             data BLOB NOT NULL, sha256 BLOB NOT NULL, PRIMARY KEY(variant_id, name)) WITHOUT ROWID;
         """ + RenderSettingsSql;
 
-    /// <summary>Schema version 2: the per-photo render settings of a variant (an imported Lumen session's f-number, focus, tone and colour
+    /// <summary>Schema version 2: the per-photo render settings of a variant (an imported Lumen session's f-number, focus, tone and color
     /// settings, transform and rating). One row per variant that has them; <c>json</c> holds every float as its bit pattern
     /// (<see cref="StoredSettings"/>), <c>sha256</c> = SHA-256 of <c>json</c>.</summary>
     const string RenderSettingsSql = """
@@ -578,7 +578,7 @@ public sealed class DepthEditStore : IDisposable
 
     // ------------------------------------------------------------------------------------------------ the capture's Lux recipe (no schema change)
 
-    /// <summary>The capture's recipe of non-depth edits made in Lux (<see cref="CaptureRecipe"/>: tone and colour, crop / rotation, depth-effect
+    /// <summary>The capture's recipe of non-depth edits made in Lux (<see cref="CaptureRecipe"/>: tone and color, crop / rotation, depth-effect
     /// f-number and focus), capture-wide like <see cref="CaptureRating"/> — meta keys <c>lux_recipe</c> (JSON), <c>lux_recipe_sha256</c> (hex
     /// SHA-256 of the JSON, checked on every read) and <c>lux_recipe_utc</c>. Null when none was ever saved. Earlier Lux versions ignore it.</summary>
     public CaptureRecipe? ReadLuxRecipe()

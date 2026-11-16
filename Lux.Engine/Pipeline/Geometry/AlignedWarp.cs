@@ -132,7 +132,7 @@ public static class AlignedWarp
             {
                 // The runner gets a VIEW of the whole stacked frame (rect fields still span
                 // (0,0,W,H), only w/h are the ROI's) and nothing is copied, so the runner's available region is the entire frame — the stages read
-                // real neighbours past the ROI. With the view clipped to the ROI, the ISP output differs on almost every pixel
+                // real neighbors past the ROI. With the view clipped to the ROI, the ISP output differs on almost every pixel
                 // (max |d| 4.9e-4).
                 ispImg = isp.ProcessBayerFloat(frame, stats, stacked.Bayer, null, src0, level, log);
                 srcOff = (src0.X0 / fc, src0.Y0 / fc);

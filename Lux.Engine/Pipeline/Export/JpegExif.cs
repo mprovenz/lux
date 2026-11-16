@@ -7,19 +7,22 @@ namespace Lux.Engine.Pipeline.Export;
 /// The Exif APP1 block of the companion JPEG. Lumen builds it with the **same** two functions the
 /// DNG uses — `lt::Exif::Exif` → the defaults builder, then the `exportImage` Exif step
 /// (Make/Model/Software/UniqueCameraModel, FNumber/ISO/focal/UniqueID, the timestamps, ExposureTime,
-/// ExposureCompensation and the colour-space block from renderer property 0x13) — with three JPEG-only additions:
+/// ExposureCompensation and the color-space block from renderer property 0x13) — with three JPEG-only additions:
 /// <list type="bullet">
 /// <item>Exif `0xA002` PixelXDimension / `0xA003` PixelYDimension (LONG)</item>
 /// <item>Exif `0x9101` ComponentsConfiguration = `01 02 03 00` (Y,Cb,Cr)</item>
 /// <item>IFD0 `0x0213` YCbCrPositioning = 1 (centered)</item>
 /// </list>
-/// It carries **none** of the DNG-only tags (no illuminants, colour/forward matrices, HueSatMap, ProfileToneCurve or
-/// AsShotNeutral) — those are written by `Exporter::exportDNG`, not by the Exif filler. Serialised
+/// It carries **none** of the DNG-only tags (no illuminants, color/forward matrices, HueSatMap, ProfileToneCurve or
+/// AsShotNeutral) — those are written by `Exporter::exportDNG`, not by the Exif filler. Serialized
 /// as `"Exif\0\0" + "II" 2A 00 08 00 00 00 + IFD0` with Lumen's `IFD::serialize` (the same little-endian,
-/// tag-ordered, align-4 serialiser as the DNG — reused here through <see cref="TiffDirectory"/>).
+/// tag-ordered, align-4 serializer as the DNG — reused here through <see cref="TiffDirectory"/>).
 ///
-/// This duplicates the shared half of <c>DngWriter.BuildExportTags</c> on purpose: the DNG output must stay byte-identical
-/// to Lumen's, so the JPEG path does not share its code.
+/// This duplicates the shared half of <c>DngWriter.BuildExportTags</c> on purpose: the JPEG path does not share its code.
+/// Two things are different from Lumen's Exif block. Lumen writes DateTimeOriginal, DateTimeDigitized and the three OffsetTime tags
+/// into IFD0; here they are in the Exif IFD, which is their place in the Exif standard, so that each reader finds the capture date.
+/// Lumen declares Exif 2.30; here the version is 3.0, because the time zone tags are not part of 2.30. All other tags and values are
+/// Lumen's.
 /// </summary>
 public static class JpegExif
 {
@@ -28,10 +31,11 @@ public static class JpegExif
     public static byte[] Build(DngExportTags t, int width, int height, int componentsConfiguration = 1, int yCbCrPositioning = 0)
     {
         var ifd0 = new TiffDirectory(); var exif = new TiffDirectory();
+        var dates = exif;   // the place of the capture dates in the Exif standard (Lumen: IFD0)
 
         // ---- the Exif constructor's defaults — identical to the DNG's
         ifd0.SetSub(0x8769, exif);
-        exif.Undefined(0x9000, Encoding.ASCII.GetBytes("0230"));           // ExifVersion
+        exif.Undefined(0x9000, Encoding.ASCII.GetBytes("0300"));           // ExifVersion 3.0 (Lumen: 2.30)
         ifd0.Short(0x128, 2);                                              // ResolutionUnit = inches
         ifd0.Rational(0x11a, ((uint)(72.0 * 16777216.0), 16777216));       // XResolution 72
         ifd0.Rational(0x11b, ((uint)(72.0 * 16777216.0), 16777216));       // YResolution 72
@@ -53,14 +57,14 @@ public static class JpegExif
             string d = $"{ts.Year}:{ts.Month:D2}:{ts.Day:D2} {ts.Hour:D2}:{ts.Minute:D2}:{ts.Second:D2}";
             int off = Math.Abs(ts.TzOffsetMinutes);
             string o = $"{(ts.TzOffsetMinutes < 0 ? "-" : "+")}{off / 60:D2}:{off % 60:D2}";
-            ifd0.Ascii(0x9003, d); ifd0.Ascii(0x9004, d); ifd0.Ascii(0x9011, o); ifd0.Ascii(0x9012, o);
+            dates.Ascii(0x9003, d); dates.Ascii(0x9004, d); dates.Ascii(0x9011, o); dates.Ascii(0x9012, o);
         }
         {   // the wall-clock time of the export (the one field that cannot match a
             // different run of Lumen; the DNG's 0x0132 has exactly the same property)
             var m = t.ModifyTime;
             ifd0.Ascii(0x132, $"{m.Year}:{m.Month:D2}:{m.Day:D2} {m.Hour:D2}:{m.Minute:D2}:{m.Second:D2}");
             int off = Math.Abs(t.ModifyTzOffsetHours * 60);
-            ifd0.Ascii(0x9010, $"{(t.ModifyTzOffsetHours * 60 < 0 ? "-" : "+")}{off / 60:D2}:{off % 60:D2}");
+            dates.Ascii(0x9010, $"{(t.ModifyTzOffsetHours * 60 < 0 ? "-" : "+")}{off / 60:D2}:{off % 60:D2}");
         }
         {   // ExposureTime
             float et = t.ExposureTimeSeconds;
@@ -99,7 +103,7 @@ public static class JpegExif
         ms.Write(Encoding.ASCII.GetBytes("Exif")); ms.WriteByte(0); ms.WriteByte(0);
         ms.Write(new byte[] { 0x49, 0x49, 0x2a, 0x00 });
         Span<byte> b4 = stackalloc byte[4]; BinaryPrimitives.WriteUInt32LittleEndian(b4, 8); ms.Write(b4);
-        // TiffDirectory.Write bases its out-of-line offsets on the stream position, so serialise the IFD into its own
+        // TiffDirectory.Write bases its out-of-line offsets on the stream position, so serialize the IFD into its own
         // buffer (offset 8 = right after the TIFF header) and append it.
         using var im = new MemoryStream();
         im.Write(new byte[8]);                 // stand in for the TIFF header so positions are TIFF-relative

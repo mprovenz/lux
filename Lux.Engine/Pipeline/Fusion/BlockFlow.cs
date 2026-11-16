@@ -305,7 +305,7 @@ public static class BlockFlow
         return o;
     }
 
-    /// <summary>Block view `(bx0, by0, bx0+B, by0+B) ∩ (0,0,W,H)` → origin of the B×B reference block at the view centre
+    /// <summary>Block view `(bx0, by0, bx0+B, by0+B) ∩ (0,0,W,H)` → origin of the B×B reference block at the view center
     /// (`rows [h/2−B/2, h/2+B/2)`, `cols [w/2−B/2, w/2+B/2)`), or null for an empty view.</summary>
     static (int X, int Y)? RefBlock(int bx0, int by0, int B, int W, int H)
     {
@@ -326,7 +326,7 @@ public static class BlockFlow
         return s;
     }
 
-    /// <summary>Top level (B = 8, refine ±8) and the B/R-generalised form of the 8×8 top level: out `(w/B, h/B)`,
+    /// <summary>Top level (B = 8, refine ±8) and the B/R-generalized form of the 8×8 top level: out `(w/B, h/B)`,
     /// per block the ±R refine with sub-pixel fit, no candidate search.</summary>
     static (float X, float Y)[] TopLevelB(int B, int R, ushort[] refImg, (int W, int H) rd, ushort[] src, (int W, int H) sd, out int fw, out int fh)
     {
@@ -495,7 +495,7 @@ public static class BlockFlow
 
     /// <summary>Integer ±2 refine (16×16), `bdx = bdy = 2` initial, then `validity((float)best, (px/W, py/H))`
     /// (true ⇒ (−1e6, −1e6)); no sub-pixel step.</summary>
-    /// <summary>The level-0 integer refine: ±1 (the `&lt;16,1,0&gt;` tile lambda of the 4-level colour flow) or
+    /// <summary>The level-0 integer refine: ±1 (the `&lt;16,1,0&gt;` tile lambda of the 4-level color flow) or
     /// ±2 (the `&lt;16,2,0&gt;` lambda of the 5-level mono flow).</summary>
     static (float X, float Y) Refine2(ushort[] refImg, int rs, (int X, int Y) rb, ushort[] src, int sw, int sh, int px, int py, Func<float, (float X, float Y), bool>? fn, int radius)
     {

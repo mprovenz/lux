@@ -12,7 +12,7 @@ namespace Lux.Engine.Pipeline.Export;
 /// <para>Each frame's VP8L bitstream: the subtract-green transform, the predictor transform (one of the 14 predictors per 16×16 block,
 /// chosen by the smallest sum of absolute residuals), then one group of five canonical prefix codes (length-limited to 15 bits) over
 /// literals and LZ77 back-references (hash chains plus the "same as the left pixel" and "same as the pixel above" distances). Not used
-/// (all optional in the format): the colour-cache, the cross-colour and colour-indexing transforms and per-region prefix codes — they would
+/// (all optional in the format): the color-cache, the cross-color and color-indexing transforms and per-region prefix codes — they would
 /// make files smaller, never different pixels. Lossy VP8 is not written.</para>
 /// </summary>
 public static class WebPWriter
@@ -256,7 +256,7 @@ public static class WebPWriter
 
         static void WriteImage(BitWriter bw, uint[] px, int w, int h, bool level0, int effort)
         {
-            bw.Put(0, 1);                  // no colour cache
+            bw.Put(0, 1);                  // no color cache
             if (level0) bw.Put(0, 1);      // no per-region prefix codes
             var tokens = Lz77(px, w, effort);
             // histograms of the five alphabets
@@ -289,7 +289,7 @@ public static class WebPWriter
             }
         }
 
-        /// <summary>The distance symbol value: the two neighbourhood codes this writer uses (code 1 = the pixel above, code 2 = the pixel to the
+        /// <summary>The distance symbol value: the two neighborhood codes this writer uses (code 1 = the pixel above, code 2 = the pixel to the
         /// left — the first two entries of the format's distance map), else the plain distance + 120.</summary>
         static int DistanceCode(int dist, int w) => dist == w ? 1 : dist == 1 ? 2 : dist + 120;
 

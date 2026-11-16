@@ -6,8 +6,8 @@ using Lux.App.ViewModels;
 namespace Lux.App.Controls;
 
 /// <summary>
-/// The virtualising list of the browse views. Its containers are the rows themselves — a <see cref="RowCells"/> for a grid or card row,
-/// the built row for a list item, the built heading for a timeline day — and the virtualising panel recycles them per kind (recycle key),
+/// The virtualizing list of the browse views. Its containers are the rows themselves — a <see cref="RowCells"/> for a grid or card row,
+/// the built row for a list item, the built heading for a timeline day — and the virtualizing panel recycles them per kind (recycle key),
 /// so scrolling re-binds existing controls instead of building new ones (a plain ItemsControl recycles its ContentPresenter containers but
 /// rebuilds their content).
 /// </summary>

@@ -743,7 +743,7 @@ public sealed class RealPanelsAndQualityTests(ITestOutputHelper output)
         d.Depth.Aperture.CommitText();
         bool effectRenders = await a.Settle(() => a.Viewer.TargetComplete, 120_000);
         var focus = await session.FocusAtAsync(new Lux.Library.NormPoint(0.5, 0.5));
-        Say($"after the release: depth at the centre {depthAt?.ToString("0") ?? "none"} mm; f/4 rendered {effectRenders}; focus click ok {focus.Ok} ({focus.Reason})");
+        Say($"after the release: depth at the center {depthAt?.ToString("0") ?? "none"} mm; f/4 rendered {effectRenders}; focus click ok {focus.Ok} ({focus.Reason})");
         d.SetModeCommand.Execute(DevelopMode.PhotoDepth);
         await a.Settle(() => true, 600, quietFrames: 5);
         bool depthStill = await a.Settle(() => dv.TargetComplete && dv.LevelOnScreen >= 0, 60_000);

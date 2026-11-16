@@ -292,7 +292,7 @@ public sealed class ContractTileSource : ITileSource
         var g = G;
         var full = g.FullSize;
         int coarsest = g.LevelCount - 1;
-        // centre of the view first (the viewer sorts its needs; the library is asked to keep the order)
+        // center of the view first (the viewer sorts its needs; the library is asked to keep the order)
         var centre = r.ImageRect.Center;
         var needed = r.Needed.Where(k => k.Level == r.Level)
             .OrderBy(k => { double tx = (k.Col + 0.5) * g.TileSize * full.Width / (double)g.LevelSizes[k.Level].Width - centre.X, ty = (k.Row + 0.5) * g.TileSize * full.Height / (double)g.LevelSizes[k.Level].Height - centre.Y; return tx * tx + ty * ty; })
@@ -429,7 +429,7 @@ public sealed class ContractDevelopSession : IDevelopSession
         if (Math.Abs(Get(key) - before) > 1e-9) Step($"Reset {Spec(key).Name.ToLowerInvariant()}");
     }
 
-    public void ResetToneAndColour() { if (!IsToneDefault) { E.ResetGroups(EditGroups.ToneAndColour); Step("Reset tone and colour"); } }
+    public void ResetToneAndColour() { if (!IsToneDefault) { E.ResetGroups(EditGroups.ToneAndColour); Step("Reset tone and color"); } }
     bool IsToneDefault => Specs.All(s => Math.Abs(Get(s.Key) - s.Default) < s.Step / 2);
     public void RevertToOriginal() { E.RevertToOriginal(); Step("Revert to original"); }
 
@@ -445,7 +445,11 @@ public sealed class ContractDevelopSession : IDevelopSession
 
     public GeometryState Geometry
     {
-        get { var t = E.Transform; return new GeometryState(t.TurnDegrees, t.Mirrored, t.Crop, E.CropState == CropState.Hidden ? (t.Crop.IsFull() ? CropAspect.Free : E.CropAspect) : E.CropAspect); }
+        get
+        {
+            var t = E.Transform;
+            return new GeometryState(t.TurnDegrees, t.Mirrored, t.Crop, E.CropState == CropState.Hidden ? (t.Crop.IsFull() ? CropAspect.Free : E.CropAspect) : E.CropAspect) { LevelDegrees = t.LevelDegrees };
+        }
     }
 
     public Turn PictureTurn
@@ -466,6 +470,8 @@ public sealed class ContractDevelopSession : IDevelopSession
     public void FlipVertical() { E.FlipVertical(); Step("Flip vertical"); }
     public bool CanRotateAsHeld => E.CanRotateAsHeld;
     public void RotateAsHeld() { E.RotateAsHeld(); Step("Rotate as the camera was held"); }
+    public LevelSuggestion LevelSuggestion => E.LevelSuggestion;
+    public void Level() { E.Level(); Step("Level"); }
     public void ResetGeometry() { if (!E.Transform.IsIdentity) { E.ResetGeometry(); Step("Reset crop and rotation"); } }
     public bool IsCropping => E.CropState != CropState.Hidden;
     public NormRect CropFrame => E.CropFrame;

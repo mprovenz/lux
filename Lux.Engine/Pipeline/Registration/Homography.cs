@@ -8,7 +8,7 @@ namespace Lux.Engine.Pipeline.Registration;
 /// The homography machinery of `lt::SparseLNR`, reproduced at the instruction level: Eigen 3.4 float
 /// `ColPivHouseholderQR` (4-point DLT solve) and `JacobiSVD` (least-squares) as
 /// compiled by clang with fast-math — `rcpps`/`rsqrtss` + one Newton step stand in for division/sqrt, and the dot-product
-/// reductions follow the auto-vectorised loop shapes. Plus the H change and the validity test.
+/// reductions follow the auto-vectorized loop shapes. Plus the H change and the validity test.
 /// </summary>
 public static class Homography
 {

@@ -6,7 +6,7 @@ namespace Lux.App.Controls;
 
 /// <summary>
 /// A capture's thumbnail in an <see cref="ImageStateView"/>. It asks the <see cref="ThumbnailCache"/> only while it is in the visual tree
-/// with a capture set — that is, while its item is realised on screen — and cancels the request when the item is recycled or scrolls away.
+/// with a capture set — that is, while its item is realized on screen — and cancels the request when the item is recycled or scrolls away.
 /// While the thumbnail is being made it shows the spinner (the "Processing image" placeholder at small size); with
 /// <see cref="Processing"/> set (a better quality of the capture is being made) it shows the thumbnail blurred under the spinner.
 /// </summary>
@@ -21,7 +21,7 @@ public sealed class ThumbnailView : ImageStateView
 
     /// <summary>The cache every thumbnail view uses (set once by the app).</summary>
     public static ThumbnailCache? Cache { get; set; }
-    /// <summary>Views realised now (tests: virtualisation keeps this bounded).</summary>
+    /// <summary>Views realized now (tests: virtualization keeps this bounded).</summary>
     public static int Live { get; private set; }
 
     CancellationTokenSource? _cts;

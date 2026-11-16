@@ -6,7 +6,7 @@ namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>
 /// The non-reference branch of `StereoISP::CreateStereoImage` (p13 = useRefCrop): the module's float
-/// YUVA work image is colour-matched to a crop of the reference camera's YUVA image with the mean + Cholesky-covariance
+/// YUVA work image is color-matched to a crop of the reference camera's YUVA image with the mean + Cholesky-covariance
 /// linear transfer of a plain data object (basis = identity in this path): statistics
 /// (Welford over pixels with alpha &gt; 0.95, SSE lane order), solve (double: Σ/N + 0.001·I,
 /// Cholesky with reciprocal off-diagonals, `A = L_ref·L_work⁻¹`, 4×4 chain `Minv·((T_ref·A)·T_work)·M` rounded to float once)
@@ -132,13 +132,13 @@ public static class StereoColorTransfer
         var sw = Accumulate(work, w, h, w, 0);
         var sr = (X1 - X0 <= 0 || Y1 - Y0 <= 0) ? new Stats() : Accumulate(refYuv, X1 - X0, Y1 - Y0, rw, Y0 * rw + X0);
         var F = Solve(sw, sr);
-        log?.Invoke($"colour transfer: crop rect ({rect.X0},{rect.Y0},{rect.X1},{rect.Y1}) ∩ → ({X0},{Y0},{X1},{Y1}); N work {sw.N} ref {sr.N}; F [{string.Join(" ", F.Select(v => v.ToString("G9")))}]");
+        log?.Invoke($"color transfer: crop rect ({rect.X0},{rect.Y0},{rect.X1},{rect.Y1}) ∩ → ({X0},{Y0},{X1},{Y1}); N work {sw.N} ref {sr.N}; F [{string.Join(" ", F.Select(v => v.ToString("G9")))}]");
         log?.Invoke($"  work mean {sw.Mean} D {sw.D} O {sw.O}\n  ref  mean {sr.Mean} D {sr.D} O {sr.O}");
         return (Apply(work, w, h, F), new RectI(X0, Y0, X1, Y1), F, sw, sr);
     }
 
     /// <summary>Exposure gain of the module relative to the reference camera —
-    /// `((g_ref·(float)e_ref) / (g_mod·(float)e_mod)) · (rb_mod / rb_ref)` when both have a vignetting record and the module is colour.</summary>
+    /// `((g_ref·(float)e_ref) / (g_mod·(float)e_mod)) · (rb_mod / rb_ref)` when both have a vignetting record and the module is color.</summary>
     public static float ExposureGain(float gRef, ulong eRef, float? rbRef, float gMod, ulong eMod, float? rbMod, bool modColour)
     {
         float g = (gRef * (float)eRef) / (gMod * (float)eMod);

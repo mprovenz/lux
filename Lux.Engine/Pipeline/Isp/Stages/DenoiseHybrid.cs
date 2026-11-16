@@ -221,7 +221,7 @@ public static class HybridDenoise
         _ => throw new InvalidOperationException("Unsupported bilateral kernel size!"),   // the dispatcher's default arm
     };
 
-    /// <summary>`ImageDenoiseBilateralGeneric&lt;9,0&gt;` tile lambda. Same per-tap weight as the 3/5/7 kernels; tile grown by 4 → neighbours
+    /// <summary>`ImageDenoiseBilateralGeneric&lt;9,0&gt;` tile lambda. Same per-tap weight as the 3/5/7 kernels; tile grown by 4 → neighbors
     /// outside the image are (0,0,0,0) in `src` (the slow path memsets a (tw+8)×(th+8) buffer and copies the clipped source into it).
     /// **Lumen's compiler did NOT unroll this variant**: it is a real row loop (dy = −4…4) around a real tap loop (dx = −4…+4),
     /// and both accumulators are live across all 81 taps. So there is no per-row association tree at all — acc and wsum are a
@@ -255,7 +255,7 @@ public static class HybridDenoise
 
     /// <summary>`ImageDenoiseBilateralGeneric&lt;7,0&gt;` tile lambda: same per-tap
     /// weight as the 5-tap kernel (d = max(|n−c|.xyz), w = max(1 − max(d − σ, 0)·rcpps(σ|lane3=1), 1e-6), σ = tune·vst all 4 lanes); per row
-    /// `acc = P₊₃ + ((P₊₂ + (P₊₁ + P₀)) + ((P₋₁ + P₋₂) + (P₋₃ + acc)))`, `wsum` likewise; tile grown by 3 → zero neighbours outside the image;
+    /// `acc = P₊₃ + ((P₊₂ + (P₊₁ + P₀)) + ((P₋₁ + P₋₂) + (P₋₃ + acc)))`, `wsum` likewise; tile grown by 3 → zero neighbors outside the image;
     /// out = rcpps(wsum)·acc.</summary>
     static Vec4F[] Bilateral7(Vec4F[] src, Vec4F[] vst, int w, int h, Vec4F tune)
     {
@@ -285,7 +285,7 @@ public static class HybridDenoise
         return o;
     }
 
-    /// <summary>`ImageDenoiseBilateralGeneric&lt;5,0&gt;`: neighbours outside the image are (0,0,0,0); per tap w = max(1 − max(d − σ, 0)·rcp(σ), 1e-6) with d = max over R,G,B of |n − c|.</summary>
+    /// <summary>`ImageDenoiseBilateralGeneric&lt;5,0&gt;`: neighbors outside the image are (0,0,0,0); per tap w = max(1 − max(d − σ, 0)·rcp(σ), 1e-6) with d = max over R,G,B of |n − c|.</summary>
     static Vec4F[] Bilateral5(Vec4F[] src, Vec4F[] vst, int w, int h, Vec4F tune)
     {
         var o = new Vec4F[w * h]; var S = AsV(src); var Vs = AsV(vst); var O = AsVW(o); var T = V(tune); var z = Vector128<float>.Zero;
@@ -316,7 +316,7 @@ public static class HybridDenoise
 
     /// <summary>`ImageDenoiseBilateralGeneric&lt;3,0&gt;` tile lambda: same per-tap weight as the other sizes; the 3 taps of a
     /// row are fully unrolled inside a 3-iteration row
-    /// loop (dy = −1…+1), tile grown by 1 → zero neighbours outside the image; out = rcpps(wsum)·acc.
+    /// loop (dy = −1…+1), tile grown by 1 → zero neighbors outside the image; out = rcpps(wsum)·acc.
     /// Row tree: `acc = (P₊₁ + P₀) + (P₋₁ + acc)`, `wsum` likewise —
     /// the same shape as the 5-tap tree with the outer pair dropped, so nothing is unusual here (unlike `&lt;9,0&gt;`).
     /// Unreachable from `IsoTuning` (no row carries `bilateral window` 3) but present in the dispatcher, so it is ported too.</summary>

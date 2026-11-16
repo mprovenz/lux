@@ -86,7 +86,7 @@ public sealed class DepthTests
         Assert.False(d.Aperture.HasError);
         Type(h, Box(h, "ApertureBox"), "off");
         Assert.Null(s.FakeDepth.FNumber);
-        // focus typed in metres / centimetres
+        // focus typed in meters / centimeters
         Type(h, Box(h, "FocusBox"), "3.5 m");
         Assert.Equal(3500, s.FakeDepth.FocusMm, 0);
         Assert.Equal("3.50 m", d.Focus.ValueText);
@@ -494,7 +494,7 @@ public sealed class DepthTests
         h.Develop().RedoCommand.Execute(null);
         await h.SettleDepthAsync();
         Assert.Equal(3200, s.FakeDepth.DepthAt(h.Element(FakeDepthMap.House))!.Value, 0);
-        // a selection cancelled with Esc changes nothing
+        // a selection canceled with Esc changes nothing
         int steps2 = s.History.Count;
         h.Stroke(new[] { h.Element(FakeDepthMap.Star, -0.3, 0), h.Element(FakeDepthMap.Star, 0.3, 0) });
         await h.SettleDepthAsync(() => d.HasPending);
@@ -659,10 +659,10 @@ public sealed class DepthTests
         int shakes = h.Viewer().ShakeCount;
         h.Stroke(new[] { new NormPoint(0.4, 0.6), new NormPoint(0.5, 0.6) });
         Assert.Equal(shakes + 1, h.Viewer().ShakeCount);
-        Assert.Contains("Analyse now", d.MessageText);
+        Assert.Contains("Analyze now", d.MessageText);
         // the effect controls are disabled; a typed value does nothing
         Assert.False(d.Aperture.IsEnabled);
-        // Analyse now: the job runs; the depth becomes ready, the tools are no longer dimmed
+        // Analyze now: the job runs; the depth becomes ready, the tools are no longer dimmed
         d.AnalyseNowCommand.Execute(null);
         await h.SettleAsync(() => h.Lib.Jobs.GetJobs().Any(j => j.Kind == JobKind.Analysis && j.CaptureId == item.Id), waitThumbnails: false);
         Assert.Contains(h.Lib.Jobs.GetJobs(), j => j.Kind == JobKind.Analysis && j.CaptureId == item.Id);
@@ -694,7 +694,7 @@ public sealed class DepthTests
         d.CancelActivityCommand.Execute(null);
         await h.SettleDepthAsync(() => !d.IsBusy);
         Assert.False(d.IsBusy);
-        Assert.Contains("Cancelled", d.MessageText);
+        Assert.Contains("Canceled", d.MessageText);
         Assert.Equal(steps, s.History.Count);
         // a failure: the reason, the shake, no step
         s.FakeDepth.SlowFactor = 1;

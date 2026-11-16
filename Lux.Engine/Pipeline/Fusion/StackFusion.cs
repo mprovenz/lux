@@ -19,10 +19,10 @@ namespace Lux.Engine.Pipeline.BayerFusion;
 /// <see cref="BayerMerge"/>) with the stack's other frames in place of the other modules, and it differs in exactly these ways:
 /// <list type="bullet">
 /// <item>frame preparation is hot-pixel patch + `RestoreHighlightsBayer` and <b>nothing else</b> — no black
-/// subtraction, no exposure gain, no vignetting (all frames share the module's optics, so there is nothing to equalise);</item>
+/// subtraction, no exposure gain, no vignetting (all frames share the module's optics, so there is nothing to equalize);</item>
 /// <item>the flow's collapsed images do <b>not</b> get the sqrt LUT (only `ColorFusionBayer::initialize` applies it), and the
 /// flow runs with an empty validity functor;</item>
-/// <item>the packed images are `PackBayerImageProtoType&lt;vec4x16ui, unsigned short&gt;` of the raw frame, normalised to
+/// <item>the packed images are `PackBayerImageProtoType&lt;vec4x16ui, unsigned short&gt;` of the raw frame, normalized to
 /// `(v − black_i)/(white_i − black_i)` halves — per frame with that frame's own black/white;</item>
 /// <item>the noise functor is <see cref="PackedBayerFusion.NoiseFn"/> without the vignetting-map factor, over a
 /// block-mean-reciprocal image computed on the packed <b>raw</b> quads;</item>
@@ -78,7 +78,7 @@ public sealed class StackFusion
     /// plane with `k = 1.0`.</summary>
     public byte[] Gain8 { get; private set; } = null!;
 
-    /// <summary>`true`: the reference frame is a colour module (the wavelet path); `false`: the mono path.</summary>
+    /// <summary>`true`: the reference frame is a color module (the wavelet path); `false`: the mono path.</summary>
     public bool IsColour { get; }
     /// <summary>Whether frame 0 carries its per-frame black estimate or the sensor DB black — see <see cref="StackProvider"/>.</summary>
     public bool RefFrameBlackEstimate { get; }
@@ -92,7 +92,7 @@ public sealed class StackFusion
         if (refIndex < 0 || refIndex >= NStack) throw new ArgumentOutOfRangeException(nameof(refIndex), "Incorrect ref_index!");
 
         // The neutral comes from a per-frame SoftISP on FRAME 0 (highlight_restore none,
-        // manual_temp at the capture (CCT, tint) through the camera's own colour profile → Stats neutral) and is then used
+        // manual_temp at the capture (CCT, tint) through the camera's own color profile → Stats neutral) and is then used
         // both for the per-frame black estimate (neutral, 42.0, 1.2, 40) and for RestoreHighlightsBayer.
         var profile = PackedBayerFusion.CameraProfile(lri, frames[0].Module.Id);
         var neutral = WhiteBalance.NeutralFromTempTint(cct, tint, profile);
@@ -121,7 +121,7 @@ public sealed class StackFusion
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // The per-frame preparation: hot-pixel patch, then (colour only) highlight restore. No black, no gain.
+    // The per-frame preparation: hot-pixel patch, then (color only) highlight restore. No black, no gain.
     // ---------------------------------------------------------------------------------------------------------------------------------
     (ushort[] Prep, float Black, float White) PrepareFrame(LriFile.ModuleRef mref, float[] neutral, bool estimateBlack = true)
     {
@@ -143,9 +143,9 @@ public sealed class StackFusion
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------
-    // PackBayerImageProtoType<vec4x16ui, unsigned short> + normalise to halves
+    // PackBayerImageProtoType<vec4x16ui, unsigned short> + normalize to halves
     // ---------------------------------------------------------------------------------------------------------------------------------
-    /// <summary>`PackBayerImageProtoType&lt;vec4x16ui, unsigned short&gt;` immediately followed by the normalisation
+    /// <summary>`PackBayerImageProtoType&lt;vec4x16ui, unsigned short&gt;` immediately followed by the normalization
     /// (`out = ((float)v − black)·inv`, stored through the software
     /// RTZ float→half of <c>Half16</c>): output `(W/2, H/2)` of four halves per pixel in quad order
     /// `(p[2y][2x+1], p[2y][2x], p[2y+1][2x], p[2y+1][2x+1])`.</summary>
@@ -233,7 +233,7 @@ public sealed class StackFusion
 
         // FastCollapse of the prepared ushort frame — with NO sqrt LUT (only ColorFusionBayer::initialize applies it)
         var refCollapsed = BlockFlow.FastCollapse(refPrep, Width, Height, out int wc, out int hc);
-        const int levels = 4;   // (redx|redy) >> 31 | 4 — 4 for a colour module, 5 for a mono one
+        const int levels = 4;   // (redx|redy) >> 31 | 4 — 4 for a color module, 5 for a mono one
         var refPyr = BlockFlow.Pyramid(refCollapsed, wc, hc, levels, out var pdims);
 
         float range = White - Black;
@@ -298,7 +298,7 @@ public sealed class StackFusion
     /// `prm = {w0 = 1/n, scale = 8.0, A_pan·k, B_pan·k, black, white, fn = lambda_0: (1/n)²·((cnt + 1)² + q2)}`: `n` = frames
     /// (`1/((float)nSrc + 1)`), the PANCHROMATIC lane of the reference frame's noise model at its analog gain
     /// ("Panchromatic noise model doesn't exist!"), `k` = the noise scale, `black/white` = the reference frame's black and white.
-    /// The output images are written by the kernel directly: no black is added back (the mono frames are never normalised) and the
+    /// The output images are written by the kernel directly: no black is added back (the mono frames are never normalized) and the
     /// weight image is the gain map as is.</summary>
     void InitializeMono(IReadOnlyList<LriFile.ModuleRef> frames, float[] neutral)
     {

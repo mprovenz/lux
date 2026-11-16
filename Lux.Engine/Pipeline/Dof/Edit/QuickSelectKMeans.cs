@@ -50,8 +50,8 @@ public sealed class Mt19937
 /// Both steps construct a `std::random_device` and seed an `mt19937` from it — Lumen's result is therefore not reproducible from run to
 /// run; here the device is a delegate. Each construction calls the device twice (the constructor's own call is discarded, the second
 /// value is the seed).
-/// A Lumen quirk is kept: before the centres are re-accumulated only the first <c>k</c> floats (centre 0) are zeroed (`memset` of
-/// k·4 bytes on a vector of 4·k floats), so centres 1 … k−1 are the mean of <i>their previous value plus</i> their samples.
+/// A Lumen quirk is kept: before the centers are re-accumulated only the first <c>k</c> floats (center 0) are zeroed (`memset` of
+/// k·4 bytes on a vector of 4·k floats), so centers 1 … k−1 are the mean of <i>their previous value plus</i> their samples.
 /// </summary>
 public sealed class QuickSelectKMeans
 {
@@ -106,7 +106,7 @@ public sealed class QuickSelectKMeans
                 if (!((prev - cost) / (first - cost) >= (double)Tolerance)) break;
             }
             Array.Clear(counts);
-            for (int e = 0; e < k; e++) Centres[e] = 0f;          // k·4 bytes: centre 0 only (k = 4)
+            for (int e = 0; e < k; e++) Centres[e] = 0f;          // k·4 bytes: center 0 only (k = 4)
             for (int i = 0; i < n; i++)
             {
                 int c = labels[i]; counts[c]++;
@@ -126,7 +126,7 @@ public sealed class QuickSelectKMeans
         Cost = cost;
     }
 
-    /// <summary>The nearest centre (first minimum) and its squared distance <c>(d3² + d2²) + (d1² + d0²)</c>.</summary>
+    /// <summary>The nearest center (first minimum) and its squared distance <c>(d3² + d2²) + (d1² + d0²)</c>.</summary>
     void Assign(float[] samples, int n, int[]? labels, float[] dists)
     {
         for (int i = 0; i < n; i++)
@@ -152,7 +152,7 @@ public sealed class QuickSelectKMeans
         return cost;
     }
 
-    /// <summary>Each sample's squared distance to its nearest centre.</summary>
+    /// <summary>Each sample's squared distance to its nearest center.</summary>
     public float[] Distances(float[] samples, int n)
     {
         var d = new float[n];

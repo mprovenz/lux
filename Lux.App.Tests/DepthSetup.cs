@@ -17,7 +17,7 @@ public static class DepthHarness
     public static FakeDepthSession FakeDepth(this Harness h) => h.Session().FakeDepth;
     public static DepthViewModel DepthVm(this Harness h) => h.Develop().Depth;
 
-    /// <summary>The centre of an element of the fake scene (house, windows, star, sign, a tree) in the picture as shown; with an offset in
+    /// <summary>The center of an element of the fake scene (house, windows, star, sign, a tree) in the picture as shown; with an offset in
     /// element radii (dx, dy).</summary>
     internal static NormPoint Element(this Harness h, byte id, double dx = 0, double dy = 0)
     {

@@ -3,10 +3,10 @@ using Ltpb;
 namespace Lux.Engine.Pipeline.Isp;
 
 /// <summary>
-/// `lt::Sensor` noise tables (Lumen's colour and mono constructors, per-channel builder, table maths, ISO lookup and channel
+/// `lt::Sensor` noise tables (Lumen's color and mono constructors, per-channel builder, table math, ISO lookup and channel
 /// selection): for every
 /// `SensorCharacterization.vst_model` (gain = ISO key) and channel, a σ table indexed by raw DN, built from the
-/// affine variance model `var(x) = a·x + b` of the normalised signal x = (DN + 0.5)/N, N = white + 1, with a
+/// affine variance model `var(x) = a·x + b` of the normalized signal x = (DN + 0.5)/N, N = white + 1, with a
 /// clipped-Gaussian correction near zero (`σ · ½(1 + tanh(P(x/σ)))`), a linear extrapolation below
 /// `(int)(black · cliff_slope)` and a final ×white to DN units. The companion table A = ((DN+0.5)/N)/σ_norm (SNR) is
 /// kept because the sibling kernels use it.
@@ -58,7 +58,7 @@ public sealed class SensorNoise
         throw new InvalidOperationException($"no noise model for ISO {iso}");
     }
 
-    /// <summary>σ tables per channel for the kernels — (R, G, B) for colour sensors, the panchromatic
+    /// <summary>σ tables per channel for the kernels — (R, G, B) for color sensors, the panchromatic
     /// table for mono ("Mono sensor does not have panchromatic noise calibration!").</summary>
     public float[][] SigmaTables(float analogGain)
     {

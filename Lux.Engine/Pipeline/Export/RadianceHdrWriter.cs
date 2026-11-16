@@ -126,7 +126,7 @@ public static class ExportFloatImage
 /// `((bits &amp; 0x7f800000) &lt;&lt; 1) + 0x02000000` = `(biasedExp + 2) &lt;&lt; 24`, i.e. `E = exp + 128` — **truncated to 32 bits**, so a
 /// biased exponent of 254 wraps the E byte to 0. Denormal → mantissa `0.0`; zero / ±Inf / NaN → mantissa `m` itself; in
 /// both of those the exponent word is `0x80000000`, i.e. **E = 0x80, not 0** (a zero pixel is written `00 00 00 80`, and a
-/// zero or infinite max makes the scale NaN so the colour bytes clamp to 0). Each channel is
+/// zero or infinite max makes the scale NaN so the color bytes clamp to 0). Each channel is
 /// `cvttps2dq(min(max(c · scale, 0), 255))` — MAXPS/MINPS return their **second** operand for NaN, so NaN → 0 — and the
 /// word is packed `R | G&lt;&lt;8 | B&lt;&lt;16 | E&lt;&lt;24` and stored little-endian, giving the R,G,B,E byte order.
 ///
@@ -134,7 +134,7 @@ public static class ExportFloatImage
 /// `PhotometricInterpretation = LinearRaw`, unscaled — scene-linear, **pre-white-balance camera space**, not
 /// display-referred. Its channel means go neutral when divided by the DNG's `AsShotNeutral`, values above 1.0 occur
 /// (real highlight headroom), and `hdr × 16384` reproduces the DNG's Linear-Raw samples to the precision of the
-/// RGBE 8-bit mantissa. The `÷ neutral`, colour-correction
+/// RGBE 8-bit mantissa. The `÷ neutral`, color-correction
 /// and tone-mapping stages all live in the Color-domain output ISP that <see cref="ExportTuningOverride"/>'s remarks
 /// show this path never runs.
 /// </summary>

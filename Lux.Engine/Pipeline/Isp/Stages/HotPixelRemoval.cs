@@ -5,13 +5,13 @@ namespace Lux.Engine.Pipeline.Isp.Stages;
 /// Bayer-ushort domain (`setHotPixelRemoval`: slot pad 9, align 2, scale 1; the stage lambda calls it
 /// with the CapturedImage red position, the frame's sensor gain, the `lt::Sensor` σ-tables and k = 1.0).
 ///
-/// Pass 1 (per pixel, rows/cols of the rect ±4): take the 8 same-colour neighbours — the 4 axial ones at distance 2
+/// Pass 1 (per pixel, rows/cols of the rect ±4): take the 8 same-color neighbors — the 4 axial ones at distance 2
 /// and, on R/B sites, the 4 diagonals at distance 2 or, on G sites, the 4 diagonals at distance 1 — run Lumen's
 /// min/max network on them (an order statistic near the 2nd maximum), `excess = sat(centre − stat)`,
 /// `base = centre − excess`; the pixel is a candidate when `excess > σ[base] · k · 4`, stored as
-/// `base | 0x8000`. Pass 2 (rect): a candidate is patched to `base` unless its flagged neighbours say it is part of
-/// a structure — R/B sites: with exactly one flagged same-colour ring neighbour, patch only if no near neighbour and
-/// no ring→far (distance 4) pair is flagged; with none, patch if fewer than 2 near neighbours are flagged; G sites:
+/// `base | 0x8000`. Pass 2 (rect): a candidate is patched to `base` unless its flagged neighbors say it is part of
+/// a structure — R/B sites: with exactly one flagged same-color ring neighbor, patch only if no near neighbor and
+/// no ring→far (distance 4) pair is flagged; with none, patch if fewer than 2 near neighbors are flagged; G sites:
 /// the analogous rule with the axial-4 near set and the knight-position pairs. σ is the per-CFA-channel noise table
 /// selected by sensor gain (<see cref="SensorNoise.SigmaTables"/>), indexed by the raw DN.
 /// </summary>
@@ -88,7 +88,7 @@ public static class HotPixelKernel
                 float sigma = ((x & 1) == 0 ? lutPair0 : lutPair1)[bse] * k4;
                 flags[by * bw + bx] = (float)excess <= sigma ? (ushort)0 : (ushort)(bse | 0x8000);
                 if (_dbg is not null && x >= _dbg[0] && x < _dbg[2] && y >= _dbg[1] && y < _dbg[3] && excess > 0 && (float)excess > sigma * 0.7f)
-                    Console.Error.WriteLine($"[hp1] ({x},{y}) centre {centre} stat {stat} excess {excess} sigma4k {sigma:R} lut[{bse}] {((x & 1) == 0 ? lutPair0 : lutPair1)[bse]:R} k4 {k4:R} flagged {(float)excess > sigma}");
+                    Console.Error.WriteLine($"[hp1] ({x},{y}) center {centre} stat {stat} excess {excess} sigma4k {sigma:R} lut[{bse}] {((x & 1) == 0 ? lutPair0 : lutPair1)[bse]:R} k4 {k4:R} flagged {(float)excess > sigma}");
             }
         }
         // ---- pass 2: decision + patch ----

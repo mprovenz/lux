@@ -252,7 +252,7 @@ public sealed class ContractDepthSession : IDepthSession, IDisposable
 
     public IAppStroke BeginStroke()
     {
-        if (!Status.IsReady) throw new InvalidOperationException("The depth map is not ready yet: analyse the photo first.");
+        if (!Status.IsReady) throw new InvalidOperationException("The depth map is not ready yet: analyze the photo first.");
         return new Stroke(this, _edit.BeginStroke());
     }
 

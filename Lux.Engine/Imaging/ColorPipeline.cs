@@ -1,9 +1,9 @@
 namespace Lux.Engine.Imaging;
 
 /// <summary>
-/// The validated Lumen colour pass: camera-RGB-linear → display sRGB.
+/// The validated Lumen color pass: camera-RGB-linear → display sRGB.
 /// v = cam/AsShotNeutral · 2^ev ; rgb = (XYZ→sRGB · ForwardMatrix) · v ; TMO_ACR ; sRGB gamma.
-/// ForwardMatrix (cam→XYZ D50) comes from the module's factory colour calibration.
+/// ForwardMatrix (cam→XYZ D50) comes from the module's factory color calibration.
 /// </summary>
 public static class ColorPipeline
 {
@@ -88,6 +88,6 @@ public static class ColorPipeline
         b = eb >= hi ? tHi : (eb <= lo ? tLo : tMid);
     }
 
-    /// <summary>Greyscale tone (for no-CFA/monochrome modules): toe → LUT → gamma on a luminance value.</summary>
+    /// <summary>Grayscale tone (for no-CFA/monochrome modules): toe → LUT → gamma on a luminance value.</summary>
     public static float RenderMono(float y, float ev) => ToneCurve.Srgb(ToneCurve.Lookup(ToneCurve.HighlightRolloff(ToneCurve.Toe(y * Pipeline.WineCrt.Powf(2f, ev)))));
 }

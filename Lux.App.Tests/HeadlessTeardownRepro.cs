@@ -15,10 +15,10 @@ namespace Lux.App.Tests;
 /// window (the app's library events, thumbnails and job updates do) that shapes text meets the disposed manager: a character the primary face
 /// lacks falls through to <c>FontManager.SystemFonts</c> = <c>_fontCollections["fonts:SystemFonts"]</c> → KeyNotFoundException, failing
 /// the ending test. With <c>AvaloniaTestIsolationLevel.PerAssembly</c> (TestSetup.cs) the manager is never disposed and B passes.</para>
-/// <para><b>A frame finalised while it is written</b> (LUX_FRAME_SAVE_REPRO=old or fixed, test C). Avalonia.Skia's
+/// <para><b>A frame finalized while it is written</b> (LUX_FRAME_SAVE_REPRO=old or fixed, test C). Avalonia.Skia's
 /// <c>WriteableBitmapImpl.Save</c> encodes <c>SKImage.FromPixels(bitmap pixels)</c>, an image that only borrows the pixels. With nothing
 /// referencing the frame during the encode (a capture without <c>using</c>: <c>var frame = top.CaptureRenderedFrame(); frame.Save(path);</c>),
-/// a collection finalises the SKBitmap, its pixel memory is unmapped, and <c>sk_image_encode</c> reads freed memory: SIGSEGV, "Test host
+/// a collection finalizes the SKBitmap, its pixel memory is unmapped, and <c>sk_image_encode</c> reads freed memory: SIGSEGV, "Test host
 /// process crashed" (SEGV_MAPERR in sk_image_encode ← managed Save). "old" crashes the host within a few saves while
 /// another thread collects; "fixed" (<c>using var frame</c>, as Harness.Capture does) saves them all.</para>
 /// </summary>

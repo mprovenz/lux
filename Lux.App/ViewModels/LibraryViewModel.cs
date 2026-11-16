@@ -63,7 +63,8 @@ public sealed partial class LibraryViewModel : ObservableObject
             new(SmartFilter.DepthEdited, "Depth edited"),
             new(SmartFilter.Stacked, "Low light stacks"),
             new(SmartFilter.Telephoto, "Telephoto"),
-            new(SmartFilter.NotAnalysed, "Not analysed"),
+            new(SmartFilter.NotAnalysed, "Not analyzed"),
+            new(SmartFilter.PossiblyBlurred, "Possibly blurred"),
         };
         _gridSize = ReadDouble("browse.gridSize", 120);
         _cardSize = ReadDouble("browse.cardSize", 170);
@@ -225,7 +226,8 @@ public sealed partial class LibraryViewModel : ObservableObject
         Smart("Rated 4 and up", rated4, new CaptureQuery { MinRating = 4 }, "smart:rated4");
         Smart("Low light (stacked)", counts.GetValueOrDefault(SmartFilter.Stacked), new CaptureQuery().With(SmartFilter.Stacked), "smart:stacked");
         Smart("Telephoto", counts.GetValueOrDefault(SmartFilter.Telephoto), new CaptureQuery().With(SmartFilter.Telephoto), "smart:tele");
-        Smart("Not analysed", counts.GetValueOrDefault(SmartFilter.NotAnalysed), new CaptureQuery().With(SmartFilter.NotAnalysed), "smart:notanalysed");
+        Smart("Not analyzed", counts.GetValueOrDefault(SmartFilter.NotAnalysed), new CaptureQuery().With(SmartFilter.NotAnalysed), "smart:notanalysed");
+        Smart(SmartFilters.Label(SmartFilter.PossiblyBlurred), counts.GetValueOrDefault(SmartFilter.PossiblyBlurred), new CaptureQuery().With(SmartFilter.PossiblyBlurred), "smart:blurred", false);
         Smart(SmartFilters.Label(SmartFilter.EditedInLumen), counts.GetValueOrDefault(SmartFilter.EditedInLumen), new CaptureQuery().With(SmartFilter.EditedInLumen), "smart:lumenedited", false);
         Smart(SmartFilters.Label(SmartFilter.HasLumenSession), counts.GetValueOrDefault(SmartFilter.HasLumenSession), new CaptureQuery().With(SmartFilter.HasLumenSession), "smart:lumen", false);
         Smart("Full detail kept", counts.GetValueOrDefault(SmartFilter.FullDetail), new CaptureQuery().With(SmartFilter.FullDetail), "smart:full", false);
@@ -341,7 +343,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         var counts = await Task.Run(() => _lib.GetSmartFilterCounts(scope)).ConfigureAwait(true);
         var na = Chips.First(c => c.Filter == SmartFilter.NotAnalysed);
         int n = counts.GetValueOrDefault(SmartFilter.NotAnalysed);
-        na.Label = n > 0 ? $"Not analysed · {Text.Number(n)}" : "Not analysed";
+        na.Label = n > 0 ? $"Not analyzed · {Text.Number(n)}" : "Not analyzed";
     }
 
     [ObservableProperty] CaptureSort _sort = CaptureSort.CaptureTime;

@@ -3,7 +3,7 @@ using Ltpb;
 namespace Lux.Engine.Pipeline.Color;
 
 /// <summary>
-/// Constant tables of Lumen that the colour-profile fit uses, bit for bit. All are float32 in Lumen.
+/// Constant tables of Lumen that the color-profile fit uses, bit for bit. All are float32 in Lumen.
 /// </summary>
 public static class LumenColorTables
 {
@@ -50,7 +50,7 @@ public static class LumenColorTables
         _ => 0,
     };
 
-    /// <summary>ProPhoto RGB → XYZ (D50 native), row-major (colour-space type 5).</summary>
+    /// <summary>ProPhoto RGB → XYZ (D50 native), row-major (color-space type 5).</summary>
     public static readonly float[] ProPhotoToXyz =
         { 0.7976749f, 0.1351917f, 0.0313534f, 0.2880402f, 0.7118741f, 0.0000857f, 0f, 0f, 0.82521f };
 

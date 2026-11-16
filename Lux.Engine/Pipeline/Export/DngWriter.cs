@@ -15,7 +15,7 @@ public sealed class TiffEntry
     public bool Inline => Sub is null && Data.Length <= 4;   // `size < 5` keeps the bytes in the entry
 }
 
-/// <summary>A `std::map&lt;int, entry&gt;` IFD serialised exactly as Lumen's DNG writer does it (entries by tag; out-of-line data
+/// <summary>A `std::map&lt;int, entry&gt;` IFD serialized exactly as Lumen's DNG writer does it (entries by tag; out-of-line data
 /// and sub-IFDs placed in tag order right after the directory, each rounded up to 4 bytes).</summary>
 public sealed class TiffDirectory
 {
@@ -108,7 +108,7 @@ public sealed class DngExportTags
     public int ModifyTzOffsetHours = 0;                // localtime − gmtime hour difference
     public float ExposureTimeSeconds;                  // double property 0x11
     public float ExposureCompensation;                 // double property 0x12
-    public int ColorSpaceProperty = 0;                 // int property 0x13 → colour space case 0/1/2
+    public int ColorSpaceProperty = 0;                 // int property 0x13 → color space case 0/1/2
     public int ExifImageWidth, ExifImageHeight;        // the Exif image size
 
     static readonly float[][] ToneCurves = LoadToneCurves();
@@ -273,11 +273,11 @@ public static class DngWriter
         return o;
     }
 
-    /// <summary>Exif defaults: Exif sub-IFD link, ExifVersion "0230", ResolutionUnit 2, X/YResolution 72, Orientation 1, Flash 0.</summary>
+    /// <summary>Exif defaults: Exif sub-IFD link, ExifVersion "0300" (Lumen writes "0230"), ResolutionUnit 2, X/YResolution 72, Orientation 1, Flash 0.</summary>
     static void BuildExifDefaults(TiffDirectory ifd0, TiffDirectory exif)
     {
         ifd0.SetSub(0x8769, exif);
-        exif.Undefined(0x9000, Encoding.ASCII.GetBytes("0230"));
+        exif.Undefined(0x9000, Encoding.ASCII.GetBytes("0300"));
         ifd0.Short(0x128, 2);
         ifd0.Rational(0x11a, ((uint)(72.0 * 16777216.0), 16777216)); ifd0.Rational(0x11b, ((uint)(72.0 * 16777216.0), 16777216));
         ifd0.Short(0x112, 1);
@@ -320,17 +320,17 @@ public static class DngWriter
         exif.Rational(0x920a, TiffDirectory.Rat24((float)t.FocalLengthMm));
         exif.Ascii(0xa420, System.Convert.ToHexString(t.UniqueId).ToLowerInvariant());
         if (t.TimeStamp is { } ts)
-        {   // DateTimeOriginal, DateTimeDigitized and their offsets
+        {   // DateTimeOriginal, DateTimeDigitized and their offsets. They are in the Exif IFD, their place in the Exif standard (Lumen: IFD0).
             string d = $"{ts.Year}:{ts.Month:D2}:{ts.Day:D2} {ts.Hour:D2}:{ts.Minute:D2}:{ts.Second:D2}";
             int off = Math.Abs(ts.TzOffsetMinutes);
             string o = $"{(ts.TzOffsetMinutes < 0 ? "-" : "+")}{off / 60:D2}:{off % 60:D2}";
-            ifd0.Ascii(0x9003, d); ifd0.Ascii(0x9004, d); ifd0.Ascii(0x9011, o); ifd0.Ascii(0x9012, o);
+            exif.Ascii(0x9003, d); exif.Ascii(0x9004, d); exif.Ascii(0x9011, o); exif.Ascii(0x9012, o);
         }
         {   // ModifyDate (local time) and OffsetTime (whole hours)
             var m = t.ModifyTime;
             ifd0.Ascii(0x132, $"{m.Year}:{m.Month:D2}:{m.Day:D2} {m.Hour:D2}:{m.Minute:D2}:{m.Second:D2}");
             int off = Math.Abs(t.ModifyTzOffsetHours * 60);
-            ifd0.Ascii(0x9010, $"{(t.ModifyTzOffsetHours * 60 < 0 ? "-" : "+")}{off / 60:D2}:{off % 60:D2}");
+            exif.Ascii(0x9010, $"{(t.ModifyTzOffsetHours * 60 < 0 ? "-" : "+")}{off / 60:D2}:{off % 60:D2}");
         }
         {   // ExposureTime
             float et = t.ExposureTimeSeconds;
@@ -338,7 +338,7 @@ public static class DngWriter
             else exif.Rational(0x829a, TiffDirectory.Rat24(et));
         }
         exif.SRational(0x9204, TiffDirectory.SRat24(t.ExposureCompensation));
-        {   // colour space, with the mapping 1/4 → 1, 2/5 → 2, else 0
+        {   // color space, with the mapping 1/4 → 1, 2/5 → 2, else 0
             int cs = t.ColorSpaceProperty switch { 1 or 4 => 1, 2 or 5 => 2, _ => 0 };
             if (cs == 0) exif.Short(0xa001, 0xffff);
             else

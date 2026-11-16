@@ -129,7 +129,7 @@ public sealed class ToneAdjustLaplacianStage : IStage
     static readonly float Log2E = BitConverter.Int32BitsToSingle(0x3fb8aa3b);
     static readonly float Eps1e5 = BitConverter.Int32BitsToSingle(0x3727c5ac);
 
-    /// <summary>`exp(CreateAndBlend(ln(max(v, 1e-5))))`. Both passes vectorise `w &amp; ~3` columns of
+    /// <summary>`exp(CreateAndBlend(ln(max(v, 1e-5))))`. Both passes vectorize `w &amp; ~3` columns of
     /// each row with the fast log2/exp2 pair and finish the last `w &amp; 3` with the **CRT** `logf`/`expf` — a real,
     /// reproducible per-row-end difference.</summary>
     public static Image<float> LocalToneMapLog(Image<float> src, float scale, LaplacianPyramidConfig cfg) => LocalToneMapLog(src, scale, cfg, null);

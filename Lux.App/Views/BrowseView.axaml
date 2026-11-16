@@ -8,7 +8,7 @@
              Focusable="True" IsTabStop="True"
              AutomationProperties.Name="Captures">
   <!--
-    The three presentations of one ordered result. Each is a virtualising stack of rows (grid rows, day headings + card rows, list
+    The three presentations of one ordered result. Each is a virtualizing stack of rows (grid rows, day headings + card rows, list
     rows); cells are not focusable: the view itself holds keyboard focus and moves a cursor through the result.
   -->
   <UserControl.Styles>
@@ -45,6 +45,11 @@
                         </Border>
                         <Border Classes="badge" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="4">
                           <TextBlock Text="{Binding Badge}" />
+                        </Border>
+                        <Border Classes="badge" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="4"
+                                IsVisible="{Binding PossiblyBlurred}" ToolTip.Tip="{x:Static vm:CaptureItemViewModel.BlurTip}"
+                                AutomationProperties.Name="Possibly blurred">
+                          <TextBlock Classes="secondary" Text="blur?" />
                         </Border>
                         <Border Classes="badge warn" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding HasProblem}">
                           <TextBlock Text="{Binding ProblemText}" />

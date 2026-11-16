@@ -5,19 +5,19 @@ using Lux.Engine.Pipeline.ResAmp;
 
 namespace Lux.Engine.Pipeline.Dof.Edit;
 
-/// <summary>A stroke / polygon vertex in normalised depth-map coordinates (`CIAPI::Point&lt;float&gt;`): (0,0) = top-left of the edited level,
+/// <summary>A stroke / polygon vertex in normalized depth-map coordinates (`CIAPI::Point&lt;float&gt;`): (0,0) = top-left of the edited level,
 /// (1,1) = bottom-right.</summary>
 public readonly record struct EditPoint(float X, float Y);
 
 /// <summary>
-/// Lumen's `lt::DepthEditingCommand`: the transient object every tool builds — points, radius normalised to the level
-/// width, hardness, the normalised ROI and "needs the colour guide".
+/// Lumen's `lt::DepthEditingCommand`: the transient object every tool builds — points, radius normalized to the level
+/// width, hardness, the normalized ROI and "needs the color guide".
 /// <see cref="Execute"/> is the command's virtual execute: it edits a float depth image that covers <c>rect</c> of the level, in place.
 /// </summary>
 public abstract class DepthEditCommand
 {
     public readonly EditPoint[] Points; public readonly float Radius, Hardness; public readonly bool NeedsGuide;
-    /// <summary>Normalised ROI x0, y0, x1, y1.</summary>
+    /// <summary>Normalized ROI x0, y0, x1, y1.</summary>
     public readonly float Rx0, Ry0, Rx1, Ry1;
 
     protected DepthEditCommand(IReadOnlyList<EditPoint> points, float radius, float hardness, bool needsGuide)
@@ -47,7 +47,7 @@ public abstract class DepthEditCommand
         => new(EditMath.Cvtt((float)level.W * Rx0), EditMath.Cvtt((float)level.H * Ry0), EditMath.Cvtt((float)level.W * Rx1), EditMath.Cvtt((float)level.H * Ry1));
 
     /// <summary>The virtual execute — `execute(depth, guide, rect, levelSize)`. <paramref name="depth"/> is a dense
-    /// <c>rect.Width × rect.Height</c> float image, edited in place; <paramref name="guide"/> the vec4 colour of the same rect (4 floats per
+    /// <c>rect.Width × rect.Height</c> float image, edited in place; <paramref name="guide"/> the vec4 color of the same rect (4 floats per
     /// pixel) when <see cref="NeedsGuide"/>. Returns false when the command's ROI does not touch the rect.</summary>
     public abstract bool Execute(float[] depth, float[]? guide, RectI rect, (int W, int H) level);
 
@@ -77,11 +77,11 @@ static class EditMath
     public static int Cvtt(float v) => v >= -2147483648.0f && v < 2147483648.0f ? (int)v : int.MinValue;
 }
 
-/// <summary>The brush kernel and the stroke rasteriser shared by brush, adaptive brush, both heals and quick select.</summary>
+/// <summary>The brush kernel and the stroke rasterizer shared by brush, adaptive brush, both heals and quick select.</summary>
 public static class BrushStroke
 {
     /// <summary>
-    /// The brush kernel (out, n, hardness): a (2n+1)² float image, centre (n, n). Exponent <c>e = 0.4f / (1 − hardness)</c>
+    /// The brush kernel (out, n, hardness): a (2n+1)² float image, center (n, n). Exponent <c>e = 0.4f / (1 − hardness)</c>
     /// (1e6 when <c>(double)(1 − hardness) &lt; 4e-7</c>). For i, j in 0…n:
     /// <c>d = (float)(sqrt((double)(j² + i²)) · (1.0 / (double)n))</c>; when d ≤ 1: <c>p = powf(d, e)</c>,
     /// <c>v = p &lt; 0.5 ? 1 − (p·p + p·p) : ((1 − p)·(1 − p))·2</c>, written to the four mirrored positions; the rest stays 0.
@@ -294,7 +294,7 @@ public sealed class GaussianLut
 }
 
 /// <summary>Lumen's `lt::DepthBrushAdaptiveCommand`: the brush weighted by the
-/// colour distance to a reference colour. Per pixel with M &gt; 0: <c>d = max(|ref.r − g.r|, |ref.g − g.g|, |ref.b − g.b|)</c> (the 4th lane is
+/// color distance to a reference color. Per pixel with M &gt; 0: <c>d = max(|ref.r − g.r|, |ref.g − g.g|, |ref.b − g.b|)</c> (the 4th lane is
 /// computed and dropped), <c>i = min(cvtt((float)N · d), N)</c>, <c>w = M · lut[i]</c>, <c>depth = (1 − w) · depth + w · value</c>.</summary>
 public sealed class DepthBrushAdaptiveCommand : DepthEditCommand
 {
@@ -307,7 +307,7 @@ public sealed class DepthBrushAdaptiveCommand : DepthEditCommand
         CheckSize(depth, rect);
         var roi = PixelRoi(level); var c = Clip(rect, roi);
         if (c.X1 == c.X0 || c.Y1 == c.Y0) return false;
-        if (guide == null) throw new InvalidOperationException("the adaptive brush needs the colour guide of the edited tile");
+        if (guide == null) throw new InvalidOperationException("the adaptive brush needs the color guide of the edited tile");
         var m = StrokeMask(roi, level); int rw = rect.Width, mw = roi.Width;
         float r0 = Reference[0], r1 = Reference[1], r2 = Reference[2]; int n = Lut.N; var lut = Lut.Table;
         for (int y = c.Y0; y < c.Y1; y++)

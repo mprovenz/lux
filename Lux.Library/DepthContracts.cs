@@ -10,7 +10,7 @@
 // Exactness: the depth effect, the overlays and every depth tool are Lumen's own, ported bit for bit. A tool run through this
 // contract gives, bit for bit, the depth Lumen gives for the same stroke; the picture with the depth effect is the export's own pixels.
 // Coordinates are picture coordinates (the photo as shown: saved crop / rotation / flips and the display rotation); the library maps them
-// to the capture's normalised coordinates the engine takes (IPhotoView.PictureToCapture).
+// to the capture's normalized coordinates the engine takes (IPhotoView.PictureToCapture).
 
 namespace Lux.Library;
 
@@ -21,7 +21,7 @@ public enum DepthAvailability
 {
     /// <summary>This photo has no depth (a capture without the modules the depth needs) — the depth effect and tools are not offered.</summary>
     Unavailable = 0,
-    /// <summary>Not analysed yet: <see cref="IPhotoDepth.EnsureDepthAsync"/> starts the analysis (about a minute).</summary>
+    /// <summary>Not analyzed yet: <see cref="IPhotoDepth.EnsureDepthAsync"/> starts the analysis (about a minute).</summary>
     NotAnalysed = 1,
     /// <summary>The analysis (or the reading of a version's depth) is running: <see cref="DepthStatus.Progress"/>.</summary>
     Analysing = 2,
@@ -40,7 +40,7 @@ public enum DepthOrigin
     LumenSession = 1,
 }
 
-/// <summary>A depth interval in millimetres.</summary>
+/// <summary>A depth interval in millimeters.</summary>
 public readonly record struct DepthRange(float NearMm, float FarMm);
 
 /// <summary>The depth state of the open photo (<see cref="IPhotoDepth.Status"/>).</summary>
@@ -49,7 +49,7 @@ public sealed record DepthStatus
     public DepthAvailability Availability { get; init; }
     /// <summary>0–1 while <see cref="DepthAvailability.Analysing"/>; null when unknown.</summary>
     public double? Progress { get; init; }
-    /// <summary>A plain-language line for the progress ("Analysing the photo: depth", "Reading the saved depth").</summary>
+    /// <summary>A plain-language line for the progress ("Analyzing the photo: depth", "Reading the saved depth").</summary>
     public string? ProgressText { get; init; }
     /// <summary>A plain-language reason when <see cref="DepthAvailability.Failed"/> or <see cref="DepthAvailability.Unavailable"/>.</summary>
     public string? Error { get; init; }
@@ -113,7 +113,7 @@ public enum DepthOverlayMode
 }
 
 /// <summary>
-/// The "Photo + depth" view's mapping (Lux's own visualisation — Lumen has no depth view): grey level = 255 · t^(1/2.2) with
+/// The "Photo + depth" view's mapping (Lux's own visualization — Lumen has no depth view): gray level = 255 · t^(1/2.2) with
 /// t = (1/d − 1/far) / (1/near − 1/far) clamped to 0–1 — near is light, far is dark, linear in inverse depth (how the eye and the depth effect
 /// see distance). <see cref="NearMm"/> / <see cref="FarMm"/> = the 1st and 99th percentile of the version's unedited depth inside the export
 /// window, fixed while the photo is open in that version (an edit never rescales the whole view). Alpha is 255.
@@ -174,7 +174,7 @@ public interface IPhotoDepth
     float MaximumInFocusBlurPixels { get; set; }
     /// <summary>The focal-region shade, RGBA 0–1 (`ParamFloatArray 5`; Lumen's GUI: {0.2, 0.2, 0.2, 0.91} = #333333 at 91 %).</summary>
     IReadOnlyList<float> FocalRegionColour { get; set; }
-    /// <summary>The selection colour of <see cref="DepthOverlayMode.Selection"/> and of the pending-stroke preview, RGBA 0–1 (`ParamFloatArray 4`;
+    /// <summary>The selection color of <see cref="DepthOverlayMode.Selection"/> and of the pending-stroke preview, RGBA 0–1 (`ParamFloatArray 4`;
     /// Lumen's tutorial shows a pink mask: default {1.0, 0.25, 0.55, 0.45}).</summary>
     IReadOnlyList<float> SelectionColour { get; set; }
 
@@ -210,7 +210,7 @@ public readonly record struct PictureRegion(int Level, NormRect Rect);
 public sealed class DepthChangedEventArgs : EventArgs
 {
     public required DepthChangeKind Kind { get; init; }
-    /// <summary>The part of the photo (<see cref="ViewMode.Edited"/> / <see cref="ViewMode.Original"/>) whose pixels may have changed, normalised
+    /// <summary>The part of the photo (<see cref="ViewMode.Edited"/> / <see cref="ViewMode.Original"/>) whose pixels may have changed, normalized
     /// picture coordinates; null = none; <see cref="NormRect.Full"/> = everything. With the depth effect on an edit can reach far beyond the
     /// stroke (Lumen's blur margins and noise follow the depth range around each tile); the rect is computed exactly from the depth-effect tiles
     /// that changed.</summary>
@@ -232,7 +232,7 @@ public sealed class DepthChangedEventArgs : EventArgs
 public enum DepthTool
 {
     /// <summary>"Refine edge" (Lumen `healEdge`, E): a freehand stroke along an edge whose depth looks wrong; the edge is re-cut along the
-    /// photo's colours (closed-form matting). Committed on release; needs a clear near / far edge under the stroke (else nothing changes and
+    /// photo's colors (closed-form matting). Committed on release; needs a clear near / far edge under the stroke (else nothing changes and
     /// the job says why).</summary>
     RefineEdge = 0,
     /// <summary>"Blend area" (`healSurface`, B): a freehand stroke over a surface (road, wall, table) whose depth should run smoothly; the depth
@@ -247,11 +247,11 @@ public enum DepthTool
 public enum MatchApplicator
 {
     /// <summary>One freehand brush stroke (Lumen's "brush"; `pushBrushDepthEdit`, hardness 0.9). <see cref="DepthToolOptions.Adaptive"/> makes
-    /// it the adaptive brush (weighted by colour likeness to the first point: Lumen's engine has it, Lumen's interface never offered it).</summary>
+    /// it the adaptive brush (weighted by color likeness to the first point: Lumen's engine has it, Lumen's interface never offered it).</summary>
     Brush = 0,
     /// <summary>A polygon, by clicked vertices or freehand (`pushLassoDepthEdit`), with feathering.</summary>
     Lasso = 1,
-    /// <summary>Quick select: add / remove strokes grow a selection along colour edges (`addQuickSelectStrokes`); the selection is shown as an
+    /// <summary>Quick select: add / remove strokes grow a selection along color edges (`addQuickSelectStrokes`); the selection is shown as an
     /// overlay after every stroke.</summary>
     QuickSelect = 2,
 }
@@ -275,10 +275,10 @@ public sealed record DepthToolOptions(float BrushSize = DepthToolOptions.Default
 }
 
 /// <summary>The region a quick-select stroke works on (Lumen: the level on screen and the visible part of the picture).</summary>
-/// <param name="Level">Picture level 0 … 4 (the colour image the selection grows on: coarser is faster, finer follows edges better).</param>
-/// <param name="Visible">The visible part of the picture (normalised picture coordinates; may reach outside 0–1); it becomes the bounding pixel
+/// <param name="Level">Picture level 0 … 4 (the color image the selection grows on: coarser is faster, finer follows edges better).</param>
+/// <param name="Visible">The visible part of the picture (normalized picture coordinates; may reach outside 0–1); it becomes the bounding pixel
 /// rectangle of that part of the capture at <paramref name="Level"/> (floor / ceiling — a value within 1e-6 of a whole pixel is that pixel —,
-/// clamped to the level). A new region starts a new selection base (Lumen reloads its colour guide).</param>
+/// clamped to the level). A new region starts a new selection base (Lumen reloads its color guide).</param>
 public sealed record QuickSelectScope(int Level, NormRect Visible);
 
 /// <summary>A stroke in progress (<see cref="IDepthEdit.BeginStroke"/>): points are added while the pointer moves and committed on release.</summary>
@@ -286,7 +286,7 @@ public interface IDepthStroke : IDisposable
 {
     /// <summary>The tool the stroke belongs to.</summary>
     DepthTool Tool { get; }
-    /// <summary>Add points (normalised picture coordinates; points may lie outside the picture, as Lumen allows). The pending-stroke preview
+    /// <summary>Add points (normalized picture coordinates; points may lie outside the picture, as Lumen allows). The pending-stroke preview
     /// (the area the stroke will change) follows when <see cref="IDepthEdit.ShowStrokePreview"/> is on.</summary>
     void Add(params NormPoint[] points);
     IReadOnlyList<NormPoint> Points { get; }
@@ -304,7 +304,7 @@ public enum DepthJobOutcome
     Done = 0,
     /// <summary>Ran, changed nothing (<see cref="DepthJobResult.Message"/> says why — e.g. "no clear edge under the stroke").</summary>
     NothingChanged = 1,
-    /// <summary>Cancelled before it changed anything (nothing is recorded).</summary>
+    /// <summary>Canceled before it changed anything (nothing is recorded).</summary>
     Cancelled = 2,
     /// <summary>Refused or failed (<see cref="DepthJobResult.Message"/>); nothing changed.</summary>
     Failed = 3,
@@ -315,7 +315,7 @@ public sealed record DepthJobResult(DepthJobOutcome Outcome, string? Message)
 {
     /// <summary>Milliseconds the work took on the worker (queue wait excluded).</summary>
     public double WorkMs { get; init; }
-    /// <summary>Normalised picture rect of the depth that changed (null when nothing did).</summary>
+    /// <summary>Normalized picture rect of the depth that changed (null when nothing did).</summary>
     public NormRect? ChangedRect { get; init; }
 }
 
@@ -366,7 +366,7 @@ public sealed record PendingSelection(MatchApplicator Applicator, bool HasArea, 
 /// <summary>What a history step changed.</summary>
 public enum HistoryEntryKind
 {
-    /// <summary>Tone and colour.</summary>
+    /// <summary>Tone and color.</summary>
     Adjustment = 0,
     /// <summary>Crop, rotation, flips.</summary>
     Geometry = 1,
@@ -439,7 +439,7 @@ public sealed record HistoryInfo(IReadOnlyList<HistoryEntry> Entries, int Positi
 /// <summary>
 /// One history for all of the photo's edits, in the order they were made (the history panel and Ctrl+Z / Shift+Ctrl+Z):
 /// <list type="bullet">
-/// <item>Tone / colour / geometry / depth-effect steps (<see cref="IPhotoEdit"/>) and depth edits (<see cref="IDepthEdit"/>) form one list.</item>
+/// <item>Tone / color / geometry / depth-effect steps (<see cref="IPhotoEdit"/>) and depth edits (<see cref="IDepthEdit"/>) form one list.</item>
 /// <item><see cref="Undo"/> undoes the newest done step whatever its kind; <see cref="Redo"/> redoes the oldest undone one. A new step of any kind
 /// discards every undone step (of both kinds) from the list.</item>
 /// <item>Depth steps are persistent (the photo's edit log); the others are per session. After closing and opening the photo again the list holds
@@ -535,7 +535,7 @@ public interface IDepthEdit
 
     // ---- strokes and selections
     /// <summary>Start a stroke of the active tool (refine edge / blend area / match-depth brush / quick select; a lasso drawn freehand). For quick
-    /// select <paramref name="scope"/> = the colour level and visible part (null = from the viewer's last request: its target level, but not
+    /// select <paramref name="scope"/> = the color level and visible part (null = from the viewer's last request: its target level, but not
     /// finer than needed to keep the region under about 1.2 megapixels — Lumen uses the level on screen, which is level 4 at fit).</summary>
     IDepthStroke BeginStroke(QuickSelectScope? scope = null);
     /// <summary>Lasso by clicks: add a vertex (picture coordinates). Three or more close the area.</summary>

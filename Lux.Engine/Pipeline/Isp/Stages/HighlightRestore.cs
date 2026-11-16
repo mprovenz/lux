@@ -8,9 +8,9 @@ namespace Lux.Engine.Pipeline.Isp.Stages;
 /// Lumen's `lt::RestoreHighlightsBayer` (dispatcher; one phase kernel for each of the four
 /// red positions; source row cache, 3×3-max row) = `HighlightRestore:default` on the
 /// Bayer-ushort domain. Per pixel: copied unless the 3×3 max ≥ (ushort)(int)(white·0.985); otherwise the missing
-/// channels are estimated from the neighbourhood (green-guided Laplacian interpolation in 10.10 fixed point, weighted
-/// by 1/(|ΔG|/(white−black) + 1/1024)), the white-balanced normalised triple is pulled toward the mean of the
-/// unclipped channels by the per-channel clip weight ((v·n − 0.85)·6.667), toward grey by (Σw − 1)·(alignment with
+/// channels are estimated from the neighborhood (green-guided Laplacian interpolation in 10.10 fixed point, weighted
+/// by 1/(|ΔG|/(white−black) + 1/1024)), the white-balanced normalized triple is pulled toward the mean of the
+/// unclipped channels by the per-channel clip weight ((v·n − 0.85)·6.667), toward gray by (Σw − 1)·(alignment with
 /// the chroma direction) and toward the max channel by (Σw − 2); the site's channel is written back. The port follows
 /// Lumen's phase kernel 0 operation by operation (all SSE approximations — rcpps/rcpss/rsqrtps/rsqrtss — kept).
 /// </summary>
@@ -61,7 +61,7 @@ public static class HighlightRestoreKernel
         return f;
     }
 
-    /// <summary>Green estimate (×4, 16-bit) at an R/B site from its same-colour ±2 neighbours and the four greens.</summary>
+    /// <summary>Green estimate (×4, 16-bit) at an R/B site from its same-color ±2 neighbors and the four greens.</summary>
     static int EstG(Func<int, int, int> P, int cx, int cy, int k, int floor)
     {
         int c = P(cx, cy);
@@ -78,7 +78,7 @@ public static class HighlightRestoreKernel
 
     static float Abs(float x) => MathF.Abs(x);
 
-    /// <summary>The colour-space part shared by the four sites: v = (R, G, B, 0) white-balanced & normalised.</summary>
+    /// <summary>The color-space part shared by the four sites: v = (R, G, B, 0) white-balanced & normalized.</summary>
     static float Tail(Frame f, float vR, float vG, float vB, int lane)
     {
         // v += −black (all lanes), × (sR, sG, sB, 0)
@@ -114,7 +114,7 @@ public static class HighlightRestoreKernel
         return lane == 0 ? e0 : lane == 1 ? e1 : e2;
     }
 
-    /// <summary>R or B site (block 1 / block 4): own channel + green estimate + the other colour from the four
+    /// <summary>R or B site (block 1 / block 4): own channel + green estimate + the other color from the four
     /// diagonals.</summary>
     static ushort SiteRB(Frame f, Func<int, int, int> P, int x, int y, bool isR)
     {
@@ -140,7 +140,7 @@ public static class HighlightRestoreKernel
         return (ushort)(int)(r * (isR ? f.ScaleR : f.ScaleB) + f.Black);
     }
 
-    /// <summary>G site (blocks 2/3): R from the two R neighbours, B from the two B neighbours.</summary>
+    /// <summary>G site (blocks 2/3): R from the two R neighbors, B from the two B neighbors.</summary>
     static ushort SiteG(Frame f, Func<int, int, int> P, int x, int y, bool rHorizontal)
     {
         float g = (float)P(x, y);
@@ -187,7 +187,7 @@ public static class HighlightRestoreKernel
                     bool rowR = (y & 1) == ry, colR = (x & 1) == rx;
                     if (rowR && colR) o = SiteRB(f, P, x, y, true);
                     else if (!rowR && !colR) o = SiteRB(f, P, x, y, false);
-                    else o = SiteG(f, P, x, y, rowR);   // G in the R row: R neighbours horizontal
+                    else o = SiteG(f, P, x, y, rowR);   // G in the R row: R neighbors horizontal
                 }
                 dst[dstOffset + y * dstStride + x] = o;
             }

@@ -70,7 +70,7 @@ public static class TestWindows
 public static class FrameExtensions
 {
     /// <summary>Render a frame and drop it at once. <c>CaptureRenderedFrame</c> returns a fresh copy of the frame each time (several MB of native
-    /// memory that only a finaliser would free otherwise).</summary>
+    /// memory that only a finalizer would free otherwise).</summary>
     public static void RenderFrame(this TopLevel top) => top.CaptureRenderedFrame()?.Dispose();
 }
 
@@ -209,7 +209,7 @@ public sealed class Harness : IAsyncDisposable
     {
         Dispatcher.UIThread.RunJobs();
         // `using` keeps the frame reachable until the PNG is written: Avalonia's WriteableBitmap.Save encodes an SKImage that only borrows the
-        // bitmap's pixels, so a frame left unreferenced during the encode could be finalised mid-write (a native use-after-free that crashed
+        // bitmap's pixels, so a frame left unreferenced during the encode could be finalized mid-write (a native use-after-free that crashed
         // the test host in sk_image_encode).
         using var frame = top.CaptureRenderedFrame() ?? throw new InvalidOperationException("no frame");
         folder ??= Paths.Shots;

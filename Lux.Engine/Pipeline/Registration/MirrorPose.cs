@@ -10,15 +10,15 @@ public sealed class MirrorSystem
 }
 
 /// <summary>
-/// Movable-mirror pose math of Lumen, with Lumen's exact operation order: <c>Reflect</c> (Rodrigues about the normalised axis,
-/// reflection `I − 2nnᵀ`, `P = H·R0`, handedness column flip, reflected centre), <c>WorldToCamera</c> (transpose + `t = −R·C'`),
+/// Movable-mirror pose math of Lumen, with Lumen's exact operation order: <c>Reflect</c> (Rodrigues about the normalized axis,
+/// reflection `I − 2nnᵀ`, `P = H·R0`, handedness column flip, reflected center), <c>WorldToCamera</c> (transpose + `t = −R·C'`),
 /// <c>Rz</c> (`Rz(δ)`), <c>NodePose</c> (node pose = mirror pose ∘ Rz), <c>Shift</c> (principal-point shift).
 /// </summary>
 public static class MirrorPose
 {
     const double DegToRad = 0.017453292519943295;   // π/180
 
-    /// <summary>(C', P') — reflected camera centre and camera→world rotation for mirror angle θ (degrees).</summary>
+    /// <summary>(C', P') — reflected camera center and camera→world rotation for mirror angle θ (degrees).</summary>
     public static (double[] Centre, double[] Rcw) Reflect(MirrorSystem s, double thetaDeg)
     {
         double ax = s.Axis[0], ay = s.Axis[1], az = s.Axis[2];

@@ -46,7 +46,7 @@
               <TextBlock Grid.Row="1" Grid.Column="1" Classes="v" Text="{Binding Details.Current.DepthEditsDisplay, FallbackValue=''}" />
               <TextBlock Grid.Row="2" Classes="secondary" Text="Depth effect" />
               <TextBlock Grid.Row="2" Grid.Column="1" Classes="mono v" Text="{Binding Details.Current.DepthEffectText, FallbackValue=''}" />
-              <TextBlock Grid.Row="3" Classes="secondary" Text="Tone, colour" />
+              <TextBlock Grid.Row="3" Classes="secondary" Text="Tone, color" />
               <TextBlock Grid.Row="3" Grid.Column="1" Classes="v" Text="{Binding Details.Current.AdjustmentsText, FallbackValue=''}" />
               <TextBlock Grid.Row="4" Classes="secondary" Text="Cached render" />
               <TextBlock Grid.Row="4" Grid.Column="1" Classes="mono v" Classes.accent="{Binding Details.CurrentIsFull}"
@@ -72,6 +72,8 @@
           </Border>
           <TextBlock Classes="warning wrap" Text="{Binding Details.Current.ProblemNote, FallbackValue=''}"
                      IsVisible="{Binding Details.Current.ProblemNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
+          <TextBlock Classes="secondary small wrap" Text="{Binding Details.Current.BlurNote, FallbackValue=''}"
+                     IsVisible="{Binding Details.Current.BlurNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
           <v:QualitySelector DataContext="{Binding Details.Quality}" />
           <Button Classes="primary" HorizontalAlignment="Stretch" Content="Open in Develop" Command="{Binding OpenInDevelopCommand}" />
           <Grid ColumnDefinitions="*,4,*" RowDefinitions="Auto,4,Auto">

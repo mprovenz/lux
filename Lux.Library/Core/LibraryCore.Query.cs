@@ -13,7 +13,7 @@ internal sealed partial class LibraryCore
         c.depth_failed, c.edit_variant, c.edit_ops, c.edit_source, c.edit_variants, c.edit_settings, c.edit_unreliable, c.has_lris,
         c.thumb_state, c.thumb_key, c.missing, c.unreadable, c.error, c.context_location, c.superseded,
         c.iso, c.exposure_s, c.gain, c.held_orientation, c.vp_orientation, c.level_sizes, c.saved_fnumber, c.saved_focus, c.adjustments,
-        c.transform_orientation, c.transform_crop, c.tone_v2, c.out_w, c.out_h, c.lumen_class, c.has_meta, c.geometry_decided
+        c.transform_orientation, c.transform_crop, c.tone_v2, c.out_w, c.out_h, c.lumen_class, c.has_meta, c.geometry_decided, c.blur_px
         """;
 
     internal CaptureItem ReadItem(SqliteDataReader r)
@@ -54,6 +54,7 @@ internal sealed partial class LibraryCore
             LevelSizes = ParseSizes(r.GetString(38)), Width = r.GetInt32(45), Height = r.GetInt32(46), LumenSession = (LumenSessionState)r.GetInt32(47),
             BestQuality = level == CacheLevel.Full ? ViewQuality.FullDetail : level >= CacheLevel.Linear13 ? ViewQuality.Linear13 : ViewQuality.Preview,
             ActiveJob = active?.Kind,
+            PredictedBlurPixels = r.IsDBNull(50) ? null : (float)r.GetDouble(50),
         };
     }
 
@@ -69,6 +70,9 @@ internal sealed partial class LibraryCore
     }
 
     internal static string Escape(string s) => s.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+
+    /// <summary>The blur limit of <see cref="CaptureItem.PossiblyBlurred"/> as SQL text.</summary>
+    static readonly string BlurSql = CaptureItem.PossiblyBlurredPixels.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
 
     static Where BuildWhere(CaptureQuery q, bool scopeOnly = false)
     {
@@ -90,6 +94,7 @@ internal sealed partial class LibraryCore
         if (q.HasLumenSession is bool hl) w.Conds.Add(hl ? "c.has_lris = 1" : "c.has_lris = 0");
         if (q.EditedInLumen is bool el) w.Conds.Add(el ? "c.lumen_class >= 2" : "c.lumen_class < 2");
         if (q.Missing is bool mi) w.Conds.Add(mi ? "c.missing = 1" : "c.missing = 0");
+        if (q.PossiblyBlurred is bool pb) w.Conds.Add(pb ? $"c.blur_px > {BlurSql}" : $"(c.blur_px IS NULL OR c.blur_px <= {BlurSql})");
         if (q.CacheLevel is CacheLevel cl) w.Conds.Add($"c.cache_level = {w.P((long)cl)}");
         if (!string.IsNullOrWhiteSpace(q.Text))
             foreach (var word in q.Text.ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
@@ -172,7 +177,7 @@ internal sealed partial class LibraryCore
         {
             using var cmd = c.Cmd(null, $"""
                 SELECT count(*), sum(c.rating >= 1), sum(c.edit_source <> 0), sum(c.stack_frames > 1), sum(c.telephoto = 1), sum(c.cache_level = 0),
-                       sum(c.has_lris = 1), sum(c.missing = 1), sum(c.cache_level = 3), sum(c.lumen_class >= 2)
+                       sum(c.has_lris = 1), sum(c.missing = 1), sum(c.cache_level = 3), sum(c.lumen_class >= 2), sum(c.blur_px > {BlurSql})
                 FROM capture c WHERE {w.Sql}
                 """, w.Params.ToArray());
             using var r = cmd.ExecuteReader();
@@ -182,7 +187,7 @@ internal sealed partial class LibraryCore
             {
                 [SmartFilter.All] = V(0), [SmartFilter.Rated] = V(1), [SmartFilter.DepthEdited] = V(2), [SmartFilter.Stacked] = V(3),
                 [SmartFilter.Telephoto] = V(4), [SmartFilter.NotAnalysed] = V(5), [SmartFilter.HasLumenSession] = V(6), [SmartFilter.Missing] = V(7),
-                [SmartFilter.FullDetail] = V(8), [SmartFilter.EditedInLumen] = V(9),
+                [SmartFilter.FullDetail] = V(8), [SmartFilter.EditedInLumen] = V(9), [SmartFilter.PossiblyBlurred] = V(10),
             };
         });
     }

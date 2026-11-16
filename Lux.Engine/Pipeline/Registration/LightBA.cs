@@ -4,7 +4,7 @@ namespace Lux.Engine.Pipeline.Registration;
 /// `LightBA` — the sparse bundle adjustment of the BA caller (ctor and `Solve`):
 /// cameras {K, angle-axis, t, mask} in double, constant 3-D points, Ceres 1.12 trust-region
 /// Levenberg–Marquardt (SPARSE_SCHUR, nonmonotonic steps, 100 iterations, tolerances 1e-20) on the reprojection cost plus the optional
-/// entrance-pupil and intrinsics priors. Points/cameras are normalised by the robust median scale first and de-normalised after; finally
+/// entrance-pupil and intrinsics priors. Points/cameras are normalized by the robust median scale first and de-normalized after; finally
 /// every pose is re-expressed relative to camera 0. The linear solve is done exactly on the (Jacobi-scaled) normal equations instead of
 /// Ceres' Schur eliminator + Eigen LDLT — results agree to ~1e-10 relative (the caller rounds to float).
 /// </summary>
@@ -124,7 +124,7 @@ public sealed class LightBA
 
     static double Median(List<double> v) { var s = v.ToList(); s.Sort(); return s[s.Count / 2]; }   // nth_element at n/2 (upper median)
 
-    /// <summary>Normalise, build + solve the Ceres problem, de-normalise, write back, re-express relative to camera 0.</summary>
+    /// <summary>Normalize, build + solve the Ceres problem, de-normalize, write back, re-express relative to camera 0.</summary>
     public void Solve(Action<string>? log = null)
     {
         var recs = Cams.Select(c => new Rec { Key = c.Key, F = c.K[0], Aspect = c.K[4] / c.K[0], Cx = c.K[2], Cy = c.K[5], Aa = (double[])c.Aa.Clone(), T = (double[])c.T.Clone(), Mask = c.Mask }).ToList();

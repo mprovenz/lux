@@ -67,10 +67,10 @@ public static class CrossTalkKernel
                 float sumGR = ((rR[iR + 1] + rR[iR - 1]) + rows[dyR][iR]) + rows[dyR + 2][iR];
                 float cR = sumGR * (fxx * sRG + lRG) * Half + (fxx * sRR + lRR) * R;
                 dst[dstOffset + (y0 + py + dyR) * dstStride + x0 + px + dxR] = (R - cR) * tt + cR;
-                // G1 (R's row): vertical neighbours B, horizontal R
+                // G1 (R's row): vertical neighbors B, horizontal R
                 float cG1 = ((rows[dyG1 + 2][iG1] + rows[dyG1][iG1]) * (fxx * sG1B + lG1B) + (rG1[iG1 + 1] + rG1[iG1 - 1]) * (fxx * sG1R + lG1R)) * Half + (fxx * sG1G1 + lG1G1) * G1;
                 dst[dstOffset + (y0 + py + dyG1) * dstStride + x0 + px + dxG1] = (G1 - cG1) * tt + cG1;
-                // G2 (R's column): vertical neighbours R, horizontal B
+                // G2 (R's column): vertical neighbors R, horizontal B
                 float cG2 = ((rows[dyG2 + 2][iG2] + rows[dyG2][iG2]) * (fxx * sG2R + lG2R) + (rG2[iG2 + 1] + rG2[iG2 - 1]) * (fxx * sG2B + lG2B)) * Half + (fxx * sG2G2 + lG2G2) * G2;
                 dst[dstOffset + (y0 + py + dyG2) * dstStride + x0 + px + dxG2] = (G2 - cG2) * tt + cG2;
                 // B

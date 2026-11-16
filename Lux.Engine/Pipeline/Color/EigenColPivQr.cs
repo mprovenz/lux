@@ -3,9 +3,9 @@ namespace Lux.Engine.Pipeline.Color;
 /// <summary>
 /// Eigen 3.3 `ColPivHouseholderQR&lt;MatrixXd&gt;` — the decomposition Lumen uses for the thin-plate-spline system of
 /// `OptimizeHSVLut` (the constructor = `computeInPlace`, <see cref="Solve"/> = `_solve_impl`). Lumen's build is the Eigen 3.3
-/// flavour: it keeps m_colNormsUpdated and m_colNormsDirect (two double vectors of size cols); 3.2 has a single m_colSqNorms.
+/// flavor: it keeps m_colNormsUpdated and m_colNormsDirect (two double vectors of size cols); 3.2 has a single m_colSqNorms.
 ///
-/// This code reproduces the machine-level behaviour of Lumen's compiled Eigen:
+/// This code reproduces the machine-level behavior of Lumen's compiled Eigen:
 /// `essential = tail·(1/(c0−beta))` as a reciprocal multiply, `temp2 = (u/d)·(u/d)·temp`,
 /// `temp&lt;0 → 0` as a max, `beta` sign from `c0 &lt; 0`, strict `&gt;` for both the pivot search (first maximum wins) and
 /// `m_maxpivot`, `tol` test `tailSqNorm &lt;= DBL_MIN`, and the `&lt;=` downdate test. It does *not* reproduce the

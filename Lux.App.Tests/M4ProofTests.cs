@@ -10,7 +10,7 @@ namespace Lux.App.Tests;
 /// Export and animation checks on real captures through the library's job path (env-gated: LUX_M4_PROOF = a folder of linked captures, e.g.
 /// with wide/L16_00493.lri, stacked/L16_00414.lri, lumen/L16_00066.lri + .lris). Every export the app's panel can ask for
 /// (a matrix of options) is queued as a library job and compared with `lux-light convert` given the equivalent options (byte for byte except
-/// the time stamps in DNG / JPG); the collision policies (add a number, skip, replace); a cancelled export leaves no file; an animation job
+/// the time stamps in DNG / JPG); the collision policies (add a number, skip, replace); a canceled export leaves no file; an animation job
 /// equals `lux-light animate`. Results: &lt;LUX_M4_OUT&gt;/m4-proof.tsv (default: a folder in the workspace).
 /// </summary>
 public sealed class M4ProofTests(ITestOutputHelper output)

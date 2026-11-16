@@ -37,7 +37,7 @@
     <AvaloniaResource Include="Assets\Fonts\*.ttf" />
     <!-- the app icon (window, taskbar); the .ico above is the Windows executable's icon -->
     <AvaloniaResource Include="Assets\Icon\lux-256.png" />
-    <!-- their licences ship next to them in the output and the published app, with the notices -->
+    <!-- their licenses ship next to them in the output and the published app, with the notices -->
     <None Include="Assets\Fonts\*-OFL.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

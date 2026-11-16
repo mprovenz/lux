@@ -3,7 +3,7 @@ namespace Lux.Engine.Pipeline.Color;
 /// <summary>
 /// The Ceres 1.12.0 <c>Solver::Options</c> that Lumen's <c>OptimizeHSVLut</c> sets: minimizer_type = LINE_SEARCH,
 /// line_search_direction_type = BFGS, line_search_type = WOLFE, max_num_iterations = 2000, num_threads = 1,
-/// function_tolerance = 1e-10, gradient_tolerance = 1e-14, linear_solver_type = DENSE_QR (the line-search minimiser does not use it),
+/// function_tolerance = 1e-10, gradient_tolerance = 1e-14, linear_solver_type = DENSE_QR (the line-search minimizer does not use it),
 /// logging SILENT. Everything else keeps
 /// the Ceres 1.12.0 defaults (`include/ceres/solver.h`). Lumen's Ceres is the separate `ceres.dll` (build path `3rdparty\ceres-solver-1.12.0`).
 /// </summary>
@@ -129,7 +129,7 @@ public static class CeresLineSearchMinimizer
             for (int i = 0; i < n; i++) delta[i] = current.StepSize * current.SearchDirection[i];
             previous.CopyFrom(current);
             double xNorm = Math.Sqrt(EigenRedux.SquaredNorm(x));
-            for (int i = 0; i < n; i++) xPlusDelta[i] = x[i] + delta[i];   // Plus (identity parameterisation)
+            for (int i = 0; i < n; i++) xPlusDelta[i] = x[i] + delta[i];   // Plus (identity parameterization)
             if (!Evaluate(evaluator, xPlusDelta, current, counter))
                 return new(x, CeresTermination.Failure, "Step failed to evaluate.", initialCost, previous.Cost, numSuccessful, numLineSearchSteps, iteration, counter.Evaluations);
             var stepDiff = new double[n];
@@ -459,7 +459,7 @@ public static class CeresLineSearchMinimizer
 /// `|pivot| > |maxpivot| · ε · n` is implemented but disabled by default (<see cref="UseNonzeroPivots"/>): ceres.dll behaves like Eigen 3.2.</summary>
 public static class EigenFullPivLu
 {
-    /// <summary>ceres.dll's Eigen is 3.2: <c>FullPivLU::solve</c> uses <c>nonzeroPivots()</c> (only exactly-zero pivots end the factorisation), not the
+    /// <summary>ceres.dll's Eigen is 3.2: <c>FullPivLU::solve</c> uses <c>nonzeroPivots()</c> (only exactly-zero pivots end the factorization), not the
     /// 3.3 <c>rank()</c> threshold. With the 3.3 rule, the zoom step of iteration 1 (abscissae ~1e-6, x³ ~1e-18) counts as rank-deficient,
     /// and the trajectory leaves Lumen's at evaluation 3. With the 3.2 rule, every Evaluate call matches Lumen's to ≤4e-11 relative.</summary>
     public static bool UseNonzeroPivots = Environment.GetEnvironmentVariable("LUX_LU_RANK") != "rank";
@@ -505,7 +505,7 @@ public static class EigenFullPivLu
         if (UseNonzeroPivots) rank = nonzeroPivots;   // Eigen 3.2 _solve_impl used nonzeroPivots() instead of rank()
         var x = new double[n];
         if (rank == 0) return x;
-        // c = P · rhs (the row transpositions in factorisation order)
+        // c = P · rhs (the row transpositions in factorization order)
         var c = (double[])b.Clone();
         for (int k = 0; k < n; k++) if (rowT[k] != k) (c[k], c[rowT[k]]) = (c[rowT[k]], c[k]);
         // unit-lower forward substitution (column-oriented, Eigen triangular_solve_vector ColMajor)

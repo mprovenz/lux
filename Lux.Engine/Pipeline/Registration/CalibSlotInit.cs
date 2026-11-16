@@ -10,7 +10,7 @@ namespace Lux.Engine.Pipeline.Registration;
 /// The load-time CURRENT/FACTORY calibration slot of a CapturedImage: K from
 /// the per-focus `k_mat`s interpolated/extrapolated in `focus_hall_code` by `CameraModule.lens_position` (fx/cx with a true
 /// reciprocal, fy/cy with `rcpps` + one Newton step), scaled by `data_scale`; R/t from the canonical extrinsics (NONE/GLUED mirrors) or the mirror
-/// pose at the actuator angle of `mirror_position` (MOVABLE); the full `CalibData` adds K2 from the polynomial distortion centre/normalisation and
+/// pose at the actuator angle of `mirror_position` (MOVABLE); the full `CalibData` adds K2 from the polynomial distortion center/normalization and
 /// the coefficient vector.
 /// </summary>
 public static class CalibSlotInit

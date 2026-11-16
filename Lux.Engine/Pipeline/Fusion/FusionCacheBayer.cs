@@ -19,17 +19,17 @@ public sealed class FusionCacheBayer
     public int Width => RefFrame.Width;
     public int Height => RefFrame.Height;
     public Action<string>? Log { get; set; }
-    /// <summary>Handed to the mono fusion (its initialisation ticks the level-0 inputs phase).</summary>
+    /// <summary>Handed to the mono fusion (its initialization ticks the level-0 inputs phase).</summary>
     public ProgressReporter Progress { get => Mono?.Progress ?? ProgressReporter.None; set { if (Mono is not null) Mono.Progress = value; } }
     readonly Cache.TileStore<(int, int), (RectI Rect, float[] Fused, byte[] W8)> _tiles = new();
     readonly object _monoLock = new();
 
     /// <summary>`FusionCacheBase` ctor: pipeline-5 tuning (`ModuleIspTuning.Build(5)` incl. the sensor-tuning row overrides), Stats from the reference
     /// capture with the AsShot neutral (`setNeutral`), halo by gain, noise scale from the sensor-tuning row.</summary>
-    public FusionCacheBayer(LriFile lri, CapturedFrame refFrame, PackedBayerFusion fusion, RendererProfile profile, float cct, float tint, Action<string>? log = null)
+    public FusionCacheBayer(LriFile lri, CapturedFrame refFrame, PackedBayerFusion fusion, RendererProfile profile, float cct, float tint, Action<string>? log = null, NoiseControls? noise = null)
     {
         RefFrame = refFrame; Fusion = fusion; Log = log;
-        var tuning = ModuleIspTuning.Build(5, profile, refFrame.Info, cct, tint);
+        var tuning = ModuleIspTuning.Build(5, profile, refFrame.Info, cct, tint, noise: noise);
         Isp = new SoftIsp(tuning, Color.LumenProfile.Compute(lri));
         var st = Isp.ComputeStats(refFrame);
         Array.Copy(lri.LumenNeutral, st.Neutral, 3);   // setNeutral: auto_white_balance.neutral_color = AsShot neutral, Stats neutral overwritten in place
@@ -46,7 +46,7 @@ public sealed class FusionCacheBayer
                 var m = kv.Value.Module; var red = m.SensorBayerRedOverride;
                 if (PackedBayerFusion.Group((int)m.Id) == PackedBayerFusion.Group(fusion.RefCamId) && red is not null && (red.X | red.Y) < 0) { HasMono = true; break; }
             }
-        if (Environment.GetEnvironmentVariable("LUX_NO_MONO") == "1") { Console.Error.WriteLine("[diagnostic] LUX_NO_MONO: colour branch forced — output is NOT Lumen-faithful"); HasMono = false; }
+        if (Environment.GetEnvironmentVariable("LUX_NO_MONO") == "1") { Console.Error.WriteLine("[diagnostic] LUX_NO_MONO: color branch forced — output is NOT Lumen-faithful"); HasMono = false; }
         if (HasMono)
         {
             // The pipeline-5 ISP of the mono case has no demosaic / lens shading / phase fix / crosstalk / hot-pixel leakage
@@ -62,7 +62,7 @@ public sealed class FusionCacheBayer
 
     /// <summary>The reference group has a mono camera (e.g. A2).</summary>
     public bool HasMono { get; }
-    /// <summary>The mono fusion (null unless <see cref="HasMono"/>); initialised on first use (`FusionCacheBayer::initialize` runs it after the colour fusion).</summary>
+    /// <summary>The mono fusion (null unless <see cref="HasMono"/>); initialized on first use (`FusionCacheBayer::initialize` runs it after the color fusion).</summary>
     public MonoFusion? Mono { get; }
     public void EnsureMonoInitialized()
     {

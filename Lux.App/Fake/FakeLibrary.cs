@@ -200,6 +200,7 @@ public sealed class FakeLibrary : ILibrary
         if (q.HasLumenSession is bool hl) s = s.Where(c => c.Item.HasLumenSession == hl);
         if (q.EditedInLumen is bool el) s = s.Where(c => (c.Item.LumenSession >= LumenSessionState.SettingsChanged) == el);
         if (q.Missing is bool mi) s = s.Where(c => c.Item.Missing == mi);
+        if (q.PossiblyBlurred is bool pb) s = s.Where(c => c.Item.PossiblyBlurred == pb);
         if (q.CacheLevel is CacheLevel cl) s = s.Where(c => c.Item.CacheLevel == cl);
         if (!string.IsNullOrWhiteSpace(q.Text))
         {
@@ -286,6 +287,7 @@ public sealed class FakeLibrary : ILibrary
                 [SmartFilter.Missing] = s.Count(c => c.Item.Missing),
                 [SmartFilter.FullDetail] = s.Count(c => c.Item.CacheLevel == CacheLevel.Full),
                 [SmartFilter.EditedInLumen] = s.Count(c => c.Item.LumenSession >= LumenSessionState.SettingsChanged),
+                [SmartFilter.PossiblyBlurred] = s.Count(c => c.Item.PossiblyBlurred),
             };
         }
     }
@@ -310,7 +312,7 @@ public sealed class FakeLibrary : ILibrary
         }
     }
 
-    // ---------------------------------------------------------------------------------------------------------------- organising
+    // ---------------------------------------------------------------------------------------------------------------- organizing
 
     void Update(IEnumerable<string> ids, Func<FakeData.Capture, CaptureItem> change)
     {

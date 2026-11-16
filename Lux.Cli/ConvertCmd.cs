@@ -94,7 +94,7 @@ public static class ConvertCmd
         ("--jpeg-v2",       new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-sharpening", new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-modify",   new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
-        // tone & colour: the output stage the JPG (and jpg+depth) runs; DNG, PPM and HDR never run it
+        // tone & color: the output stage the JPG (and jpg+depth) runs; DNG, PPM and HDR never run it
         ("--exposure",      new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--contrast",      new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--temperature",   new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
@@ -107,6 +107,9 @@ public static class ConvertCmd
         ("--clarity",       new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-comment",  new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--jpeg-software", new[] { ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
+        // the noise controls change the merged image, which every raster format is written from
+        ("--grain-strength",    new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth, ExportImageFormat.Hdr, ExportImageFormat.Ppm }),
+        ("--denoise-threshold", new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth, ExportImageFormat.Hdr, ExportImageFormat.Ppm }),
         ("--hdr-cs",        new[] { ExportImageFormat.Hdr }),
         ("--fnum",          new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         // the depth effect replaces the fused image under every raster format (the tile source is shared by all of them)
@@ -216,9 +219,9 @@ public static class ConvertCmd
         if (o.ParallaxLoop is not null and not ("pingpong" or "forward")) { error = "--parallax-loop must be pingpong or forward"; return null; }
         if (o.ParallaxFill is not null and not ("donors" or "inpaint" or "none")) { error = "--parallax-fill must be donors, inpaint or none"; return null; }
         if (o.ParallaxPath is not null and not ("sweep" or "arc" or "line")) { error = "--parallax-path must be sweep, arc or line (the orbit is its own format, parallax-orbit)"; return null; }
-        if (o.ParallaxAnaglyph is not null and not ("dubois" or "colour" or "color" or "grey" or "gray")) { error = "--parallax-anaglyph must be dubois, colour or grey"; return null; }
+        if (o.ParallaxAnaglyph is not null and not ("dubois" or "colour" or "color" or "grey" or "gray")) { error = "--parallax-anaglyph must be dubois, color or gray"; return null; }
         if (o.ParallaxConverge is not null && o.ParallaxConverge is not ("auto" or "none" or "off") && !double.TryParse(o.ParallaxConverge, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _))
-        { error = "--parallax-converge must be metres, auto or none"; return null; }
+        { error = "--parallax-converge must be meters, auto or none"; return null; }
         if (px.Length > 0 && o.Rotate is not null and not 0)
         { error = "--rotate cannot be combined with the parallax formats: the rig geometry is in the unrotated image's axes"; return null; }
         if (o.Transform is not null && (o.Rotate ?? 0) != 0) { error = "--transform and --rotate cannot be combined"; return null; }
@@ -258,7 +261,7 @@ public static class ConvertCmd
         void Say(string flag, object? v) { if (v is not null) applied.Add(v is bool ? flag : $"{flag} {v}"); }
         // ---- the depth effect
         if (o.DepthFNumber is float dfn && !(dfn > 0f)) { error = "--f-number must be greater than 0"; return null; }
-        if (o.FocusDepth is float fdm && !(fdm > 0f)) { error = "--focus-depth must be greater than 0 (millimetres)"; return null; }
+        if (o.FocusDepth is float fdm && !(fdm > 0f)) { error = "--focus-depth must be greater than 0 (millimeters)"; return null; }
         if (o.FocusDepth is not null && o.FocusPoint is not null) { error = "--focus-depth and --focus-point both set the focus distance — give one"; return null; }
         if (o.FocusPoint is { } fpt && !(fpt.X >= 0f && fpt.X <= 1f && fpt.Y >= 0f && fpt.Y <= 1f)) { error = "--focus-point takes x,y, each between 0 and 1 (0,0 = top left of the exported image)"; return null; }
         if ((o.FocusDepth is not null || o.FocusPoint is not null) && o.DepthFNumber is null)
@@ -267,7 +270,7 @@ public static class ConvertCmd
         { error = "--focus-point is given in the unrotated image; it cannot be combined with --rotate"; return null; }
 
         if (o.MemoryBudgetGb is double mb && !(mb > 0)) { error = "--memory-budget takes a size in GB greater than 0"; return null; }
-        // ---- tone & colour
+        // ---- tone & color
         if (o.Sharpening is not null && o.JpegSharpening is not null) { error = "--sharpening and --jpeg-sharpening set the same thing — give one"; return null; }
         Adjustments? adjustments = null;
         if (o.HasToneAdjustments)
@@ -290,7 +293,20 @@ public static class ConvertCmd
                 Exposure = o.Exposure ?? 0f, Contrast = o.Contrast ?? 0f, Temperature = o.Temperature, Tint = o.Tint,
                 Vibrance = o.Vibrance ?? 0f, Saturation = o.Saturation ?? 0f, Sharpening = o.Sharpening ?? o.JpegSharpening ?? Adjustments.GuiSharpening,
                 Shadows = o.Shadows ?? 0f, Highlights = o.Highlights ?? 0f, Clarity = o.Clarity ?? 0f,
+                // --sharpening is the monotone control of Lux. --jpeg-sharpening is Lumen's renderer property with Lumen's response.
+                MonotoneSharpening = o.Sharpening is not null,
             }.Validate();
+        }
+        // ---- noise
+        NoiseControls? noise = null;
+        if (o.GrainStrength is not null || o.DenoiseThreshold is not null)
+        {
+            if (o.GrainStrength is float gs && !(gs >= NoiseControls.GrainStrengthMin && gs <= NoiseControls.GrainStrengthMax))
+            { error = FormattableString.Invariant($"--grain-strength must be between {NoiseControls.GrainStrengthMin} and {NoiseControls.GrainStrengthMax} (1 = Lumen's grain, 0 = none)"); return null; }
+            if (o.DenoiseThreshold is float dt && !(dt >= NoiseControls.DenoiseThresholdMin && dt <= NoiseControls.DenoiseThresholdMax))
+            { error = FormattableString.Invariant($"--denoise-threshold must be between {NoiseControls.DenoiseThresholdMin} and {NoiseControls.DenoiseThresholdMax} (1 = Lumen's threshold)"); return null; }
+            noise = new NoiseControls { GrainStrength = o.GrainStrength ?? 1f, DenoiseThreshold = o.DenoiseThreshold ?? 1f };
+            if (!noise.IsLumen) notes.Add("--grain-strength / --denoise-threshold: the image tiles kept in a capture's analysis cache are Lumen's, so they are not read for this run; the kept geometry and depth map are");
         }
         if (o.NoCache) notes.Add("--no-cache: the capture's analysis cache is neither read nor written");
         if (o.NoEdits && o.Edits is not null) { error = "--no-edits and --edits are alternatives; pass one"; return null; }
@@ -306,6 +322,7 @@ public static class ConvertCmd
         Say("--vibrance", o.Vibrance); Say("--saturation", o.Saturation); Say("--sharpening", o.Sharpening);
         Say("--shadows", o.Shadows); Say("--highlights", o.Highlights); Say("--clarity", o.Clarity);
         Say("--jpeg-modify", o.JpegModify?.ToString("yyyy-MM-ddTHH:mm:ss")); Say("--jpeg-comment", o.JpegComment); Say("--jpeg-software", o.JpegSoftware);
+        Say("--grain-strength", o.GrainStrength?.ToString(System.Globalization.CultureInfo.InvariantCulture)); Say("--denoise-threshold", o.DenoiseThreshold?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Say("--hdr-cs", o.HdrCs);
         Say("--f-number", o.DepthFNumber); Say("--focus-depth", o.FocusDepth); if (o.FocusPoint is { } sfp) applied.Add(FormattableString.Invariant($"--focus-point {sfp.X},{sfp.Y}"));
         if (applied.Count > 0)
@@ -364,12 +381,13 @@ public static class ConvertCmd
             JpegQuality = o.JpegQuality,
             JpegSubsampling = o.JpegSub,
             JpegSharpening = o.JpegSharpening ?? DisplayIspTuning.GuiSharpeningProperty,
-            Adjustments = adjustments,          // null unless a tone & colour flag was given: Lumen's bytes
+            Adjustments = adjustments,          // null unless a tone & color flag was given: Lumen's bytes
             JpegV2 = o.JpegV2,          // deliberately NOT LUX_DISPLAY_V2: the flag is the supported route and
                                         // `convert` stays immune to the environment variable.
             JpegModifyTime = o.JpegModify,
             JpegComment = o.JpegComment,
             JpegSoftware = o.JpegSoftware,
+            Noise = noise,
             HdrColorSpace = o.HdrCs,
             LuxFormats = set.LensFrames || px.Length > 0 ? VisualFormats.Writer : null,
             LensFrames = set.LensFrames ? new LensRequest

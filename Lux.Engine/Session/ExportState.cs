@@ -8,7 +8,7 @@ namespace Lux.Engine.Session;
 
 /// <summary>The renderer state an export needs (the `pcache-test` level-0 construction made reusable): the PipelineCache with its level generators
 /// (levels 2–4 reference cache, level 1 fusion, level 0 ResAmp from the registration state), the reference frame, the
-/// colour profile / WB and the per-level module-ISP tunings.
+/// color profile / WB and the per-level module-ISP tunings.
 ///
 /// <para>Everything expensive behind the PipelineCache is made on first use (<see cref="ExportBuild"/>): the registration chain when the
 /// depth or the level-0 generator is first needed, the fusion when the first level-1 tile is, the telephoto caches with the level-0
@@ -27,6 +27,10 @@ public sealed class ExportState
     /// <summary>The finest pipeline level this state was built for (the <c>maxLevel</c> of <see cref="ExportBuild.Build(string,int,Action{string}?,int,ProgressReporter?)"/>):
     /// which generators exist (level 0 needs the registration, levels ≤ 1 the fusion). It does not change any tile's value.</summary>
     public int BuildLevel { get; init; } = -1;
+
+    /// <summary>The Lux noise controls this state's module ISPs were built with (<see cref="BuildOptions.Noise"/>). With other values than
+    /// Lumen's, the tiles of this state are not Lumen's tiles: they must not go into the analysis cache.</summary>
+    public NoiseControls Noise { get; init; } = NoiseControls.Lumen;
 
     readonly object _lock = new();
     (float[] Depth, int W, int H)? _fullDepth; bool _fullDepthSet;
@@ -127,7 +131,7 @@ public sealed class ExportState
 public sealed record AppliedDepthEdits(string Variant, string Kind, Lux.Engine.Pipeline.Export.DepthImageCache Cache, Lux.Engine.Pipeline.Dof.Edit.DepthEditLayer Layer, int Tiles);
 
 /// <summary>A value computed once on first use and shared by every caller, which — unlike <see cref="Lazy{T}"/> — does not keep an
-/// exception: a cancelled or failed computation runs again on the next read. Concurrent readers wait for the one computation.</summary>
+/// exception: a canceled or failed computation runs again on the next read. Concurrent readers wait for the one computation.</summary>
 public sealed class Once<T>
 {
     readonly object _lock = new();

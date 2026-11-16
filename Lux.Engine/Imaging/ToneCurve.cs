@@ -149,7 +149,7 @@ public static class ToneCurve
     }
 
     // Highlight roll-off: the LUT is defined on [0,1] (1.0 = white point), so a naive Clamp blows every
-    // scene value past the white point to pure white — losing all highlight detail/colour (e.g. a sunset sky
+    // scene value past the white point to pure white — losing all highlight detail/color (e.g. a sunset sky
     // reaching ~3× white). Instead, values below HlKnee pass through unchanged (midtones stay bit-exact vs
     // the DNG curve) and the highlight range (HlKnee..HlWhite) is linearly compressed into (HlKnee..1], so
     // highlights keep their spread (and roll to display white only past HlWhite). This is the tone-map

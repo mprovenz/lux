@@ -40,7 +40,7 @@ public sealed class ProgressReporter
     }
 
     /// <summary>Count <paramref name="n"/> units only while <paramref name="phase"/> is the current phase. For work that a phase
-    /// plans for but that may also run lazily somewhere else (an initialiser the first render triggers): outside its phase the
+    /// plans for but that may also run lazily somewhere else (an initializer the first render triggers): outside its phase the
     /// tick is dropped rather than inflating whatever phase happens to be open.</summary>
     public void Tick(string phase, int n = 1)
     {

@@ -20,7 +20,7 @@ public sealed class ProcessingIndicator
     FormattedText? _labelText;
     string? _labelKey;
 
-    /// <summary>Draw the spinner centred in <paramref name="r"/> and, when <paramref name="label"/> is set, the text under it ("Processing
+    /// <summary>Draw the spinner centered in <paramref name="r"/> and, when <paramref name="label"/> is set, the text under it ("Processing
     /// image · 42 %" with a known progress).</summary>
     public void Draw(DrawingContext context, Rect r, string? label, double progress, FontFamily font, double maxRadius = 16)
     {

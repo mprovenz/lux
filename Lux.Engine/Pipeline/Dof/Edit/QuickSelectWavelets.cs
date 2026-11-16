@@ -5,8 +5,8 @@ namespace Lux.Engine.Pipeline.Dof.Edit;
 
 /// <summary>
 /// The edge-avoiding wavelets of quick select (Lumen's pyramid object, mode 1): a weighted red-black
-/// lifting scheme on the grey guide. Per level two vec4 weight images are kept — <see cref="WH"/> (axial neighbours: lanes right, left,
-/// down, up) and <see cref="WD"/> (diagonal neighbours: lanes down-left, up-left, down-right, up-right) — which hold the <b>predict</b>
+/// lifting scheme on the gray guide. Per level two vec4 weight images are kept — <see cref="WH"/> (axial neighbors: lanes right, left,
+/// down, up) and <see cref="WD"/> (diagonal neighbors: lanes down-left, up-left, down-right, up-right) — which hold the <b>predict</b>
 /// weights (sum 1) at the predicted pixels and the <b>update</b> weights (sum 0.5) at the updated ones:
 /// WH: (x + y) odd = predict, (x + y) even = update;  WD: (odd, odd) = predict, (even, even) = update.
 /// Builder `ComputeDistanceTable` → one weight step per level (<see cref="Weights"/>); diffusion <see cref="Diffuse"/>.
@@ -154,7 +154,7 @@ public sealed class EawPyramid
         }
         });
         Mirror(Q, W, H);
-        // step 3: predict, (odd, odd) from the diagonal neighbours
+        // step 3: predict, (odd, odd) from the diagonal neighbors
         Rows(1, H / 2 + 1, (ra, rb) => {
         for (int r = 2 * ra; r < 2 * rb && r < H - 1; r += 2)
             for (int x = 2; x < W - 1; x += 2)
@@ -214,7 +214,7 @@ public sealed class EawPyramid
     }
 
     /// <summary>Interpolation (out, wH, wD, img): (odd, odd) pixels are replaced by the predict-weighted mean of their
-    /// diagonal neighbours, the border is re-mirrored, then the (x + y)-odd pixels by that of their axial neighbours. Only the
+    /// diagonal neighbors, the border is re-mirrored, then the (x + y)-odd pixels by that of their axial neighbors. Only the
     /// (even, even) values of the input survive.</summary>
     static float[] Synthesis(float[] wh, float[] wd, float[] img, int w, int h)
     {

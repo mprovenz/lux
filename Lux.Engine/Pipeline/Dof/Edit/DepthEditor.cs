@@ -50,22 +50,22 @@ public sealed class DepthEditor
     /// <summary>The Gaussian lookup table `GaussianLut(256, 0.06)`.</summary>
     public GaussianLut Lut { get; } = new(256, 0.06f);
 
-    /// <summary>The colour guide of the adaptive brush (and of the edge heal): vec4 float pixels (4 per pixel, row-major) of a rect given
+    /// <summary>The color guide of the adaptive brush (and of the edge heal): vec4 float pixels (4 per pixel, row-major) of a rect given
     /// <b>in depth-cache coordinates</b> (level rect + <see cref="Origin"/>, i.e. the 5216×3912 pipeline-level frame). In Lumen:
     /// the PipelineCache's resampling ROI render at the pipeline-level dims,
-    /// followed by the editor's colour conversion with these settings:
+    /// followed by the editor's color conversion with these settings:
     /// demosaicking.type = none, color_correction.type = default, auto_white_balance.type = manual_color,
-    /// auto_white_balance.neutral_color = the renderer's neutral colour, output.color_space = srgb.</summary>
+    /// auto_white_balance.neutral_color = the renderer's neutral color, output.color_space = srgb.</summary>
     public Func<RectI, float[]>? GuideProvider { get; set; }
-    /// <summary>The colour window of the adaptive brush's reference colour: vec4 float pixels of a rect given in <b>PipelineCache level-1
+    /// <summary>The color window of the adaptive brush's reference color: vec4 float pixels of a rect given in <b>PipelineCache level-1
     /// coordinates</b> (<see cref="ColourLevelDims"/>, the whole canvas at 4160×3120). In Lumen: `TileCache::renderROI&lt;vec4x32f&gt;`
-    /// of that level, then the same colour conversion.</summary>
+    /// of that level, then the same color conversion.</summary>
     public Func<RectI, float[]>? ReferenceProvider { get; set; }
     /// <summary>Dims of PipelineCache level 1 (4160×3120): the frame the adaptive brush's reference window
     /// is computed in.</summary>
     public (int W, int H) ColourLevelDims { get; set; }
-    /// <summary>A point normalised to the export window → normalised to the pipeline canvas
-    /// (<see cref="DofModel.MapExportPoint"/>). Used for the adaptive brush's reference colour and by <see cref="DepthAtPoint"/>.</summary>
+    /// <summary>A point normalized to the export window → normalized to the pipeline canvas
+    /// (<see cref="DofModel.MapExportPoint"/>). Used for the adaptive brush's reference color and by <see cref="DepthAtPoint"/>.</summary>
     public Func<float, float, (float X, float Y)>? PointMapper { get; set; }
     /// <summary>Raised after every write into the depth cache with the rewritten rect (cache coordinates) — Lumen invalidates the DOFCache
     /// and refreshes at this point (renderer request 0xc).</summary>
@@ -314,7 +314,7 @@ public sealed class DepthEditor
                 float[]? guide = null;
                 if (cmd.NeedsGuide)
                 {
-                    if (GuideProvider == null) throw new InvalidOperationException("this tool needs a colour guide provider");
+                    if (GuideProvider == null) throw new InvalidOperationException("this tool needs a color guide provider");
                     guide = GuideProvider(ToCache(rect));
                 }
                 cmd.Execute(depth, guide, rect, LevelSize);
@@ -366,7 +366,7 @@ public sealed class DepthEditor
 
     /// <summary>
     /// Executor B (surface heal, edge heal): append the pixel ROI; gather the whole tiles under it (the gather above,
-    /// which also <b>replaces the working rect by the tile-aligned one</b>); fetch the colour guide of that rect when the command needs it;
+    /// which also <b>replaces the working rect by the tile-aligned one</b>); fetch the color guide of that rect when the command needs it;
     /// run the command once on the gathered image; on success store every tile as version cursor + 1 (with the layer blocks when the
     /// command produced them) and push the ROI part. On failure nothing is stored and the cursor stays, but the rect remains in the list.
     /// The caller truncates the redo history first.
@@ -380,7 +380,7 @@ public sealed class DepthEditor
         float[]? guide = null;
         if (cmd.NeedsGuide)
         {
-            if (GuideProvider == null) throw new InvalidOperationException("this tool needs a colour guide provider");
+            if (GuideProvider == null) throw new InvalidOperationException("this tool needs a color guide provider");
             guide = GuideProvider(ToCache(full));
         }
         bool ok = layered != null ? layered(depth, ref background, ref mask, guide, full, LevelSize) : cmd.Execute(depth, guide, full, LevelSize);
@@ -405,7 +405,7 @@ public sealed class DepthEditor
     static void CheckPoints(IReadOnlyList<EditPoint> points, string error) { if (points.Count < 2) throw new ArgumentException(error); }
 
     /// <summary>`pushBrushDepthEdit`: ≥ 2 points, 0 &lt; radius &lt; 1 (fraction of the level width), depth &gt; 100 mm.
-    /// The adaptive form samples its reference colour at the first point (<see cref="ReferenceColour"/>).</summary>
+    /// The adaptive form samples its reference color at the first point (<see cref="ReferenceColour"/>).</summary>
     public void PushBrush(IReadOnlyList<EditPoint> points, float radius, float depth, bool adaptive = false)
     {
         if (!(points.Count >= 2 && radius < 1.0f && 0.0f < radius && 100.0f < depth)) throw new ArgumentException("Invalid BrushDepthEditingParams!");
@@ -461,14 +461,14 @@ public sealed class DepthEditor
     }
 
     /// <summary>
-    /// The mean colour (editor, out, point, level 1) of the window <c>[x − 1, x + 2) × [y − 1, y + 2)</c> ∩ the level,
-    /// <c>x = cvtt((float)levelW · px)</c> with the dims of PipelineCache level 1 and the point normalised to the canvas
+    /// The mean color (editor, out, point, level 1) of the window <c>[x − 1, x + 2) × [y − 1, y + 2)</c> ∩ the level,
+    /// <c>x = cvtt((float)levelW · px)</c> with the dims of PipelineCache level 1 and the point normalized to the canvas
     /// (<see cref="PointMapper"/>), of the reference provider's image; the four sums are multiplied by `rcpps((float)count)` refined
     /// with one Newton step.
     /// </summary>
     public float[] ReferenceColour(float px, float py)
     {
-        if (ReferenceProvider == null) throw new InvalidOperationException("the adaptive brush needs a reference colour provider");
+        if (ReferenceProvider == null) throw new InvalidOperationException("the adaptive brush needs a reference color provider");
         int w = ColourLevelDims.W, h = ColourLevelDims.H;
         int x = DofModel.Cvtt((float)w * px), y = DofModel.Cvtt((float)h * py);
         int x0 = x - 1, y0 = y - 1, x1 = x + 2, y1 = y + 2;
@@ -611,9 +611,9 @@ public sealed class DepthEditor
     /// origins in the pipeline-level frames. Quick select addresses its ROI on any of them.</summary>
     public (int W, int H)[]? LevelDims { get; init; }
     public (int X, int Y)[]? LevelOrigins { get; init; }
-    /// <summary>The colour ROI of quick select: vec4 float pixels of a rect of the given level, in that level's pipeline frame
+    /// <summary>The color ROI of quick select: vec4 float pixels of a rect of the given level, in that level's pipeline frame
     /// (level rect + <see cref="LevelOrigins"/>[level]). In Lumen: the PipelineCache's resampling ROI render at the pipeline dims of the
-    /// level, followed by the colour conversion (the settings of <see cref="GuideProvider"/>).</summary>
+    /// level, followed by the color conversion (the settings of <see cref="GuideProvider"/>).</summary>
     public Func<int, RectI, float[]>? LevelGuideProvider { get; set; }
     /// <summary>Lumen seeds quick select's k-means from `std::random_device`, so its mask is not reproducible from run to run; this
     /// delegate stands for the device (four calls per k-means run: the 2nd and the 4th value are the seeds).</summary>
@@ -631,7 +631,7 @@ public sealed class DepthEditor
     /// <paramref name="positive"/> = the params' positive flag. Valid: ≥ 2 points, 0 &lt; radius &lt; 1, x0 ≥ 0, y0 ≥ 0, x1 ≤ level width, y1 ≤ level height
     /// ("Invalid QuickSelectDepthEditingParams!").
     /// A new ROI (compared with the cached one) loads the guide: <c>scale = (float)editLevelW / (float)strokeLevelW</c>; the
-    /// colour ROI of the stroke level; when scale &lt; 1 (stroke level finer than the edited one) it is resampled to
+    /// color ROI of the stroke level; when scale &lt; 1 (stroke level finer than the edited one) it is resampled to
     /// <c>(cvtt(w·scale), cvtt(h·scale))</c>, the working rect becomes <c>(cvtt(x0·scale), cvtt(y0·scale)) + that size</c> and the
     /// scale handed on is 1. Points become working pixels <c>cvtt(dimW·p.x − (float)originX)</c> with (dim, origin) = (edited level,
     /// scaled ROI origin) for a finer stroke level, (stroke level, ROI origin) otherwise; brush radius <c>cvtt(dimW · radius)</c>,
@@ -650,7 +650,7 @@ public sealed class DepthEditor
         {
             float scale = (float)dims[Level].W / (float)dims[level].W;
             _quickRoi = rect; _quickScale = scale;
-            if (LevelGuideProvider == null) throw new InvalidOperationException("quick select needs a colour guide provider");
+            if (LevelGuideProvider == null) throw new InvalidOperationException("quick select needs a color guide provider");
             var org = LevelOrigins![level];
             int gw = rect.X1 - rect.X0, gh = rect.Y1 - rect.Y0;
             var guide = LevelGuideProvider(level, new RectI(rect.X0 + org.X, rect.Y0 + org.Y, rect.X1 + org.X, rect.Y1 + org.Y));
@@ -789,7 +789,7 @@ public sealed class DepthEditor
     /// <see cref="ImportLumenState"/>) until the history has been rebuilt and taken over with <see cref="AdoptState"/>.</summary>
     public void RestoreCursor(uint cursor) { Cursor = cursor; Base = cursor; _rois.Clear(); }
 
-    /// <summary>A second editor with this one's geometry, colour providers and settings on another depth cache / source depth, in the
+    /// <summary>A second editor with this one's geometry, color providers and settings on another depth cache / source depth, in the
     /// initial state — the stage an operation log is replayed on.</summary>
     public DepthEditor Fork(DepthImageCache cache, DepthImage source) => new(cache, source, LevelSize, Origin)
     {

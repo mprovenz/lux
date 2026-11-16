@@ -4,14 +4,14 @@ using Microsoft.Data.Sqlite;
 namespace Lux.Library.Core;
 
 /// <summary>
-/// The library database (SQLite, WAL). One writer connection serialised by a lock; readers open their own (pooled, read-only) connections,
+/// The library database (SQLite, WAL). One writer connection serialized by a lock; readers open their own (pooled, read-only) connections,
 /// so a query never waits for a scan or a job — WAL readers see the last committed state and are never blocked by the writer.
 /// <para>Schema version <see cref="SchemaVersion"/> (PRAGMA user_version and meta.schema_version); <see cref="Migrations"/> entry i takes a
 /// database from version i + 1 to i + 2. A database written by a newer Lux is refused (opened by nothing), never downgraded.</para>
 /// </summary>
 internal sealed class LibraryDb : IDisposable
 {
-    public const int SchemaVersion = 5;
+    public const int SchemaVersion = 6;
     public const int ApplicationId = 0x4C584C42;   // "LXLB"
 
     public string Path { get; }
@@ -53,7 +53,8 @@ internal sealed class LibraryDb : IDisposable
             vp_orientation INTEGER NOT NULL DEFAULT 0, level_sizes TEXT NOT NULL DEFAULT '', saved_fnumber REAL, saved_focus REAL, adjustments TEXT,
             transform_orientation INTEGER NOT NULL DEFAULT 0, transform_crop INTEGER NOT NULL DEFAULT 0, tone_v2 INTEGER NOT NULL DEFAULT 0,
             out_w INTEGER NOT NULL DEFAULT 0, out_h INTEGER NOT NULL DEFAULT 0, lumen_class INTEGER NOT NULL DEFAULT 0, lris_stamp TEXT,
-            geometry_decided INTEGER NOT NULL DEFAULT 0);
+            geometry_decided INTEGER NOT NULL DEFAULT 0,
+            blur_px REAL);                             -- predicted motion blur in full-size pixels (NULL = not known)
         CREATE INDEX capture_time_ix ON capture(capture_time, name_key, id);
         CREATE INDEX capture_name_ix ON capture(name_key, id);
         CREATE INDEX capture_rating_ix ON capture(rating, capture_time, id);
@@ -123,6 +124,8 @@ internal sealed class LibraryDb : IDisposable
             """),
         // 4 → 5: the capture's geometry is a decision of its own (the display-only held turn then never applies); mirrors re-read
         (c, tx) => c.Exec(tx, "ALTER TABLE capture ADD COLUMN geometry_decided INTEGER NOT NULL DEFAULT 0; UPDATE capture SET edits_stamp=NULL;"),
+        // 5 → 6: the predicted motion blur. The next scan reads the header of each capture again and fills the column.
+        (c, tx) => c.Exec(tx, "ALTER TABLE capture ADD COLUMN blur_px REAL;"),
     };
 
     public LibraryDb(string path)
@@ -166,7 +169,7 @@ internal sealed class LibraryDb : IDisposable
         }
     }
 
-    /// <summary>Run <paramref name="body"/> in one write transaction (serialised with every other write).</summary>
+    /// <summary>Run <paramref name="body"/> in one write transaction (serialized with every other write).</summary>
     public T Write<T>(Func<SqliteConnection, SqliteTransaction, T> body)
     {
         lock (_wlock)

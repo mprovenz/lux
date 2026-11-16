@@ -55,7 +55,7 @@ internal static class CoarseAlign
                 if (sad < bestS) { bdx3 = dx3; bdy3 = dy3; }
                 if (sad <= bestS) bestS = sad;
             }
-        // 3×3 neighbourhood
+        // 3×3 neighborhood
         Span<int> S = stackalloc int[9];
         for (int rr = -1; rr <= 1; rr++)
             for (int cc = -1; cc <= 1; cc++)

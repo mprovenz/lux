@@ -54,7 +54,7 @@ public static class GDepth
     /// <summary>
     /// The float → gray8 encoder with its expression: per sample
     /// <c>E = recip(d·(far − near)) · (d − near) · (255·far) + 0.5</c>, where `recip` is `rcpps` plus **one**
-    /// Newton step `(1 − x·r)·r + r` in the vectorised body (512-pixel blocks) and a true `divss` in the row
+    /// Newton step `(1 − x·r)·r + r` in the vectorized body (512-pixel blocks) and a true `divss` in the row
     /// remainder. The row is then written by the float→u8 converter,
     /// which applies its **own** `clamp(E + copysign(0.5, E), 0, 255)` + truncate — so the `+0.5` lands twice, and
     /// that is reproduced literally.
@@ -128,7 +128,7 @@ public static class GDepth
     }
 
     /// <summary>The whole fmt-4 depth side: resample the float depth to the output size with the **float**
-    /// instantiations (the same two branches as the colour image, driven by the same `TransformOutput`), scan for
+    /// instantiations (the same two branches as the color image, driven by the same `TransformOutput`), scan for
     /// near/far, encode gray8, wrap it in a `{98, 2}` **grayscale** JPEG with no COM and no Exif, and build the
     /// APP1 blocks.</summary>
     public static List<byte[]> Build(DepthImageCache cache, ExportLevels lv, TransformOutput to, (int W, int H) size)
@@ -137,8 +137,8 @@ public static class GDepth
         return Build(d.ToDense(), d.W, d.H, to, size);
     }
 
-    /// <summary>The depth image warped to the export grid, in millimetres and at full float precision — i.e. exactly
-    /// what <see cref="Build(float[], int, int, TransformOutput, ValueTuple{int, int})"/> quantises to gray8. Split out
+    /// <summary>The depth image warped to the export grid, in millimeters and at full float precision — i.e. exactly
+    /// what <see cref="Build(float[], int, int, TransformOutput, ValueTuple{int, int})"/> quantizes to gray8. Split out
     /// so the depth map can also be written as data; the arithmetic is unchanged.</summary>
     public static float[] WarpToExport(float[] depthSrc, int sw, int sh, TransformOutput to, (int W, int H) size)
     {

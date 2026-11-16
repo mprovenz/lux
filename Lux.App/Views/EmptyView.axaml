@@ -45,7 +45,7 @@
           <StackPanel Spacing="8">
             <TextBlock Classes="strong" Text="What happens after you add photos" />
             <TextBlock Classes="secondary wrap" LineHeight="21"
-                       Text="Each capture is analysed once, about a minute each, in the background. After that it opens straight away, and the depth tools are ready. You can browse and rate while this runs." />
+                       Text="Each capture is analyzed once, about a minute each, in the background. After that it opens straight away, and the depth tools are ready. You can browse and rate while this runs." />
           </StackPanel>
         </Border>
         <Border Background="{DynamicResource LuxBar}" Padding="14" Margin="6,0,0,0">

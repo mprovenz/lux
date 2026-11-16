@@ -187,7 +187,7 @@ public sealed class ColorCorrectionOptimizedStage : IStage
 
     /// <summary>`ImageConvertRGBToHSV` per pixel. H ∈ [0,1) turns, S ∈ [0,1], V = max lane
     /// (unbounded), A = max(srcA, 0). The leading `maxps(src, 0)` hard-clips out-of-gamut ProPhoto components —
-    /// the one behavioural difference from `default`.</summary>
+    /// the one behavioral difference from `default`.</summary>
     public static void RgbToHsv(Image<Vec4F> dst, Image<Vec4F> src)
     {
         const float Sixth = 0.16666667f;   // 0x3e2aaaab

@@ -6,7 +6,8 @@ using Lux.Engine.Pipeline.Isp;
 
 namespace Lux.Engine.Session;
 
-/// <summary>What a build may take from earlier work on the same capture, and what it reports back. Nothing here changes a pixel.</summary>
+/// <summary>What a build may take from earlier work on the same capture, and what it reports back. Nothing here changes a pixel, with one
+/// exception: <see cref="Noise"/>.</summary>
 public sealed class BuildOptions
 {
     /// <summary>The registration geometry from the analysis cache: a level-0 state then never runs the registration chain.</summary>
@@ -28,6 +29,10 @@ public sealed class BuildOptions
     /// frames first and they keep the sensor's database black. The telephoto modules are decoded by the tele decoder
     /// either way and keep the database black.</summary>
     public bool SessionRender { get; init; }
+    /// <summary>The Lux noise controls of every module ISP of this build (<see cref="NoiseControls"/>). Null = Lumen's tuning. This is the one
+    /// option here that changes pixels: a build with other values than Lumen's must not read kept tiles (<see cref="StoredTiles"/>) and
+    /// its tiles must not go into the analysis cache.</summary>
+    public NoiseControls? Noise { get; init; }
 }
 
 public static class ExportBuild
@@ -54,6 +59,8 @@ public static class ExportBuild
     {
         var pr = progress ?? ProgressReporter.None;
         options ??= new BuildOptions();
+        var noise = options.Noise is { IsLumen: false } nc ? nc.Validate() : null;
+        if (noise is not null && options.StoredTiles is not null) throw new ArgumentException("a build with noise controls must not read kept tiles", nameof(options));
         int refId = (int)lri.Modules[lri.ReferenceModule].Module.Id;
 
         // ---- the registration state, on first use. Level 0 needs the whole chain (tele pairs/poses + the dense depth); levels >= 1 need only
@@ -113,7 +120,7 @@ public static class ExportBuild
         var frame = CapturedFrame.Load(lri, lri.ReferenceModule);
         var colour = LumenProfile.Compute(lri); var wb = WhiteBalance.CaptureWb.From(lri, colour);
         var tunings = new Dictionary<int, Tuning>();
-        Tuning Tuning(int cfg) { lock (tunings) { if (!tunings.TryGetValue(cfg, out var t)) { t = ModuleIspTuning.Build(cfg, (RendererProfile)3, frame.Info, wb.Cct, wb.Tint); tunings[cfg] = t; } return t; } }
+        Tuning Tuning(int cfg) { lock (tunings) { if (!tunings.TryGetValue(cfg, out var t)) { t = ModuleIspTuning.Build(cfg, (RendererProfile)3, frame.Info, wb.Cct, wb.Tint, noise: noise); tunings[cfg] = t; } return t; } }
         var isps = new Dictionary<int, SoftIsp>();
         SoftIsp Isp(int L) { lock (isps) { if (!isps.TryGetValue(L, out var isp)) { isp = new SoftIsp(Tuning(new[] { 0, 2, 3, 4 }[L]), colour); isp.ComputeStats(frame); isps[L] = isp; } return isp; } }
         // `setInputDataStream`'s level vector: level 0 is the pipeline canvas (`(int)(sensor · canvas factor)`, reference-group dependent —
@@ -139,7 +146,7 @@ public static class ExportBuild
             if (lri.StackFrames >= 2)
             {
                 // the stream's per-module lt::StackFusion results, shared by every consumer below: the reference cache
-                // levels, the level-1 colour + mono fusions, the fusion render's STD plane and the telephoto level-0 caches
+                // levels, the level-1 color + mono fusions, the fusion render's STD plane and the telephoto level-0 caches
                 // The non-reference frames keep the sensor DB black at every build level: Lumen's `exportImage` waits for the
                 // depth before it renders a tile, so the registration has always decoded those frames first (the per-frame
                 // estimate is a side effect of a FIRST load through the stream loader). The reference module uses its estimate regardless.
@@ -161,7 +168,7 @@ public static class ExportBuild
                 np.Fc = new(() =>
                 {
                     var fus = new Lux.Engine.Pipeline.BayerFusion.PackedBayerFusion(lri, refId, wb.Cct, wb.Tint, log, sourceFrameBlackEstimate: options.SessionRender, threads: threads, progress: pr, stacks: stacks);   // DB black at every level (see the StackProvider above), the estimate in a session render (BuildOptions.SessionRender)
-                    var f = new Lux.Engine.Pipeline.BayerFusion.FusionCacheBayer(lri, frame, fus, (RendererProfile)3, wb.Cct, wb.Tint, log);
+                    var f = new Lux.Engine.Pipeline.BayerFusion.FusionCacheBayer(lri, frame, fus, (RendererProfile)3, wb.Cct, wb.Tint, log, noise);
                     f.Progress = pr;
                     return f;
                 });
@@ -230,7 +237,7 @@ public static class ExportBuild
                         var t = tele[i];
                         // `Pairs[id].view/.module`: the online-calibration pair the renderer hands the tele SourceImageCache — always from the
                         // ported registration state.
-                        var cache = new Lux.Engine.Pipeline.ResAmp.TeleLevel0Cache(lri, t.Name, t.PairFirst, t.PairSecond, t.Size, sc, (RendererProfile)3, colour, wb.Cct, wb.Tint, stacks?.Get(t.Name));
+                        var cache = new Lux.Engine.Pipeline.ResAmp.TeleLevel0Cache(lri, t.Name, t.PairFirst, t.PairSecond, t.Size, sc, (RendererProfile)3, colour, wb.Cct, wb.Tint, stacks?.Get(t.Name), noise);
                         var wf = Lux.Engine.Pipeline.ResAmp.TeleWarpFieldBuilder.BuildFromPoses(t.Pose, t.Slot, reg.RefPose, reg.RefSlot, sc, depth, depthW, depthH);
                         teleCaches[i] = cache; teleModules[i] = new Lux.Engine.Pipeline.ResAmp.ResAmpModule(cache.ToGenerator(), wf);
                         pr.Tick();
@@ -249,7 +256,7 @@ public static class ExportBuild
         {
             pc.Level0 = r => parts.Level0!.Value.Amp.Run(r);
             // The level-0 tiles' inputs, generated ahead of them on every thread: the fusion tiles (the slowest, first), the mono
-            // initialisation the first level-1 render would otherwise do under a lock, the reference tiles and the telephoto tiles.
+            // initialization the first level-1 render would otherwise do under a lock, the reference tiles and the telephoto tiles.
             pc.Level0Prefetch = threads =>
             {
                 var p = parts;
@@ -258,7 +265,7 @@ public static class ExportBuild
                 var work = new List<Action>();
                 var (fnx, fny) = fcv.TileGrid;
                 for (int ty = 0; ty < fny; ty++) for (int tx = 0; tx < fnx; tx++) { int a = tx, b = ty; work.Add(() => { fcv.EnsureTile(a, b); pr.Tick(); }); }
-                // the mono initialisation ticks the phase itself (MonoFusion.InitializeTicks); without a mono module it is one no-op unit
+                // the mono initialization ticks the phase itself (MonoFusion.InitializeTicks); without a mono module it is one no-op unit
                 work.Add(() => { fcv.EnsureMonoInitialized(); if (!fcv.HasMono) pr.Tick(); });
                 for (int ty = 0; ty < rny; ty++) for (int tx = 0; tx < rnx; tx++) { int a = tx, b = ty; work.Add(() => { refTile(a, b); pr.Tick(); }); }
                 foreach (var tc in teleCaches)
@@ -281,7 +288,7 @@ public static class ExportBuild
         return new ExportState
         {
             Lri = lri, Cache = pc, Frame = frame, Capture = CaptureState.FromReference(lri), Colour = colour, Wb = wb, TuningOfLevel = Tuning, Dims = dims,
-            BuildLevel = maxLevel, Progress = pr,
+            BuildLevel = maxLevel, Progress = pr, Noise = noise ?? NoiseControls.Lumen,
             FullDepthSource = geoOnce is null ? null : () => geoOnce.Value.Geo.FullDepth,
             GeometrySource = geoOnce is null ? null : () => geoOnce.Value.Geo,
             GeometryKnown = geoOnce is null ? null : () => geoOnce.IsValueCreated,

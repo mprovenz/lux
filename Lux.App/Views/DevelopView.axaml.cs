@@ -467,7 +467,7 @@ public partial class DevelopView : UserControl
         GradientStops = { new GradientStop(Color.Parse("#5fbf5f"), 0), new GradientStop(Color.Parse("#c8c8c8"), 0.5), new GradientStop(Color.Parse("#d05fc8"), 1) },
     };
 
-    /// <summary>Temperature blue → yellow, tint green → magenta (as Lumen colours them); the others plain.</summary>
+    /// <summary>Temperature blue → yellow, tint green → magenta (as Lumen colors them); the others plain.</summary>
     public static readonly IValueConverter TrackGradientOf = new FuncValueConverter<string?, IBrush?>(k => k switch
     {
         AdjustmentKeys.Temperature => TempGradient,

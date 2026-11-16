@@ -12,7 +12,7 @@ namespace Lux.Engine.Pipeline.BayerFusion;
 
 /// <summary>
 /// `lt::ColorFusionBayer` / `PackedBayerFusion` (Lumen 2.3): the level-1 multi-module Bayer fusion. `initialize` builds,
-/// for the reference and every same-group colour source, the hot-pixel-patched, highlight-restored, black-subtracted, gain-scaled,
+/// for the reference and every same-group color source, the hot-pixel-patched, highlight-restored, black-subtracted, gain-scaled,
 /// vignetting-corrected float frame, the reference extras (block mean-reciprocal image, 1/8-packed-res vignetting map,
 /// noise lambda_1), the per-source block flow (<see cref="BlockFlow"/>) and the packed half images
 /// (`PackBayerImageProtoType`). <see cref="Process"/> runs the wavelet merge kernel on a packed ROI,
@@ -151,7 +151,7 @@ public sealed class PackedBayerFusion
     }
 
     /// <summary>Unique camera ids of the stream in capture order; keep those that are enabled, not the reference,
-    /// in the reference's group and colour (red position `(x|y) ≥ 0`).</summary>
+    /// in the reference's group and color (red position `(x|y) ≥ 0`).</summary>
     void BuildSourceList()
     {
         SourceIds.Clear();
@@ -312,14 +312,14 @@ public sealed class PackedBayerFusion
         File.WriteAllBytes(path, b);
     }
 
-    /// <summary>The neutral from the camera's own colour calibration
+    /// <summary>The neutral from the camera's own color calibration
     /// (falls back to the reference's when the camera has none), i.e. `WhiteBalance.NeutralFromTempTint` on a per-camera profile.
-    /// Only the two colour matrices and illuminants of the profile enter the neutral, so the HSV fits are not built.</summary>
+    /// Only the two color matrices and illuminants of the profile enter the neutral, so the HSV fits are not built.</summary>
     float[] NeutralForModule(CameraID id) => NeutralFromTempTintDirect(Cct, Tint, ProfileOf(id));
 
     LumenProfile ProfileOf(CameraID id) => CameraProfile(_lri, id);
 
-    /// <summary>The camera's own colour-calibration profile (only the illuminant entries; falls back to the
+    /// <summary>The camera's own color-calibration profile (only the illuminant entries; falls back to the
     /// reference camera's when the camera has fewer than two).</summary>
     public static LumenProfile CameraProfile(LriFile lri, CameraID id)
     {
@@ -363,7 +363,7 @@ public sealed class PackedBayerFusion
     }
 
     /// <summary>`g = (gain_ref·(float)exp_ref) / (gain_src·(float)exp_src)`; when the source has a
-    /// vignetting model, is colour and the reference has one: `g = g · (rb_src / rb_ref)` with `rb` = the
+    /// vignetting model, is color and the reference has one: `g = g · (rb_src / rb_ref)` with `rb` = the
     /// `relative_brightness` of the vignetting characterization.</summary>
     public float SourceGain(int camId)
     {

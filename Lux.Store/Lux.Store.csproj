@@ -5,7 +5,7 @@
 
     This project carries the SQLite dependency so that Lux.Engine stays dependency-free. It holds the depth-edit
     store: one database per edited capture with the edited tiles, the operation log and the depth the edits were
-    made on. Shared by `lux-light` (exports honour saved edits) and the desktop app.
+    made on. Shared by `lux-light` (exports honor saved edits) and the desktop app.
   -->
 
   <PropertyGroup>

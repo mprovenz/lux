@@ -51,8 +51,8 @@ public readonly record struct DofConstants(float FocalLength, float FocalLength3
     }
 }
 
-/// <summary>The focus / aperture state of `lt::DOFCache`: the constants, the current f-number (initialised to
-/// <see cref="DofConstants.DefaultFNumber"/> by the constructor) and focus depth in mm (not initialised by the constructor).</summary>
+/// <summary>The focus / aperture state of `lt::DOFCache`: the constants, the current f-number (initialized to
+/// <see cref="DofConstants.DefaultFNumber"/> by the constructor) and focus depth in mm (not initialized by the constructor).</summary>
 public sealed class DofState
 {
     public DofConstants Constants { get; }
@@ -252,7 +252,7 @@ public static class DofModel
     internal static int Cvtt(double v) => v > -2147483649.0 && v < 2147483648.0 ? (int)v : int.MinValue;
 
     /// <summary>The point that `getDepthAtPoint` hands to <see cref="DepthAtPoint"/>: a point
-    /// normalised to the export window becomes a point normalised to the pipeline canvas,
+    /// normalized to the export window becomes a point normalized to the pipeline canvas,
     /// <c>((float)origin0 + (float)exportDims0 · p) / (float)pipelineCacheDims[baseLevel]</c> per axis (level-0 origin, level-0 export dims,
     /// PipelineCache level dims at the base level).</summary>
     public static (float X, float Y) MapExportPoint(float px, float py, (int W, int H) exportDims0, (int X, int Y) origin0, (int W, int H) cacheDims)

@@ -16,7 +16,7 @@ public enum VideoContainer
 /// <summary>
 /// Video output through an external <c>ffmpeg</c>, found on the PATH when the export runs — Lux does not ship a video encoder. The frames
 /// are Lux's own; they are piped to ffmpeg as raw RGBA at a constant frame rate (an odd width or height is cropped by one pixel: 4:2:0 video
-/// needs even sizes). Written under a temporary name and renamed when complete, so a cancelled or failed encode leaves no file.
+/// needs even sizes). Written under a temporary name and renamed when complete, so a canceled or failed encode leaves no file.
 /// </summary>
 public static class VideoEncoder
 {

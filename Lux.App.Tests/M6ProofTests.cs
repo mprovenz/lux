@@ -9,7 +9,7 @@ namespace Lux.App.Tests;
 /// Animation check (env-gated: LUX_M6_PROOF = a folder of pairs written by a workspace script): each depth-effect animation frame
 /// (an exact PNG kept by `lux-light animate --anim-keep-frames`, decoded here by Skia) is the still `lux-light convert --f-number … --focus-depth
 /// … --formats jpg` wrote in a separate process: the frame's pixels encoded by the export's JPEG coder (quality 98, 4:2:0) give the convert
-/// JPG's quantisation tables and entropy-coded scan byte for byte. Writes the table to &lt;folder&gt;/result.tsv.
+/// JPG's quantization tables and entropy-coded scan byte for byte. Writes the table to &lt;folder&gt;/result.tsv.
 /// </summary>
 public class M6ProofTests
 {

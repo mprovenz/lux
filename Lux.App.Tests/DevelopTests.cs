@@ -154,7 +154,7 @@ public sealed class DevelopTests
         Assert.StartsWith("Exposure +", s.History[1]);
         Assert.Equal(s.Get(AdjustmentKeys.Exposure), Row(h, AdjustmentKeys.Exposure).Value, 9);
         Assert.Equal(Row(h, AdjustmentKeys.Exposure).ValueText, ValueBoxOf(h, AdjustmentKeys.Exposure).Text);
-        // the slider's own work per move (the headless input call also lays out and rasterises the whole window on the CPU)
+        // the slider's own work per move (the headless input call also lays out and rasterizes the whole window on the CPU)
         Assert.True(Row(h, AdjustmentKeys.Exposure).LongestMoveMs < 30, $"a drag move took {Row(h, AdjustmentKeys.Exposure).LongestMoveMs:0.0} ms on the UI thread");
         Assert.True(s.FakeTiles.Requests.Count > before);
         // saved and mirrored in the library
@@ -219,7 +219,7 @@ public sealed class DevelopTests
         int steps = s.History.Count;
         h.Develop().ResetToneCommand.Execute(null);
         Assert.Equal(steps + 1, s.History.Count);
-        Assert.Equal("Reset tone and colour", s.History[^1]);
+        Assert.Equal("Reset tone and color", s.History[^1]);
         Assert.All(s.Specs, sp => Assert.Equal(sp.Default, s.Get(sp.Key), 9));
         Assert.All(h.Develop().Adjustments, r => Assert.True(r.IsDefault));
     }
@@ -282,7 +282,7 @@ public sealed class DevelopTests
         Assert.True(d.IsCropping);
         Assert.True(h.DevelopView().CropOverlay.IsVisible);
         Assert.True(v.LocksView);
-        // 16:9: the frame reshapes (same area, centred) and keeps the aspect in pixels
+        // 16:9: the frame reshapes (same area, centered) and keeps the aspect in pixels
         d.CropAspectChoice = d.AspectChoices.First(c => c.Label == "16 : 9");
         await h.SettlePictureAsync();
         var frame = s.CropFrame.ToPixels(new Size(8320, 6240));
@@ -319,7 +319,7 @@ public sealed class DevelopTests
         await h.SettlePictureAsync();
         Assert.False(d.IsCropping);
         Assert.True(s.Geometry.Crop.Near(applied));
-        Assert.True(h.Vm.IsDevelop);                            // Esc cancelled the crop; it did not leave the page
+        Assert.True(h.Vm.IsDevelop);                            // Esc canceled the crop; it did not leave the page
         // reset geometry
         d.ResetGeometryCommand.Execute(null);
         await h.SettlePictureAsync();
@@ -511,7 +511,7 @@ public sealed class DevelopTests
         Type(h, AdjustmentKeys.Vibrance, "20");
         d.RotateRightCommand.Execute(null);
         await h.SettlePictureAsync();
-        // Ctrl+C: the dialog, tone and colour chosen by default, rotation not
+        // Ctrl+C: the dialog, tone and color chosen by default, rotation not
         h.Viewer().Focus();
         Key(h, Avalonia.Input.Key.C, RawInputModifiers.Control);
         var dlg = Assert.IsType<PatchDialogViewModel>(h.Vm.Dialog);

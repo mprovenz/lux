@@ -14,7 +14,7 @@ namespace Lux.App.Tests;
 /// <summary>The Develop page's depth interface on the fake, rendered to PNG files in the third UI output folder for visual review.</summary>
 public sealed class DepthScreenshotTests
 {
-    /// <summary>Zoom to <paramref name="percent"/> with an element of the scene at the view's centre.</summary>
+    /// <summary>Zoom to <paramref name="percent"/> with an element of the scene at the view's center.</summary>
     static async Task ZoomOn(Harness h, byte element, double percent, double dx = 0, double dy = 0)
     {
         var v = h.Viewer();

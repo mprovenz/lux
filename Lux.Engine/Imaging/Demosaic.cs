@@ -2,7 +2,7 @@ namespace Lux.Engine.Imaging;
 
 /// <summary>
 /// Gradient-inverse edge-directed demosaic — the algorithm family of Light's DemosaickLightV2:
-/// interpolate green with inverse-gradient direction weights, then R/B via colour-difference (channel−G).
+/// interpolate green with inverse-gradient direction weights, then R/B via color-difference (channel−G).
 /// Input is a normalized Bayer plane with the red pixel at (rx, ry); output is interleaved RGB (H·W·3).
 /// </summary>
 public static class Demosaic
@@ -31,7 +31,7 @@ public static class Demosaic
                 green[(long)y * w + x] = (wN * gN + wS * gS + wE * gE + wW * gW) / (wN + wS + wE + wW);
             }
 
-        // Pass 2 — R and B via colour-difference interpolation with a 3×3 [1 2 1;2 4 2;1 2 1] kernel
+        // Pass 2 — R and B via color-difference interpolation with a 3×3 [1 2 1;2 4 2;1 2 1] kernel
         var rgb = new float[(long)h * w * 3];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -50,7 +50,7 @@ public static class Demosaic
         return rgb;
     }
 
-    // weighted mean of (channel − green) over the 3×3 neighbourhood where the target channel is present
+    // weighted mean of (channel − green) over the 3×3 neighborhood where the target channel is present
     private static readonly int[] Kdy = { -1, -1, -1, 0, 0, 0, 1, 1, 1 };
     private static readonly int[] Kdx = { -1, 0, 1, -1, 0, 1, -1, 0, 1 };
     private static readonly float[] Kw = { 1, 2, 1, 2, 4, 2, 1, 2, 1 };

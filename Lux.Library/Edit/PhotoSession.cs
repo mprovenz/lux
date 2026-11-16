@@ -169,6 +169,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
     readonly object _saveLock = new();
     Histogram? _histogram;
     readonly IReadOnlyList<AdjustmentInfo> _infos;
+    readonly LevelSuggestion _level;
     readonly PhotoInfo _info;
 
     public event EventHandler<EditChangedEventArgs>? Changed;
@@ -197,6 +198,8 @@ internal sealed class PhotoEditImpl : IPhotoEdit
             new AdjustmentInfo(AdjustmentKey.Clarity, EditGroups.Tone, "Clarity", "", -100f, 100f, 0f, 1f, 0, true, note),
         };
         var lri = s.Engine.Lri;
+        var (levelDegrees, levelState) = Lux.Engine.Lri.CaptureMotion.LevelOf(lri.Header, Lux.Store.HeldTurn.Degrees(lri));
+        _level = LevelSuggestion.From(levelDegrees, levelState);
         _info = new PhotoInfo
         {
             Name = s.Item.Name, CaptureTime = s.Item.CaptureTime, FocalLengthMm = s.Item.FocalLengthMm, ExposureText = s.Item.ExposureText, Iso = s.Item.Iso,
@@ -509,7 +512,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
         var c = LumenGeometryEdits.ShownCrop(t);
         return new PhotoTransform
         {
-            TurnDegrees = angle, Mirrored = mir, Crop = new NormRect(c.X, c.Y, c.W, c.H), IsIdentity = t.IsIdentity, AspectWidth = t.AspectW, AspectHeight = t.AspectH,
+            TurnDegrees = angle, Mirrored = mir, LevelDegrees = LumenGeometryEdits.LevelDegrees(t), Crop = new NormRect(c.X, c.Y, c.W, c.H), IsIdentity = t.IsIdentity, AspectWidth = t.AspectW, AspectHeight = t.AspectH,
             Matrix = (float[])t.M.Clone(), CropX0 = t.X0, CropY0 = t.Y0, CropX1 = t.X1, CropY1 = t.Y1,
         };
     }
@@ -653,7 +656,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
         var s = s0.Clone();
         s.Adj = ResetAdj(s.Adj, g);
         if ((g & EditGroups.Geometry) == EditGroups.Geometry) { s.Geo.ResetGeometry(); s.Decided = false; }   // v2.1: the held display returns
-        else if (g.HasFlag(EditGroups.Crop)) { s.Geo.SetCropState(0); LumenGeometryEdits.SetCropFromRect(s.Geo.T, new QRect(0, 0, 1, 1)); s.Geo.InitTransform(s.Geo.T); }
+        else if (g.HasFlag(EditGroups.Crop)) { s.Geo.SetCropState(0); LumenGeometryEdits.SetCropFromRect(s.Geo.T, new QRect(0, 0, 1, 1)); s.Geo.InitTransform(s.Geo.T); s.Geo.FitFrame(); }
         else if (g.HasFlag(EditGroups.RotationAndMirror))
         {
             var frame = LumenGeometryEdits.RectFromCrop(s.Geo.T);
@@ -701,7 +704,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
         return ok;
     }
 
-    /// <summary>The groups of <paramref name="v"/> applied to a state (copy / paste and presets): tone and colour values replace, rotation and
+    /// <summary>The groups of <paramref name="v"/> applied to a state (copy / paste and presets): tone and color values replace, rotation and
     /// mirroring are rebuilt with Lumen's own operations around the photo's crop frame, a crop is the source's frame on the photo's
     /// orientation. False when the crop could not be applied (another aspect ratio).</summary>
     internal static (State Next, bool CropOk) ApplyTo(State s0, EditValues v, EditGroups groups, int heldTurn)
@@ -735,6 +738,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
             var t = s.Geo.T.Clone(); t.Ops = s.Geo.T.Ops;
             if ((g & EditGroups.Geometry) == EditGroups.Geometry && sameAspect)
             {
+                LumenGeometryEdits.RemoveLevel(vt);   // the level angle belongs to the source capture: a paste does not carry it
                 t = vt; t.Ops = s.Geo.T.Ops;
             }
             else
@@ -755,6 +759,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
                 LumenGeometryEdits.SetCropFromRect(t, frame);
             }
             s.Geo = new LumenGeometryEdits(t);
+            s.Geo.FitFrame();   // a pasted crop on a leveled picture: no empty corners
             s.Decided = true;
         }
         return (s, cropOk);
@@ -791,6 +796,18 @@ internal sealed class PhotoEditImpl : IPhotoEdit
     public void RotateRight() => Geometry("rotate right", GeometryChangeCause.Rotate, g => g.RotateRight());
     public void FlipHorizontal() => Geometry("flip horizontal", GeometryChangeCause.FlipHorizontal, g => g.MirrorHorizontal());
     public void FlipVertical() => Geometry("flip vertical", GeometryChangeCause.FlipVertical, g => g.MirrorVertical());
+
+    public LevelSuggestion LevelSuggestion => _level;
+
+    /// <summary>Set the level rotation to the suggestion. The angle goes through the platform-independent sine and cosine, so the saved
+    /// matrix has the same bits on every platform.</summary>
+    public void Level()
+    {
+        if (!_level.Available) return;
+        double radians = (double)_level.Degrees * (3.14159265358979323846 / 180.0);
+        float c = (float)Lux.Engine.Pipeline.WineCrt.Cos(radians), s = (float)Lux.Engine.Pipeline.WineCrt.Sin(radians);
+        Geometry("level", GeometryChangeCause.Rotate, g => g.Level(c, s));
+    }
 
     /// <summary>Crop, rotation and flips back to none; the geometry is no longer decided (the held display turn returns).</summary>
     public void ResetGeometry()
@@ -892,6 +909,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
             else { before = _st.Clone(); before.Geo.SetCropState(0); }
             _cropBefore = null;
             _st.Geo.ApplyCrop(true);
+            _st.Geo.FitFrame();   // a leveled picture: no empty corners in the crop
             _st.Decided = true;
             Push(before, "crop", HistoryEntryKind.Geometry);
         }

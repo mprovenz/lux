@@ -14,10 +14,10 @@ public sealed class CaptureState
 
     /// <summary>Lumen's per-frame black-level estimate (the stream loader calls it with the AsShot neutral, `black0 = 42.0`,
     /// `range = 1.2`, 40 steps):
-    /// grey-world search over `b_i = black0 + i·(range/40)` minimising
+    /// gray-world search over `b_i = black0 + i·(range/40)` minimizing
     /// `|((B̄·gB + R̄·gR) − b·(gB + gR))·(−0.5) + ((Ḡ₁ + Ḡ₂)/(2·nG) − b·(1/nG))|`, g = rcpNR(n) of the AsShot neutral,
-    /// site means in colour order (R, G, G, B); only when `black0 ≤ mean of the four site means`, else <paramref name="fallback"/>.
-    /// Guarded to colour frames of sensor type AR1335 (Lumen: frame-info type == 2). Lumen's exact float order.
+    /// site means in color order (R, G, G, B); only when `black0 ≤ mean of the four site means`, else <paramref name="fallback"/>.
+    /// Guarded to color frames of sensor type AR1335 (Lumen: frame-info type == 2). Lumen's exact float order.
     /// <para><paramref name="siteMeans"/> is in **raster** order and is reordered here; Lumen instead reads the shadow means
     /// already permuted (see <see cref="LumenHistograms"/>), whose Gr/Gb pair is `raster[1^p]`/`raster[2^p]`
     /// while the ascending pick below yields the two greens in raster order. The two differ (Gr↔Gb swapped) for
@@ -62,14 +62,14 @@ public sealed class CaptureState
     /// (rows iterated bottom-up when <c>sensor_is_vertical_flip</c>; columns reversed when
     /// <c>sensor_is_horizontal_flip</c>; both flags are false in the L16 captures).</summary>
     public long[][] RawHistograms { get; }
-    /// <summary>The histograms as Lumen's `CapturedImage` holds them — <see cref="LumenHistograms"/>: colour order
-    /// [R, Gr, Gb, B] for a colour frame, a single summed histogram for mono. The lens-shading mean and the NLM/IR median
+    /// <summary>The histograms as Lumen's `CapturedImage` holds them — <see cref="LumenHistograms"/>: color order
+    /// [R, Gr, Gb, B] for a color frame, a single summed histogram for mono. The lens-shading mean and the NLM/IR median
     /// index this vector.</summary>
     public long[][] Histograms { get; }
     public string Module { get; }
     public bool IsColour { get; }
-    /// <summary>Lumen picks index 1 of the stored histograms for colour sensors (`(bayerRed.x|bayerRed.y) >= 0`), index 0 for
-    /// mono. Because <see cref="LumenHistograms"/> stores that vector in **colour** order
+    /// <summary>Lumen picks index 1 of the stored histograms for color sensors (`(bayerRed.x|bayerRed.y) >= 0`), index 0 for
+    /// mono. Because <see cref="LumenHistograms"/> stores that vector in **color** order
     /// [R, Gr, Gb, B], index 1 is the GREEN site sharing the red row (Gr) — for an A1 frame (red at (1,0), GRBG) that is raster
     /// site 0, not the red site. For mono index 0 is the sum of all four sites.</summary>
     public int MultiplierSite => IsColour ? 1 : 0;
@@ -117,11 +117,11 @@ public sealed class CaptureState
     /// <list type="bullet">
     /// <item>mono (`(bayerRed.x|bayerRed.y) &lt; 0`): **one** histogram = h0+h1+h2+h3 (and one shadow mean = the average of
     /// the four);</item>
-    /// <item>colour: `switch(bayerRed.x + 2·bayerRed.y)` permutes the four into **colour order [R, Gr, Gb, B]** —
+    /// <item>color: `switch(bayerRed.x + 2·bayerRed.y)` permutes the four into **color order [R, Gr, Gb, B]** —
     /// case 0 → [h0,h1,h2,h3], case 1 → [h1,h0,h3,h2], case 2 → [h2,h3,h0,h1], case 3 → [h3,h2,h1,h0], i.e.
     /// `stored[j] = raster[j ^ p]` with `p = redX + 2·redY` = the red site's own raster index. The shadow means are permuted the
     /// same way.</item></list>
-    /// This is why the "site 1 for colour" of the lens-shading mean is the green in the red row, not the red site.</summary>
+    /// This is why the "site 1 for color" of the lens-shading mean is the green in the red row, not the red site.</summary>
     public static long[][] LumenHistograms(long[][] raster, int redX, int redY)
     {
         if ((redX | redY) < 0)
@@ -194,7 +194,7 @@ public sealed class CaptureState
     ///   float's exact-integer range (they diverge only above 2²⁴). The float sums are kept because Lumen uses them;</item>
     /// <item>the value is <b>clamped</b> (`v &gt; 0x3fe → 0x3ff`) rather than masked — identical for any value the
     ///   dequantization LUT can produce (its maximum is 1023), but it is what the code does;</item>
-    /// <item>`sensor_is_horizontal_flip` / `sensor_is_vertical_flip` are <b>not</b> honoured: the loop always runs rows
+    /// <item>`sensor_is_horizontal_flip` / `sensor_is_vertical_flip` are <b>not</b> honored: the loop always runs rows
     ///   top-down and columns left-to-right. Both flags are false in the L16 captures, so the difference does not show
     ///   on real data.</item>
     /// </list>

@@ -56,7 +56,7 @@
                     ToolTip.Tip="The photo beside its depth map, pan and zoom locked together (D)" />
             <Button Classes="tab" Classes.selected="{Binding Develop.IsBeforeAfter}" Content="Before / after" Padding="12,0"
                     Command="{Binding Develop.SetModeCommand}" CommandParameter="{x:Static vm:DevelopMode.BeforeAfter}"
-                    ToolTip.Tip="Compare with the photo without tone and colour adjustments (\)" />
+                    ToolTip.Tip="Compare with the photo without tone and color adjustments (\)" />
           </StackPanel>
           <TextBox Grid.Column="3" x:Name="FilterBox" Width="200" Watermark="Filter" VerticalAlignment="Center"
                    IsVisible="{Binding ShowLibraryTools}" Text="{Binding Library.FilterText}"

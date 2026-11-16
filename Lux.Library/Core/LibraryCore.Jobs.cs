@@ -22,7 +22,7 @@ internal sealed partial class LibraryCore
     {
         // A quality upgrade of a photo without a depth map computes the depth map first, in the same job —
         // the title says so
-        AnalysisJobRequest a => a.TargetLevel >= CacheLevel.Linear13 ? $"Analysing {NameOf(a.CaptureId)}: depth map and 13 MP" : $"Analysing {NameOf(a.CaptureId)}",
+        AnalysisJobRequest a => a.TargetLevel >= CacheLevel.Linear13 ? $"Analyzing {NameOf(a.CaptureId)}: depth map and 13 MP" : $"Analyzing {NameOf(a.CaptureId)}",
         CacheJobRequest { Release: true } c => c.Target == CacheLevel.Linear13 ? $"Releasing full detail of {NameOf(c.CaptureId)}" : $"Reducing the kept data of {NameOf(c.CaptureId)}",
         CacheJobRequest c => c.Target switch
         {
@@ -473,7 +473,7 @@ internal static class ExportJobs
         job.Planned(FilesOf(BuildRequest(o, outDir, stem, item), outDir, stem).FirstOrDefault());
         var pp = new LibraryCore.PhaseProgress(job, 0.02, 0.98, ("loading", 1), ("registration", 30), ("fusion set-up", 10), ("telephoto set-up", 3),
                                                ("level-0 inputs", 15), ("level-0 tiles", 15), ("render tiles", 5), ("depth-effect tiles", 5), ("dng", 8), ("depth", 3), ("jpeg tiles", 6), ("jpeg encode", 4));
-        // a cancelled export leaves nothing of this run behind: the exporter removes the file it was writing, the job the ones it finished
+        // a canceled export leaves nothing of this run behind: the exporter removes the file it was writing, the job the ones it finished
         var startedUtc = DateTime.UtcNow;
         var existed = FilesOf(BuildRequest(o, outDir, stem, item), outDir, stem).Where(File.Exists).ToHashSet();
         try { await ExportOnce(lib, r, job, o, ctx, path, outDir, stem, pp, item).ConfigureAwait(false); }

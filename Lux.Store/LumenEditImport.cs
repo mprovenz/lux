@@ -9,12 +9,12 @@ namespace Lux.Store;
 /// Import of a Lumen session file (<c>.lris</c>) into the capture's edit database, as a variant of kind
 /// <see cref="DepthEditStore.KindLumenImport"/> — everything Lumen restores when Lumen reopens the session:
 /// <list type="bullet">
-/// <item>its pinned base depth is the depth map Lumen saved in the session (the Stereo record, quantised by Lumen's 14-bit depth codec);</item>
+/// <item>its pinned base depth is the depth map Lumen saved in the session (the Stereo record, quantized by Lumen's 14-bit depth codec);</item>
 /// <item>its snapshot is what Lumen has after reloading the depth edits, if the session has any: the stored tiles as the tiles' only version,
 /// written into the depth cache and the edit layer (the DepthEditor record is kept verbatim and the log starts with a <c>lumen-import</c>
 /// entry);</item>
 /// <item>its render settings (<see cref="StoredSettings"/>) are the session's RendererState, Transform and MetaData records as Lumen loads
-/// them — f-number, focus depth, the tone and colour settings, sharpening, crop / rotation, rating;</item>
+/// them — f-number, focus depth, the tone and color settings, sharpening, crop / rotation, rating;</item>
 /// <item>the Stereo record's message (the refined calibration of every module) is kept, so that a render rebuilds the session's camera
 /// geometry (<see cref="Lux.Engine.Session.CaptureGeometry.FromSession"/>) — nothing depends on the <c>.lris</c> file afterwards.</item>
 /// </list>

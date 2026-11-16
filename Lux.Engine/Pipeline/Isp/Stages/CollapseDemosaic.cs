@@ -59,8 +59,8 @@ public static class CollapseDemosaicKernel
 
     /// <summary>The no-CFA (monochrome) collapse: every site is luminance, so a block is its plain n×n mean, written to
     /// all three channels. Lumen never demosaics the mono module on its own (its mono path is the fusion one, which ISPs
-    /// the reference colour frame), so this is Lux-defined behaviour for the lens-frames render at config levels 2–4:
-    /// the colour kernels index sites by the red position, and the mono sentinel (−1,−1) has none.</summary>
+    /// the reference color frame), so this is Lux-defined behavior for the lens-frames render at config levels 2–4:
+    /// the color kernels index sites by the red position, and the mono sentinel (−1,−1) has none.</summary>
     public static Image<Vec4F> RunMono(float[] src, int stride, int offset, int w, int h, int n)
     {
         if (n < 2 || (n & 1) != 0) throw new InvalidOperationException("Collapse block size must be even and at least 2!");

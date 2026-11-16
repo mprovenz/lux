@@ -71,8 +71,8 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
             Effects.Add(new EffectChoiceViewModel(ok > 0 ? info : infos[0], Choose));
         }
         Sizes = new ChoiceOption[] { new("520 px · small", 520), new("1040 px", 1040), new("1600 px", 1600), new("2080 px", 2080) };
-        var formats = new List<ChoiceOption> { new("GIF · plays everywhere", (int)AnimationFormat.Gif), new("WebP · exact colours, smaller", (int)AnimationFormat.WebP),
-                                                new("APNG · exact colours", (int)AnimationFormat.Apng) };
+        var formats = new List<ChoiceOption> { new("GIF · plays everywhere", (int)AnimationFormat.Gif), new("WebP · exact colors, smaller", (int)AnimationFormat.WebP),
+                                                new("APNG · exact colors", (int)AnimationFormat.Apng) };
         if (s.Library.CanWriteVideo) { formats.Add(new("MP4 video", (int)AnimationFormat.Mp4)); formats.Add(new("WebM video", (int)AnimationFormat.WebM)); }
         Formats = formats;
         Repeats = new ChoiceOption[] { new("Forever", 0), new("Once", 1), new("3 times", 3) };
@@ -135,7 +135,7 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
     [ObservableProperty] double _amplitude;
     [ObservableProperty] bool _singleView;
     [ObservableProperty] bool _pingPong = true;
-    /// <summary>Rack focus start / end and the aperture sweep's focus, metres as typed ("" = the photo's default).</summary>
+    /// <summary>Rack focus start / end and the aperture sweep's focus, meters as typed ("" = the photo's default).</summary>
     [ObservableProperty] string _focusFromText = "";
     [ObservableProperty] string _focusToText = "";
     [ObservableProperty] string _focusText = "";
@@ -440,7 +440,7 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
         if (!CanAdd) { Error = "This effect cannot be made from this photo."; return; }
         if ((IsRack && (FocusFromText.Length > 0 && Metres(FocusFromText) is null || FocusToText.Length > 0 && Metres(FocusToText) is null))
             || (IsAperture && FocusText.Length > 0 && Metres(FocusText) is null))
-        { Error = "Type distances in metres, e.g. 1.5"; return; }
+        { Error = "Type distances in meters, e.g. 1.5"; return; }
         var o = Options() with { IfExists = _s.Library.Settings.ExportIfExists switch { ExportCollisionSetting.Replace => ExistingFilePolicy.Overwrite, ExportCollisionSetting.Skip => ExistingFilePolicy.Skip, _ => ExistingFilePolicy.Rename } };
         _s.PanelMemory.Animation = o;
         LastOptions = o;

@@ -8,9 +8,9 @@ namespace Lux.Engine.Pipeline.Parallax;
 /// animations render the same frames.</summary>
 public static class ParallaxRender
 {
-    /// <summary>Resolve the convergence plane in millimetres: `--parallax-converge-at x,y` reads the depth map at a
+    /// <summary>Resolve the convergence plane in millimeters: `--parallax-converge-at x,y` reads the depth map at a
     /// point (the exact analytic replacement for the wigglegram's phase-correlation pivot), `auto` is the median
-    /// depth (the pivot in the middle of the scene), a number is metres, `none` is 0.</summary>
+    /// depth (the pivot in the middle of the scene), a number is meters, `none` is 0.</summary>
     public static double Converge(ParallaxRequest r, ParallaxSource src, Action<string>? log)
     {
         if (r.ConvergeAt is { } at)
@@ -28,7 +28,7 @@ public static class ParallaxRender
         return m;
     }
 
-    /// <summary>Synthesise one virtual view and fill it. Returns the view plus a one-line account of where the
+    /// <summary>Synthesize one virtual view and fill it. Returns the view plus a one-line account of where the
     /// disocclusion pixels came from.</summary>
     public static (View V, string Report) Frame(ParallaxSource src, double tx, double ty, double convergeZ,
                                                 IReadOnlyList<Donor> donors, bool inpaint)
@@ -59,7 +59,8 @@ public static class ParallaxRender
         double cz = Converge(r, src, log);
         bool inpaint = r.Fill != "none";
         var axis = Paths.Axis(src.Geometry);
-        var pts = Paths.Generate(kind, n, r.Baseline, axis);
+        var pts = Paths.Generate(kind, n, r.Baseline, axis, heldTurn: r.HeldTurn);
+        if (kind == Paths.Kind.Line) axis = Paths.ViewerHorizontal(r.HeldTurn);
         log?.Invoke($"{ExportFormats.NameOf(f)}: {n} frames, path {kind}, baseline {r.Baseline:F2} mm along ({axis.X:F3},{axis.Y:F3})"
                   + $" [{WineCrt.Atan2(axis.Y, axis.X) * 180 / Math.PI:F1}° off horizontal], f = {src.Geometry.FocalPx:F1} px"
                   + (f == ParallaxFormat.Single ? ", inpainting only" : ""));
@@ -95,7 +96,7 @@ public static class ParallaxRender
     }
 
     /// <summary>`parallax-rack`: the focus pulled from one depth to another. Interpolated in 1/Z — focus pulls are
-    /// linear in the lens's own travel, not in metres, and a linear ramp in Z spends most of the animation where
+    /// linear in the lens's own travel, not in meters, and a linear ramp in Z spends most of the animation where
     /// nothing visibly changes — with a cosine ease. Default pull: the 10th- to the 90th-percentile depth.</summary>
     public static List<Rgba> Rack(ParallaxSource src, ParallaxRequest r, Action<string>? log)
     {
@@ -149,23 +150,32 @@ public static class ParallaxRender
         return frames;
     }
 
-    /// <summary>The stereo pair behind `parallax-anaglyph` / `parallax-crosseye` / `parallax-sbs`: two views ±ipd/2
-    /// along the horizontal (a stereo pair must not carry vertical disparity), converged so the subject sits at the
-    /// screen plane. One pair serves every presentation requested.</summary>
+    /// <summary>The stereo pair behind `parallax-anaglyph` / `parallax-crosseye` / `parallax-sbs`: two views ±ipd/2 along the viewer's
+    /// horizontal (a stereo pair must not carry vertical disparity), converged so the subject sits at the screen plane. One pair serves
+    /// every presentation requested.
+    /// <para>For a capture held turned (<see cref="ParallaxRequest.HeldTurn"/>) the viewer's horizontal is not the row direction of the
+    /// recorded image. The two views are then offset along the viewer's horizontal in the recorded image, and each view is turned
+    /// upright. The result is a pair that a viewer can fuse: the left view is the view of the left eye, and the disparity is horizontal.
+    /// For a capture held level the pair is the same as before.</para></summary>
     public static (Rgba Left, Rgba Right) StereoPair(ParallaxSource src, ParallaxRequest r, double ipd, IReadOnlyList<Donor> donors, Action<string>? log)
     {
         double cz = Converge(r, src, log);
         if (cz <= 0) { cz = src.Depth.Percentile(0.35); log?.Invoke($"no convergence given; using the 35th-percentile depth {cz / 1000:F3} m so the subject sits at the screen plane"); }
         double f = src.Geometry.FocalPx;
-        log?.Invoke($"stereo: ipd {ipd:F1} mm, f = {f:F1} px, max disparity {f * ipd * Math.Abs(1.0 / src.Depth.Percentile(0.02) - 1.0 / cz):F1} px at the 2nd percentile depth");
-        var (lv, lrep) = Frame(src, -ipd / 2, 0, cz, donors, true);
-        var (rv, rrep) = Frame(src, ipd / 2, 0, cz, donors, true);
+        var (hx, hy) = Paths.ViewerHorizontal(r.HeldTurn);
+        int turn = ((r.HeldTurn % 360) + 360) % 360;
+        log?.Invoke($"stereo: ipd {ipd:F1} mm, f = {f:F1} px, max disparity {f * ipd * Math.Abs(1.0 / src.Depth.Percentile(0.02) - 1.0 / cz):F1} px at the 2nd percentile depth"
+                  + (turn != 0 ? $"; camera held turned: eyes offset along ({hx:F0},{hy:F0}) of the recorded image, views turned {turn}° clockwise" : ""));
+        // an offset of zero must be +0: the held-level pair then has exactly the earlier arguments (−ipd/2, 0) and (ipd/2, 0)
+        static double Off(double axis, double half) => axis == 0 ? 0 : axis * half;
+        var (lv, lrep) = Frame(src, Off(hx, -ipd / 2), Off(hy, -ipd / 2), cz, donors, true);
+        var (rv, rrep) = Frame(src, Off(hx, ipd / 2), Off(hy, ipd / 2), cz, donors, true);
         log?.Invoke($"left  {lrep}");
         log?.Invoke($"right {rrep}");
-        return (lv.Colour, rv.Colour);
+        return (Session.AnimationRenderer.TurnRgba(lv.Colour, turn), Session.AnimationRenderer.TurnRgba(rv.Colour, turn));
     }
 
-    /// <summary>`parallax-still`: one synthesised viewpoint at `--parallax-t tx,ty` mm.</summary>
+    /// <summary>`parallax-still`: one synthesized viewpoint at `--parallax-t tx,ty` mm.</summary>
     public static Rgba Still(ParallaxSource src, ParallaxRequest r, IReadOnlyList<Donor> donors, Action<string>? log)
     {
         double cz = Converge(r, src, log);
@@ -175,7 +185,7 @@ public static class ParallaxRender
     }
 
     /// <summary>Ping-pong: play out and back, minus the repeated endpoints. A straight loop snaps across the whole
-    /// baseline in one frame, which is the artefact a sweep order exists to avoid.</summary>
+    /// baseline in one frame, which is the artifact a sweep order exists to avoid.</summary>
     public static List<Rgba> Boomerang(IReadOnlyList<Rgba> f)
     {
         if (f.Count < 3) return f.ToList();

@@ -10,7 +10,7 @@ namespace Lux.Engine.Session;
 ///
 /// <para>The grid group (<see cref="Level"/>/<see cref="Size"/>/<see cref="Origin"/>) picks the pixel grid and
 /// nothing else. The adjustment groups depart from the 1:1 Lumen output: every one of them is <c>null</c>/0/false
-/// by default, and a null means "the value Lumen itself would use", which for the colour-space property is the
+/// by default, and a null means "the value Lumen itself would use", which for the color-space property is the
 /// per-format rule of Lumen (<see cref="ExportTuningOverride.ColorSpaceProperty"/>).</para>
 ///
 /// <para><see cref="LensFrames"/> and <see cref="Parallax"/> are the Lux-only formats (`lens-frames`, `parallax-*`):
@@ -26,14 +26,14 @@ public sealed record ExportRequest
 
     /// <summary>Threads for the tile render inside this one export: the pipeline tiles, the fusion / reference /
     /// telephoto cache tiles behind them, and the output-ISP tiles of the JPEG. 1 = the sequential order. The pixels
-    /// are the same at any count — every tile is a pure function of the capture, memoised once.</summary>
+    /// are the same at any count — every tile is a pure function of the capture, memoized once.</summary>
     public int RenderThreads { get; init; } = 1;
 
     /// <summary>Progress sink: one <see cref="ProgressUpdate"/> per phase start and per unit of work, from any thread.
     /// Null = no reporting (the default; reporting never changes the output).</summary>
     public Action<ProgressUpdate>? Progress { get; init; }
 
-    /// <summary>Cancellation: checked between phases and tiles. A cancelled export throws <see cref="OperationCanceledException"/>
+    /// <summary>Cancellation: checked between phases and tiles. A canceled export throws <see cref="OperationCanceledException"/>
     /// and leaves no partial output it started writing.</summary>
     public CancellationToken Cancel { get; init; }
 
@@ -96,16 +96,25 @@ public sealed record ExportRequest
     /// PipelineCache; at or above it the image is unchanged. Either way it is the Exif FNumber, as in
     /// Lumen, unless <see cref="FNumber"/> overrides the tag. Null = no depth effect.</summary>
     public float? DepthEffectFNumber { get; init; }
-    /// <summary>The depth effect's focus distance in millimetres (ParamFloat 1); null = <see cref="FocusPoint"/>, else
+    /// <summary>The depth effect's focus distance in millimeters (ParamFloat 1); null = <see cref="FocusPoint"/>, else
     /// Lumen's DefaultFocusDepth.</summary>
     public float? FocusDepthMm { get; init; }
-    /// <summary>Focus on the scene depth at this point, normalised to the export window — Lumen's click to focus
+    /// <summary>Focus on the scene depth at this point, normalized to the export window — Lumen's click to focus
     /// (`getDepthAtPoint`, then the focus setting).</summary>
     public (float X, float Y)? FocusPoint { get; init; }
     /// <summary>Exif ISO override; null = 100·image_gain truncated, from the capture.</summary>
     public int? Iso { get; init; }
     /// <summary>Exif FocalLength override, mm; null = the header's `ImageFocalLength`.</summary>
     public int? FocalLengthMm { get; init; }
+
+    // ---- noise (Lux) ---------------------------------------------------------------------------------------
+    /// <summary>The Lux noise controls of the module ISP: the strength of the grain that is added after the denoiser, and the scale of the
+    /// denoiser's threshold (<see cref="NoiseControls"/>). Null = Lumen's values (today's output). They change the merged image itself,
+    /// thus every format. An export with other values than Lumen's does not read kept image tiles from the analysis cache.
+    /// <para><see cref="Exporter.Run(string, ExportRequest, Action{string}?)"/> builds its state with these values. An export on a state
+    /// that exists already (<see cref="Exporter.Run(ExportState, ExportRequest, Action{string}?)"/>, <see cref="CaptureSession"/>) uses
+    /// the values of that state (<see cref="BuildOptions.Noise"/>, <see cref="SessionOptions.Noise"/>).</para></summary>
+    public NoiseControls? Noise { get; init; }
 
     // ---- DNG -----------------------------------------------------------------------------------------------
     /// <summary>Renderer property 0x13 for the DNG; null = the per-format rule (0 = none, what Lumen writes).</summary>
@@ -118,7 +127,7 @@ public sealed record ExportRequest
     // ---- JPEG ----------------------------------------------------------------------------------------------
     /// <summary>Renderer property 0x13 for the JPEG (and JPEG+GDepth); null = the per-format rule (4 = srgb).</summary>
     public int? JpegColorSpace { get; init; }
-    /// <summary>Embeds the ICC profile of the JPEG colour space (<see cref="Lux.Engine.Pipeline.Export.IccProfiles"/>; sRGB by default). The
+    /// <summary>Embeds the ICC profile of the JPEG color space (<see cref="Lux.Engine.Pipeline.Export.IccProfiles"/>; sRGB by default). The
     /// default is off. Lumen's JPEGs have no profile, and the default output does not change.</summary>
     public bool JpegEmbedIcc { get; init; }
     /// <summary>libjpeg quality; null = the literal 0x62 = 98 in `exportImage`.</summary>
@@ -131,7 +140,7 @@ public sealed record ExportRequest
     /// carries 5.0 (the `CIAPI::ApplyTuning` mode-0 value) → `tone_mapping.sharpening = 1.0`, and that is what its JPGs contain; 0 reproduces
     /// Lumen's renderer without `CIAPI::ApplyTuning`. PPM/HDR keep 0: the GUI never exports them.</summary>
     public float JpegSharpening { get; init; } = DisplayIspTuning.GuiSharpeningProperty;
-    /// <summary>Lumen's tone and colour settings for the 8-bit output render (JPEG, JPEG+GDepth, the parallax source); null = none
+    /// <summary>Lumen's tone and color settings for the 8-bit output render (JPEG, JPEG+GDepth, the parallax source); null = none
     /// (today's output). When set, its <see cref="Pipeline.Adjustments.Sharpening"/> replaces <see cref="JpegSharpening"/>. DNG, PPM and HDR
     /// never run the output stage, so they do not change (`Pipeline/Adjustments.cs`).</summary>
     public Pipeline.Adjustments? Adjustments { get; init; }
@@ -152,7 +161,7 @@ public sealed record ExportRequest
     /// two-space indent on the engine log, in place of `convert`'s summary lines.</summary>
     public bool Verbose { get; init; }
 
-    /// <summary>The colour-space property (renderer property 0x13) this run writes for <paramref name="f"/>.
+    /// <summary>The color-space property (renderer property 0x13) this run writes for <paramref name="f"/>.
     /// The default is Lumen's own per-format rule — `fmt &lt;= 1 → 4 (srgb)`,
     /// `fmt == 2 → 0 (none)`, `fmt == 3 → 1 (linear_srgb)`; fmt 4 never reaches that switch (it throws), so it
     /// inherits the JPEG value.</summary>
@@ -181,7 +190,7 @@ public sealed record ExportRequest
     /// <summary>The settings this request sets explicitly, which the capture's saved render settings (<see cref="ICaptureContext.LoadSavedState"/>,
     /// e.g. an imported Lumen session) then do not replace: "f-number" (<see cref="DepthEffectFNumber"/>), "focus" (<see cref="FocusDepthMm"/> /
     /// <see cref="FocusPoint"/>), "transform" (<see cref="Rotate"/> / <see cref="Transform"/>), and the `ParamFloat` id ("2" … "13") of each tone
-    /// or colour setting of <see cref="Adjustments"/> ("13" also stands for <see cref="JpegSharpening"/>). Everything else comes from the saved
+    /// or color setting of <see cref="Adjustments"/> ("13" also stands for <see cref="JpegSharpening"/>). Everything else comes from the saved
     /// state when one applies; with <see cref="UseSavedEdits"/> false none does.</summary>
     public IReadOnlySet<string> OverriddenSettings { get; init; } = new HashSet<string>();
 
@@ -266,12 +275,12 @@ public static class ExportFormats
     };
 }
 
-/// <summary>The `parallax-*` formats of `convert`. All EXPERIMENTAL: Lumen has no animated or synthesised output, so
+/// <summary>The `parallax-*` formats of `convert`. All EXPERIMENTAL: Lumen has no animated or synthesized output, so
 /// none of these is held to the 1:1 bar — the base imagery is the pipeline's (the run's own JPEG render and
 /// its metric depth, or the module ISP's frames), and everything after that is Lux's own.</summary>
 public enum ParallaxFormat
 {
-    /// <summary>The physical wigglegram: the four real A-group frames, colour-matched, played in spatial order.</summary>
+    /// <summary>The physical wigglegram: the four real A-group frames, color-matched, played in spatial order.</summary>
     Wiggle,
     /// <summary>The interpolated wigglegram: N virtual viewpoints along the rig's own axis, DIBR + disocclusion fill.</summary>
     WiggleInterp,
@@ -285,13 +294,13 @@ public enum ParallaxFormat
     Dolly,
     /// <summary>Synthetic depth of field, one still.</summary>
     Dof,
-    /// <summary>Red/cyan anaglyph (Dubois) of a synthesised stereo pair.</summary>
+    /// <summary>Red/cyan anaglyph (Dubois) of a synthesized stereo pair.</summary>
     Anaglyph,
     /// <summary>Cross-eye side-by-side stereo pair.</summary>
     CrossEye,
     /// <summary>Parallel-view side-by-side stereo pair.</summary>
     Sbs,
-    /// <summary>One synthesised viewpoint, as a still.</summary>
+    /// <summary>One synthesized viewpoint, as a still.</summary>
     Still,
 }
 
@@ -326,11 +335,11 @@ public sealed record ParallaxRequest
     /// <summary>sweep | arc | line — the path of `parallax-wiggle-interp` and `parallax-single` (orbit is its own format).</summary>
     public string Path { get; init; } = "sweep";
     public double Baseline { get; init; } = 71.49;
-    /// <summary>auto (median depth) | none | metres.</summary>
+    /// <summary>auto (median depth) | none | meters.</summary>
     public string Converge { get; init; } = "auto";
     public (int X, int Y)? ConvergeAt { get; init; }
     public double? Ipd { get; init; }
-    /// <summary>dubois | colour | grey.</summary>
+    /// <summary>dubois | color | gray.</summary>
     public string Anaglyph { get; init; } = "dubois";
     public double? FocusM { get; init; }
     public (int X, int Y)? FocusAt { get; init; }
@@ -349,9 +358,15 @@ public sealed record ParallaxRequest
     /// <summary>`parallax-wiggle` convergence pin, native sensor pixels.</summary>
     public (int X, int Y, int W, int H)? Pivot { get; init; }
 
+    /// <summary>How the camera was held: the degrees clockwise (0, 90, 180, 270) that show the capture upright. 0 = held level, or not
+    /// known. The front end reads it from the capture's accelerometer and sets it per capture. The stereo pair formats use it: the two
+    /// eyes are offset along the viewer's horizontal and are written upright (<see cref="Pipeline.Parallax.ParallaxRender.StereoPair"/>).
+    /// The `line` path also runs along the viewer's horizontal.</summary>
+    public int HeldTurn { get; init; }
+
     public bool Has(ParallaxFormat f) => Formats.Contains(f);
     public bool Any(Func<ParallaxFormat, bool> p) => Formats.Any(p);
 
-    /// <summary>Every format but the physical wigglegram synthesises from the metric depth, and so needs the level-0 build.</summary>
+    /// <summary>Every format but the physical wigglegram synthesizes from the metric depth, and so needs the level-0 build.</summary>
     public static bool NeedsDepthFormat(ParallaxFormat f) => f != ParallaxFormat.Wiggle;
 }

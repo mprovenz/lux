@@ -16,7 +16,7 @@ public static class DepthRefine
 
     public sealed class Camera { public double[] D = new double[16]; public double ObsU, ObsV; }
 
-    /// <summary>Eigen SSE2 linear-vectorised reduction order for a term list (packet size 2).</summary>
+    /// <summary>Eigen SSE2 linear-vectorized reduction order for a term list (packet size 2).</summary>
     public static double Sum(ReadOnlySpan<double> t)
     {
         int n = t.Length;
@@ -221,7 +221,7 @@ public static class DepthRefine
         return delta * curX;
     }
 
-    /// <summary>Polynomial interpolation of (x, f, f') samples via full-pivot LU (Ceres `FindInterpolatingPolynomial`) and its constrained minimiser.</summary>
+    /// <summary>Polynomial interpolation of (x, f, f') samples via full-pivot LU (Ceres `FindInterpolatingPolynomial`) and its constrained minimizer.</summary>
     static double MinimizeInterpolant(List<double> xs, List<double> fs, List<double> gs, double xmin, double xmax)
     {
         int m = xs.Count, deg = 2 * m - 1, N = deg + 1;

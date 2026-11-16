@@ -19,7 +19,7 @@ namespace Lux.Engine.Lri;
 /// <item><b>pixelFormat = 6</b> = <c>TJPF_GRAY</c>, taken when the destination
 ///   `lt::Image` has 1 byte per pixel and the stream's subsampling is `TJSAMP_GRAY` — which is what every Bayer-JPEG
 ///   plane is. TurboJPEG then sets `out_color_space = JCS_GRAYSCALE` and decompresses straight into the image rows,
-///   with no upsampling and no colour conversion. That is the only shape this class implements; anything else in a
+///   with no upsampling and no color conversion. That is the only shape this class implements; anything else in a
 ///   `.lri` surface is an unknown format, so the decoder throws rather than guessing.</item>
 /// </list>
 ///

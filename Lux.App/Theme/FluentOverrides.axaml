@@ -1,7 +1,7 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <!--
-    The controls Lux keeps from the Fluent theme (text field, select, slider, scroll bar, menus, tooltips) re-coloured
+    The controls Lux keeps from the Fluent theme (text field, select, slider, scroll bar, menus, tooltips) re-colored
     with the Studio tokens. Application resources are searched before the theme's, so these keys win.
   -->
   <CornerRadius x:Key="ControlCornerRadius">2</CornerRadius>

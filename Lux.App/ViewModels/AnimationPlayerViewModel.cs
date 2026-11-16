@@ -8,7 +8,7 @@ using Lux.Library;
 
 namespace Lux.App.ViewModels;
 
-/// <summary>A focus point marked on the player ("Start", "End", "Focus"), normalised to the frame.</summary>
+/// <summary>A focus point marked on the player ("Start", "End", "Focus"), normalized to the frame.</summary>
 public sealed record PlayerMarker(double X, double Y, string Label);
 
 /// <summary>
@@ -46,7 +46,7 @@ public sealed partial class AnimationPlayerViewModel : ObservableObject, IDispos
     /// <summary>Clicks on the picture pick a point (the panel's focus picking) — the crosshair shows meanwhile.</summary>
     [ObservableProperty] bool _isPicking;
     [ObservableProperty] string? _pickHint;
-    /// <summary>A click on the picture while picking (normalised x, y).</summary>
+    /// <summary>A click on the picture while picking (normalized x, y).</summary>
     public Action<double, double>? Picked { get; set; }
 
     public IAnimationPreview? Preview => _p;
@@ -196,7 +196,7 @@ public sealed partial class AnimationPlayerViewModel : ObservableObject, IDispos
     [RelayCommand] void StepBack() { IsPlaying = false; Position = Position > 0 ? Position - 1 : MaxPosition; }
     [RelayCommand] void StepForward() { IsPlaying = false; Position = Position < MaxPosition ? Position + 1 : 0; }
 
-    /// <summary>A click at a point of the frame (normalised, unturned — the view maps the turned picture back).</summary>
+    /// <summary>A click at a point of the frame (normalized, unturned — the view maps the turned picture back).</summary>
     public void Click(double x, double y)
     {
         if (IsPicking) Picked?.Invoke(x, y);

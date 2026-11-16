@@ -6,7 +6,7 @@ namespace Lux.App.Develop;
 
 // App-side model of the Develop page's depth work: what the depth view models bind to. The fake (Fake/FakeDepth.cs) and the
 // adapter over the library's depth contract (ContractDepth.cs over Lux.Library/DepthContracts.cs) implement it. Coordinates are always the
-// picture as shown (normalised 0–1, after the saved turn, flip, crop and the display-only held turn): strokes, focus clicks and picks are in
+// picture as shown (normalized 0–1, after the saved turn, flip, crop and the display-only held turn): strokes, focus clicks and picks are in
 // the picture the user sees, the library maps them to the capture.
 
 /// <summary>Whether the open photo's depth can be used now.</summary>
@@ -14,7 +14,7 @@ public enum DepthReadiness
 {
     /// <summary>The depth map is there: the depth effect, focus and every depth tool work.</summary>
     Ready,
-    /// <summary>Never analysed: nothing depth-related works until an analysis has run ("Analyse now").</summary>
+    /// <summary>Never analyzed: nothing depth-related works until an analysis has run ("Analyze now").</summary>
     NotAnalysed,
     /// <summary>The analysis is running or waiting in the Queue.</summary>
     Analysing,
@@ -24,7 +24,7 @@ public enum DepthReadiness
     Unavailable,
 }
 
-/// <param name="Progress">0–1 while analysing; NaN when unknown or waiting.</param>
+/// <param name="Progress">0–1 while analyzing; NaN when unknown or waiting.</param>
 /// <param name="Message">A plain line for the failed / unavailable states.</param>
 public sealed record DepthStatusInfo(DepthReadiness Readiness, double Progress = double.NaN, string? Message = null)
 {
@@ -64,7 +64,7 @@ public enum MatchMode { Brush, Lasso, QuickSelect }
 
 /// <summary>The options of the active tool.</summary>
 /// <param name="BrushSize">Lumen's size, 1–100 (the lasso's feathering: 0–100); the brush radius is size × 0.001 of the capture's width.</param>
-/// <param name="FollowColour">Match depth brush: paint only where the colour is like the start of the stroke (Lumen's adaptive brush).</param>
+/// <param name="FollowColour">Match depth brush: paint only where the color is like the start of the stroke (Lumen's adaptive brush).</param>
 /// <param name="AddToSelection">Quick select: the next stroke adds (true) or removes.</param>
 public sealed record ToolOptions(double BrushSize = 20, bool FollowColour = false, bool AddToSelection = true)
 {
@@ -80,7 +80,7 @@ public enum ToolResult
     NothingChanged,
     /// <summary>Refused or failed; nothing changed.</summary>
     Failed,
-    /// <summary>Cancelled by the user; nothing changed.</summary>
+    /// <summary>Canceled by the user; nothing changed.</summary>
     Cancelled,
 }
 
@@ -94,7 +94,7 @@ public sealed record ToolOutcome(ToolResult Result, string? Message = null)
 /// <summary>
 /// One freehand stroke of the active tool: points are sent as the pointer moves (never blocking the pointer); <see cref="EndAsync"/> runs it
 /// (refine edge, blend area), makes it the pending selection (match depth brush, freehand lasso) or grows / shrinks the selection (quick select).
-/// Points are in the picture as shown, normalised.
+/// Points are in the picture as shown, normalized.
 /// </summary>
 public interface IToolStroke
 {
@@ -152,7 +152,7 @@ public sealed record HistoryStatus(HistoryState State, int Done = 0, int Total =
 public enum HistoryKind
 {
     Opened,
-    /// <summary>Tone and colour.</summary>
+    /// <summary>Tone and color.</summary>
     Tone,
     /// <summary>Crop, rotation, flips.</summary>
     Geometry,
@@ -238,9 +238,9 @@ public interface IDepthSession
     ITileSource? ShadeLayer { get; }
     /// <summary>The depth map as a picture (near is light), same tile grid and geometry as the photo.</summary>
     ITileSource DepthView { get; }
-    /// <summary>The depth at a picture point from what is in memory (instant); null when unknown (sky, not analysed, outside).</summary>
+    /// <summary>The depth at a picture point from what is in memory (instant); null when unknown (sky, not analyzed, outside).</summary>
     double? DepthAt(NormPoint picture);
-    /// <summary>The near and far ends of the depth view's grey ramp (mm), for the legend.</summary>
+    /// <summary>The near and far ends of the depth view's gray ramp (mm), for the legend.</summary>
     (double NearMm, double FarMm) DepthViewRange { get; }
 
     // ---- tools
@@ -308,7 +308,7 @@ public static class DepthText
     /// <summary>"f/2.0", "f/5.6"; null → "Off".</summary>
     public static string FNumber(double? f) => f is double v ? "f/" + v.ToString("0.0", En) : "Off";
 
-    /// <summary>Read a typed distance: "4.56", "4.56 m", "456 cm", "4560 mm" (metres when no unit). False when unreadable.</summary>
+    /// <summary>Read a typed distance: "4.56", "4.56 m", "456 cm", "4560 mm" (meters when no unit). False when unreadable.</summary>
     public static bool TryParseDistance(string? text, out double mm)
     {
         mm = 0;

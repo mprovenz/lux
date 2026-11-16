@@ -44,9 +44,9 @@ public sealed class Mt19937
 
 /// <summary>
 /// `lt::FundamentalMatrixFilter::filter` — 8-point RANSAC over the (ref, module) correspondences of one
-/// camera: 500 pre-drawn samples from `std::mt19937(0)`, un-normalised 8-point estimate via the last column of the
+/// camera: 500 pre-drawn samples from `std::mt19937(0)`, un-normalized 8-point estimate via the last column of the
 /// Householder Q of the scaled design matrix (Eigen `JacobiSVD` preconditioner, reproduced op-by-op in double),
-/// scoring = count of module points farther than 2 px from their epipolar line (one-sided, `rsqrtss` normalisation),
+/// scoring = count of module points farther than 2 px from their epipolar line (one-sided, `rsqrtss` normalization),
 /// earliest best wins; outliers are overwritten with (−1,−1). Nothing happens with fewer than 8 valid matches.
 /// </summary>
 public static class FundamentalMatrixFilter

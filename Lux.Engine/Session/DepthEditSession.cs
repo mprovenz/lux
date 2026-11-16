@@ -6,7 +6,7 @@ namespace Lux.Engine.Session;
 
 /// <summary>
 /// A depth editor on a built capture: the depth cache filled from the capture's full-frame depth, the editor on the renderer's level
-/// tables, and its colour images from the capture's own PipelineCache (<see cref="DepthEditColour"/>). The capture must have been built
+/// tables, and its color images from the capture's own PipelineCache (<see cref="DepthEditColour"/>). The capture must have been built
 /// at level 0 (<see cref="ExportBuild.Build"/> with maxLevel 0), which is what produces the depth.
 /// </summary>
 public sealed class DepthEditSession

@@ -4,7 +4,7 @@ using Lux.Engine.Pipeline.Color;
 namespace Lux.Engine.Pipeline.Isp;
 
 /// <summary>
-/// Live tone and colour editing on the display path: a grown linear tile (the tile that Lumen's display tile generator fetches from
+/// Live tone and color editing on the display path: a grown linear tile (the tile that Lumen's display tile generator fetches from
 /// the PipelineCache) plus <see cref="Adjustments"/> → the display tile, exactly as Lumen renders it after `setProperty(ParamFloat)`
 /// and its property mapping. The output ISP runs over the whole grown tile with no runner growth (its ROI is the tile itself), so every
 /// stage is a function of the previous stage's image and of its own parameters only: a <see cref="TileStageCache"/> keeps the
@@ -155,7 +155,7 @@ public sealed class TileStageCache
 {
     public Adjustments? Last;
     public int Level = -1;
-    /// <summary>The first changed stage of the last render (−1 = a fresh render), to recognise a slider being dragged.</summary>
+    /// <summary>The first changed stage of the last render (−1 = a fresh render), to recognize a slider being dragged.</summary>
     public int LastChanged = -1;
     public Image<Vec4F>? Input;
     public readonly Image<Vec4F>?[] StageInput = new Image<Vec4F>?[DisplayAdjust.StageOrder.Length];

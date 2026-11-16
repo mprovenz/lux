@@ -177,7 +177,7 @@ public sealed class InteractionTests
         lib.SelectChipCommand.Execute(lib.Chips.First(c => c.Filter == SmartFilter.NotAnalysed));
         await h.SettleAsync();
         Assert.All(lib.Items, i => Assert.NotEqual(DepthState.Analysed, i.Item.DepthState));
-        Assert.StartsWith("Not analysed · ", lib.Chips.First(c => c.Filter == SmartFilter.NotAnalysed).Label);
+        Assert.StartsWith("Not analyzed · ", lib.Chips.First(c => c.Filter == SmartFilter.NotAnalysed).Label);
     }
 
     [AvaloniaFact]

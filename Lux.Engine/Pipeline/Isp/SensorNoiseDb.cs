@@ -1,6 +1,6 @@
 namespace Lux.Engine.Pipeline.Isp;
 
-/// <summary>Lumen's built-in sensor noise database (colour map {2 → A, 4 → B}, mono map {3 → A, 5 → B}): per ISO key the
+/// <summary>Lumen's built-in sensor noise database (color map {2 → A, 4 → B}, mono map {3 → A, 5 → B}): per ISO key the
 /// (scale, threshold, cliff, black, white) and the VST (a, b) per channel — the ONLY source of `lt::Sensor` models (the LRI
 /// `sensor_data` is parsed but never used). Bit patterns verbatim.</summary>
 public static class SensorNoiseDb

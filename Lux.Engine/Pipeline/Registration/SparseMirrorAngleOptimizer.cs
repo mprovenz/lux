@@ -9,7 +9,7 @@ namespace Lux.Engine.Pipeline.Registration;
 /// exhaustive grid over the mirror angle θ (step 0.05°), the in-plane roll δ (step 0.025°,
 /// FreeParams &gt; 1) and a principal-point offset sliding along the θ-flow direction (FreeParams ≥ 1); every node = mirror
 /// pose ∘ Rz(δ), principal-point shift, view-transform pipeline; accepted iff the outlier fraction ≤ 0.25, not worse than the
-/// centre node and (FreeParams ≥ 1) cost ≤ 0.8 × centre cost. The accepted (raw) camera is written to the CURRENT slot.
+/// center node and (FreeParams ≥ 1) cost ≤ 0.8 × center cost. The accepted (raw) camera is written to the CURRENT slot.
 /// </summary>
 public static class SparseMirrorAngleOptimizer
 {
@@ -20,7 +20,7 @@ public static class SparseMirrorAngleOptimizer
 
     public sealed class Result { public bool Accepted; public CalibData? Written; public double Theta, Delta; public float Cx, Cy; public float Cost, OutFrac, CentreCost, CentreOutFrac; }
 
-    /// <summary>The θ-flow direction: image motion of the on-axis point at depth Z between θ and θ+2°, normalised by its max component.</summary>
+    /// <summary>The θ-flow direction: image motion of the on-axis point at depth Z between θ and θ+2°, normalized by its max component.</summary>
     public static (float Gx, float Gy) Flow(MirrorSystem sys, CalibData baseCam, CalibData refCam, double thetaC, float Z)
     {
         var M1 = Mat4D.FlowMatrix(MirrorPose.NodePose(sys, baseCam, thetaC, 0.0), refCam);

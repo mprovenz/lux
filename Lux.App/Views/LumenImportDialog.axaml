@@ -67,7 +67,7 @@
                 </Style>
               </Grid.Styles>
               <TextBlock Classes="secondary" Text="What comes across" />
-              <TextBlock Grid.Column="1" Classes="wrap" Text="Depth edits, aperture and focus, tone and colour, crop and rotation, rating" />
+              <TextBlock Grid.Column="1" Classes="wrap" Text="Depth edits, aperture and focus, tone and color, crop and rotation, rating" />
               <TextBlock Grid.Row="1" Classes="secondary" Text="What does not" />
               <TextBlock Grid.Row="1" Grid.Column="1" Text="Undo history (Lumen does not save it)" />
               <TextBlock Grid.Row="2" Classes="secondary" Text="Space needed" />

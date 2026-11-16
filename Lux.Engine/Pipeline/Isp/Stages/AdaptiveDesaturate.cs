@@ -37,7 +37,7 @@ public static class AdaptiveDesaturateKernel
     private static float RsqrtS(float x) => IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(x)).ToScalar();
 
     /// <summary>Process <paramref name="rect"/> (parent coordinates) of <paramref name="src"/> into a new image of the
-    /// same rect. Neighbourhood reads clamp at the source image's bounds (Lumen's grown tile view is clamped to the
+    /// same rect. Neighborhood reads clamp at the source image's bounds (Lumen's grown tile view is clamped to the
     /// input image and the separable filters clamp at that view's allocation).</summary>
     public static Image<Vec4F> Run(Image<Vec4F> src, RectI rect, float shadowCutoff, float highlightCutoff, ReadOnlySpan<float> neutral)
     {
@@ -91,7 +91,7 @@ public static class AdaptiveDesaturateKernel
     }
 
     /// <summary>`ImageConvSeparable2D&lt;3,3,float,float&gt;` (vertical pass, then horizontal pass):
-    /// v = (k0·above + k1·centre) + k2·below, then (k0·left + k1·centre) + k2·right, clamped at the image edge.</summary>
+    /// v = (k0·above + k1·center) + k2·below, then (k0·left + k1·center) + k2·right, clamped at the image edge.</summary>
     public static float[] Conv3x3(float[] src, int w, int h, float[] k)
     {
         var tmp = new float[w * h]; var dst = new float[w * h];
@@ -110,7 +110,7 @@ public static class AdaptiveDesaturateKernel
     }
 
     /// <summary>`ImageConvSeparable2D&lt;3,3,vec4,float&gt;`:
-    /// v = (k2·above + k1·centre) + k0·below, then (k2·left + k1·centre) + k0·right — the vec4 variant broadcasts
+    /// v = (k2·above + k1·center) + k0·below, then (k2·left + k1·center) + k0·right — the vec4 variant broadcasts
     /// the kernel reversed (equal to the float variant for symmetric kernels). Alpha is filtered too.</summary>
     public static Vec4F[] Conv3x3(Vec4F[] src, int w, int h, float[] k)
     {

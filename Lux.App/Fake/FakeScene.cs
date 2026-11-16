@@ -7,7 +7,7 @@ namespace Lux.App.Fake;
 /// The fake capture's picture at any level: the thumbnail's scene (sky, sun, hills, ground) drawn at full size, plus detail that only the
 /// finer levels resolve — fractal texture whose octaves grow with the level, trees, a house with window bars, a sign with small lettering
 /// and a resolution star — so the pyramid's levels are visibly different. Adjustments tint it (exposure, contrast, white balance,
-/// saturation …) through a colour filter, so slider moves show.
+/// saturation …) through a color filter, so slider moves show.
 /// </summary>
 internal static class FakeScene
 {
@@ -132,8 +132,8 @@ internal static class FakeScene
         }
     }
 
-    /// <summary>A colour filter approximating the adjustments relative to their defaults (exposure, contrast, highlights, shadows and clarity
-    /// as a tone curve; temperature, tint, saturation and vibrance as a colour matrix). Null when nothing differs.</summary>
+    /// <summary>A color filter approximating the adjustments relative to their defaults (exposure, contrast, highlights, shadows and clarity
+    /// as a tone curve; temperature, tint, saturation and vibrance as a color matrix). Null when nothing differs.</summary>
     public static SKColorFilter? Filter(IReadOnlyDictionary<string, double> values, IReadOnlyList<AdjustmentSpec> specs)
     {
         double V(string key) => values.TryGetValue(key, out var v) ? v : specs.First(s => s.Key == key).Default;

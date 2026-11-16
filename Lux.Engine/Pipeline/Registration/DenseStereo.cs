@@ -136,7 +136,7 @@ public static class DenseStereo
     public sealed class CostContext
     {
         public Rgba8Image Ref; public Rgba8Image[] Others = null!; public float[][] Warps = null!; public float[] Planes = null!;
-        public ushort[][] Wq = null!;   // per other camera: {8160, 680, 680, 0} colour / {12240, 0, 0, 0} gray
+        public ushort[][] Wq = null!;   // per other camera: {8160, 680, 680, 0} color / {12240, 0, 0, 0} gray
         public byte[] Caps = { 2, 6, 6, 0 };
     }
 

@@ -19,7 +19,7 @@ public enum OverlayLayer
     Cursor = 400,
 }
 
-/// <summary>A pointer event as an overlay sees it: in view, image and frame (normalised, oriented) coordinates.</summary>
+/// <summary>A pointer event as an overlay sees it: in view, image and frame (normalized, oriented) coordinates.</summary>
 public readonly record struct ViewerPointer(Point View, Point Image, Point Frame, KeyModifiers Modifiers, bool IsLeft, bool IsRight, int ClickCount);
 
 /// <summary>

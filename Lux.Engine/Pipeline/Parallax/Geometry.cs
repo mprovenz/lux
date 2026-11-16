@@ -18,10 +18,10 @@ public sealed class ParallaxGeometry
     public double ExportToCanvas;          // canvas px per export-output px
     public (int W, int H) Sensor, Canvas, ExportL0, Size;
     public (int X, int Y) Origin0;
-    /// <summary>A-group module optical centres in mm, `−(Rᵀ·t)` from the factory extrinsics. Key = module name.</summary>
+    /// <summary>A-group module optical centers in mm, `−(Rᵀ·t)` from the factory extrinsics. Key = module name.</summary>
     public Dictionary<string, (double X, double Y, double Z)> Centres = new();
     public string Reference = "0";
-    /// <summary>The modules a virtual path should be laid out over: the reference module's own optical group, colour
+    /// <summary>The modules a virtual path should be laid out over: the reference module's own optical group, color
     /// only. The B and C groups are in <see cref="Centres"/> too but they frame a different part of the scene, and the
     /// monochrome module is excluded for the same reason the wigglegram excludes it.</summary>
     public List<string> PathModules = new();
@@ -31,7 +31,7 @@ public sealed class ParallaxGeometry
       + $"size {Size.W}x{Size.H}\n  f_native {FocalNative:F2} px -> f_canvas {FocalNative * CanvasFactor:F2} px -> f_export {FocalPx:F2} px "
       + $"(export/canvas = {1.0 / ExportToCanvas:F6})";
 
-    /// <summary>Baseline of module <paramref name="name"/> relative to the reference module, in millimetres, in the
+    /// <summary>Baseline of module <paramref name="name"/> relative to the reference module, in millimeters, in the
     /// image's own axes. The extrinsics' Y already runs with the image rows, so no sign is applied.</summary>
     public (double X, double Y) BaselineOf(string name, string refName)
     {
@@ -40,7 +40,7 @@ public sealed class ParallaxGeometry
     }
 
     /// <summary>The geometry of an export rendered at <paramref name="size"/> from the window <paramref name="win"/>:
-    /// the focal chain above plus the A-group centres. <paramref name="api"/> only needs <c>Setup()</c> to have run
+    /// the focal chain above plus the A-group centers. <paramref name="api"/> only needs <c>Setup()</c> to have run
     /// (the ctor pairs); the level-0 registration state is the same object and serves unchanged.</summary>
     public static ParallaxGeometry FromCapture(LriFile lri, StereoAsyncApi api, (int W, int H) sensor, (int W, int H) canvas,
                                                ExportLevels win, (int W, int H) size)
@@ -76,7 +76,7 @@ public sealed class ParallaxGeometry
 public sealed class ParallaxSource
 {
     public required Rgba Colour;
-    public required Plane Depth;      // metric millimetres, pixel-aligned to Colour
+    public required Plane Depth;      // metric millimeters, pixel-aligned to Colour
     public required ParallaxGeometry Geometry;
     public required string Stem;
 

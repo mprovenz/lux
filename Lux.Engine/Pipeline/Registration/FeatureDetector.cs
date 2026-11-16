@@ -1,6 +1,6 @@
 namespace Lux.Engine.Pipeline.Registration;
 
-/// <summary>One `lt::FeaturePoint` (stride 0x24): integer-valued pixel position (−1 = none), normalised position
+/// <summary>One `lt::FeaturePoint` (stride 0x24): integer-valued pixel position (−1 = none), normalized position
 /// `((x − w/2)·2/w, (y − h/2)·2/w)`, the Harris response of the tile maximum, three zero floats and a flag byte
 /// (1 = the tile had no feature / was outside the margin rect).</summary>
 public struct FeaturePoint
@@ -14,7 +14,7 @@ public struct FeaturePoint
 /// `lt::FeatureDetector::findFeatures` (with its tile lambda) and `cullFeatures` (with lambda_2), with Lumen's exact operation
 /// order. Input is the 8-bit RGBA stereo image; the detection scalar is either the
 /// integer luma `(9797R + 19234G + 3735B + 16384) >> 15` or the raw R byte. Per 16×16 tile: Sobel-like 3×3 separable
-/// gradients (image-edge clamp, cross-tile neighbours), structure-tensor products, 5-tap σ 0.7 Gaussian smoothing
+/// gradients (image-edge clamp, cross-tile neighbors), structure-tensor products, 5-tap σ 0.7 Gaussian smoothing
 /// (clamped at the tile edge), Harris `R = det − 0.05·tr²`, one arg-max per tile if `R > 1e5`. Optional cull to
 /// `maxCount` keeps 1–3 per 2×2 tile block by response. Output = the surviving records inside `[margin, w−margin) ×
 /// [margin, h−margin)` in tile order.
@@ -52,7 +52,7 @@ public static class FeatureDetector
         float rx0 = m, ry0 = m, rx1 = (float)w + m2, ry1 = m2 + (float)h;
         var g = Isp.Stages.PostProcessingLumen.GaussianTaps(5, Sigma);
 
-        // gradients over the whole image (the tile views see their neighbours; only true image borders clamp)
+        // gradients over the whole image (the tile views see their neighbors; only true image borders clamp)
         var gx = new float[w * h]; var gy = new float[w * h];
         var tA = new float[w]; var tB = new float[w];
         for (int y = 0; y < h; y++)

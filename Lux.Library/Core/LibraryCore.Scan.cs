@@ -10,15 +10,18 @@ namespace Lux.Library.Core;
 internal sealed record CaptureMeta(DateTime? CaptureTime, int FocalLengthMm, int StackFrames, string ReferenceModule, IReadOnlyList<string> Modules,
                                    float AllInFocusFNumber, int SensorW, int SensorH)
 {
-    /// <summary>The version of what is read from a capture's header: 2 = with exposure, orientation and level sizes. Captures read by an
-    /// older version are read again at the next scan.</summary>
-    public const int Version = 2;
+    /// <summary>The version of what is read from a capture's header: 2 = with exposure, orientation and level sizes; 3 = with the predicted
+    /// motion blur. Captures read by an older version are read again at the next scan.</summary>
+    public const int Version = 3;
     public int Iso { get; init; } = 100;
     public double ExposureSeconds { get; init; }
     public float? Gain { get; init; }
     public PhotoOrientation Held { get; init; } = PhotoOrientation.Unknown;
     public PhotoOrientation ViewOrientation { get; init; }
     public string LevelSizes { get; init; } = "";
+    /// <summary>The predicted motion blur in full-size pixels (<see cref="Lux.Engine.Lri.CaptureMotion.BlurOf"/>). Null when the capture
+    /// has no usable gyroscope samples.</summary>
+    public float? BlurPixels { get; init; }
     /// <summary>The Lumen session beside the capture: its classification and change stamp (null = none).</summary>
     public (LumenSessionState State, string Stamp)? Lumen { get; init; }
 
@@ -53,6 +56,7 @@ internal sealed record CaptureMeta(DateTime? CaptureTime, int FocalLengthMm, int
         {
             Iso = (int)(100f * (gain ?? 1f)), ExposureSeconds = (float)((float)ns * 1e-6f) / 1000f, Gain = gain, Held = held, ViewOrientation = view,
             LevelSizes = string.Join(";", dims.Select(d => $"{d.W}x{d.H}")),
+            BlurPixels = Lux.Engine.Lri.CaptureMotion.BlurOf(lri).Pixels,
         };
         string lris = Path.Combine(Path.GetDirectoryName(path)!, Path.GetFileNameWithoutExtension(path) + ".lris");
         if (File.Exists(lris)) meta = meta with { Lumen = (LibraryCore.ClassifyLumen(lri, lris), LibraryCore.LrisStamp(lris)) };
@@ -298,11 +302,12 @@ internal sealed partial class LibraryCore
                     c.Exec(tx, """
                         UPDATE capture SET meta_version=$v, iso=$iso, exposure_s=$ex, gain=$g, held_orientation=$ho, vp_orientation=$vo, level_sizes=$ls,
                             out_w=CASE WHEN transform_crop=0 AND transform_orientation=0 THEN $w ELSE out_w END, out_h=CASE WHEN transform_crop=0 AND transform_orientation=0 THEN $h ELSE out_h END,
-                            lumen_class=$lc, lris_stamp=$lst, edits_stamp=NULL
+                            lumen_class=$lc, lris_stamp=$lst, edits_stamp=NULL, blur_px=$bp
                         WHERE id=$i
                         """, ("$i", f.Hash), ("$v", (long)CaptureMeta.Version), ("$iso", (long)mx.Iso), ("$ex", mx.ExposureSeconds), ("$g", (double?)mx.Gain),
                         ("$ho", (long)mx.Held), ("$vo", (long)mx.ViewOrientation), ("$ls", mx.LevelSizes), ("$w", long.Parse(d0[0], CultureInfo.InvariantCulture)),
-                        ("$h", long.Parse(d0[1], CultureInfo.InvariantCulture)), ("$lc", (long)(mx.Lumen?.State ?? LumenSessionState.None)), ("$lst", mx.Lumen?.Stamp));
+                        ("$h", long.Parse(d0[1], CultureInfo.InvariantCulture)), ("$lc", (long)(mx.Lumen?.State ?? LumenSessionState.None)), ("$lst", mx.Lumen?.Stamp),
+                        ("$bp", (double?)mx.BlurPixels));
                 }
                 string? old = c.Scalar(tx, "SELECT capture_id FROM location WHERE path=$p", ("$p", f.Path)) as string;
                 c.Exec(tx, """

@@ -8,7 +8,7 @@ namespace Lux.Engine.Pipeline.Registration;
 /// <summary>
 /// `lt::UpsampleLayer(σ = 12.0f, scale = 2)` = layer 6 of the dense-stereo LayerStack. Its output image is the 4160×3120 metric depth
 /// that the level-0 WarpFields read. Chain:
-///   d   = prev.depth (2080×1560 plane-quantised metric depth of StereoLayer&lt;0&gt;)
+///   d   = prev.depth (2080×1560 plane-quantized metric depth of StereoLayer&lt;0&gt;)
 ///   g   = ImageShift&lt;2,vec4x8ui&gt;(guide, {0.5f, 0.5f})            (separable 4-tap Catmull-Rom, clamp borders, RNE, saturate)
 ///   g2  = NearestResize(g, d.width, d.height)                        (16.16 fixed-point nearest → g2(x,y) = g(2x, 2y))
 ///   inv = InverseDepth(d)                                            (raw `rcpps`)
@@ -104,7 +104,7 @@ public static class DenseUpsampleLayer
         return new Rgba8Image(dst, W, H, W);
     }
 
-    /// <summary>Nearest-neighbour resize with 16.16 steps `step = (int)((double)src.dim · 65536.0 / dim)`,
+    /// <summary>Nearest-neighbor resize with 16.16 steps `step = (int)((double)src.dim · 65536.0 / dim)`,
     /// row = yAcc &gt;&gt; 16, col = xAcc &gt;&gt; 16 (accumulated per row / per pixel from 0).</summary>
     public static Rgba8Image NearestResize(Rgba8Image src, int W, int H)
     {
@@ -187,13 +187,13 @@ public static class DenseUpsampleLayer
                     int iy = iy0 + j; if (iy < 0) iy = 0; if (iy > hm1) iy = hm1;
                     float wy = SpatialW(fy, iy);
                     int lrow = iy * lw;
-                    // neighbour 0 (ibx)
+                    // neighbor 0 (ibx)
                     int q = g2.Offset(ibx, iy);
                     float d0 = hr - g2.Data[q], d1 = hg - g2.Data[q + 1], d2 = hb - g2.Data[q + 2];
                     float s = d1 * d1 + (d2 * d2 + d0 * d0);
                     float t = -(s * k);
                     float w0 = (Exp2Fast(t) + Eps) * (wy * wx0);
-                    // neighbour 1 (ix1)
+                    // neighbor 1 (ix1)
                     q = g2.Offset(ix1, iy);
                     d0 = hr - g2.Data[q]; d1 = hg - g2.Data[q + 1]; d2 = hb - g2.Data[q + 2];
                     s = d1 * d1 + (d2 * d2 + d0 * d0);

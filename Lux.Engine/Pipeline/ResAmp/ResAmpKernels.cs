@@ -97,7 +97,7 @@ internal static class ResAmpKernels
 
     // ---------------------------------------------------------------- lt::ImageBoxFilter<vec4x32f> / <float>
     /// <summary>`ImageBoxFilter&lt;T&gt;(out, src, size)` with the 256-px Tiler tiling reproduced (the running-sum order depends on it).
-    /// Output has the source view size, rect (0,0,w,h). E = 4 (vec4, strictly sequential initial sum) or 1 (float, vectorised tree).</summary>
+    /// Output has the source view size, rect (0,0,w,h). E = 4 (vec4, strictly sequential initial sum) or 1 (float, vectorized tree).</summary>
     public static ResImage BoxFilter(ResImage src, int W, int H)
     {
         int E = src.Elems, w = src.W, h = src.H;

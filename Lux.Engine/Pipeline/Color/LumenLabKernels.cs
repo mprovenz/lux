@@ -6,7 +6,7 @@ using static Lux.Engine.Pipeline.Color.LumenColorTables;
 namespace Lux.Engine.Pipeline.Color;
 
 /// <summary>
-/// The float XYZ ⇄ CIE-Lab kernels of Lumen's colour-space conversion (XYZ is space 7, Lab is space 8). Lumen's calibration
+/// The float XYZ ⇄ CIE-Lab kernels of Lumen's color-space conversion (XYZ is space 7, Lab is space 8). Lumen's calibration
 /// processing uses them for chart XYZ → Lab; `OptimizeHSVLut` uses them for chart Lab → XYZ (the LSQ targets and the
 /// white-patch reference). Both spaces sit at the same white (D50), and their matrices are the identity
 /// (`ColorSpace.Standard(7|8)`, native illuminant 0 → no adaptation). The kernel adaptation is also the identity, so the
@@ -83,7 +83,7 @@ public static class LumenLabKernels
         xyz[0] = fp[0] * Xw; xyz[1] = fp[1] * 1f; xyz[2] = fp[2] * Zw;
     }
 
-    /// <summary>The combined 3×3 of a Lumen colour-space conversion whose adaptation is the identity (the adaptation is the identity when
+    /// <summary>The combined 3×3 of a Lumen color-space conversion whose adaptation is the identity (the adaptation is the identity when
     /// both whites are equal — always the case here, D50 → D50): `C = inverse(dstPrimaries) · srcPrimaries`, where every product with an
     /// exact 0/1 of the identity is exact. For src = XYZ (type 7, identity primaries) `C = inv(P)`; for src = Lab (type 8) the kernel's own
     /// `diag(Xw, 1, Zw)` is the right factor, so `C(i,j) = inv(P)(i,j)·d_j`.</summary>

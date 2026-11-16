@@ -129,7 +129,7 @@ public sealed partial class CameraViewModel : ObservableObject
         Refresh();
     }
 
-    /// <summary>Decoded previews of the camera's captures (only realised cells ask).</summary>
+    /// <summary>Decoded previews of the camera's captures (only realized cells ask).</summary>
     public ThumbnailCache Thumbnails { get; }
     public CellMetrics Metrics { get; } = new();
 
@@ -420,7 +420,7 @@ public sealed partial class CameraViewModel : ObservableObject
     [ObservableProperty] bool _oneFolderPerDay;
     partial void OnOneFolderPerDayChanged(bool value) { _s.Library.Settings.SetValue("camera.per_day", value ? "true" : "false"); SchedulePlan(); }
 
-    public static IReadOnlyList<string> AfterChoices { get; } = new[] { "Analyse and keep a 13 MP render", "Analyse and keep full detail", "Only copy" };
+    public static IReadOnlyList<string> AfterChoices { get; } = new[] { "Analyze and keep a 13 MP render", "Analyze and keep full detail", "Only copy" };
 
     [ObservableProperty] int _afterIndex;
     partial void OnAfterIndexChanged(int value)
@@ -433,9 +433,9 @@ public sealed partial class CameraViewModel : ObservableObject
 
     public string AfterHint => After switch
     {
-        CameraAfterImport.AnalyseFullDetail => "Analysing takes about a minute per capture; full detail keeps about 270 MB per capture so that every zoom is sharp at once. Captures stay on the camera; nothing is deleted there.",
-        CameraAfterImport.CopyOnly => "The captures are added to the library without analysis; you can analyse them later. Captures stay on the camera; nothing is deleted there.",
-        _ => "Analysing takes about a minute per capture and makes later editing immediate. Captures stay on the camera; nothing is deleted there.",
+        CameraAfterImport.AnalyseFullDetail => "Analyzing takes about a minute per capture; full detail keeps about 270 MB per capture so that every zoom is sharp at once. Captures stay on the camera; nothing is deleted there.",
+        CameraAfterImport.CopyOnly => "The captures are added to the library without analysis; you can analyze them later. Captures stay on the camera; nothing is deleted there.",
+        _ => "Analyzing takes about a minute per capture and makes later editing immediate. Captures stay on the camera; nothing is deleted there.",
     };
 
     [RelayCommand]
@@ -580,7 +580,7 @@ public sealed partial class CameraViewModel : ObservableObject
     {
         CameraImportState.Running => "Copying",
         CameraImportState.Complete => "Complete",
-        CameraImportState.Cancelled => "Cancelled",
+        CameraImportState.Cancelled => "Canceled",
         CameraImportState.Stopped => "Stopped",
         _ => "",
     };
@@ -592,7 +592,7 @@ public sealed partial class CameraViewModel : ObservableObject
 
     /// <summary>The analysis line is a count ("3 of 12"), set in the number face; words are not.</summary>
     public bool LastImportAnalysisIsCount => LastImportAnalysis.Contains(" of ", StringComparison.Ordinal) && char.IsDigit(LastImportAnalysis[0]);
-    public string LastImportAnalysisLabel => LastImport?.After == CameraAfterImport.CopyOnly ? "Analysis" : "Analysed";
+    public string LastImportAnalysisLabel => LastImport?.After == CameraAfterImport.CopyOnly ? "Analysis" : "Analyzed";
     public string LastImportAnalysis
     {
         get
@@ -607,7 +607,7 @@ public sealed partial class CameraViewModel : ObservableObject
 
     public string? LastImportProblem => LastImport?.Problem;
     public bool HasLastImportProblem => LastImportProblem != null;
-    /// <summary>A stopped or cancelled import can be continued (its job is retried: the files already copied are skipped).</summary>
+    /// <summary>A stopped or canceled import can be continued (its job is retried: the files already copied are skipped).</summary>
     public bool CanContinue => LastImportFailed && LastImport?.JobId is long id && _s.Library.Jobs.Get(id) is { IsFinished: true } && IsOpen && !IsImporting;
 
     [RelayCommand]

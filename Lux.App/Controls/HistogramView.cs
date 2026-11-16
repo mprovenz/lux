@@ -5,8 +5,8 @@ using Lux.App.Develop;
 
 namespace Lux.App.Controls;
 
-/// <summary>The histogram of the picture: red, green and blue drawn as translucent areas over each other (their overlap reads grey to
-/// white), on the bar colour, scaled to the largest bin capped at 85 % as Lumen draws it; "No picture yet" before the first one.</summary>
+/// <summary>The histogram of the picture: red, green and blue drawn as translucent areas over each other (their overlap reads gray to
+/// white), on the bar color, scaled to the largest bin capped at 85 % as Lumen draws it; "No picture yet" before the first one.</summary>
 public sealed class HistogramView : Control
 {
     public static readonly StyledProperty<HistogramData?> DataProperty = AvaloniaProperty.Register<HistogramView, HistogramData?>(nameof(Data));

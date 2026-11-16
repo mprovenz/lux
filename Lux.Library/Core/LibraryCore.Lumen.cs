@@ -12,7 +12,7 @@ internal sealed partial class LibraryCore
 
     /// <summary>What a Lumen session did to its capture: depth edits (a DepthEditor record); else settings that differ from a fresh renderer of
     /// this capture — exactly as `dof-test lris-scan --exact` (`LumenSessionSettings.HasNonDefault` with the capture's all-in-focus f-number and
-    /// loaded white balance: a crop / rotation, a rating, the f-number, focus, any tone or colour value); else opened but unchanged.</summary>
+    /// loaded white balance: a crop / rotation, a rating, the f-number, focus, any tone or color value); else opened but unchanged.</summary>
     internal static LumenSessionState ClassifyLumen(LriFile lri, string lrisPath)
     {
         try
@@ -74,7 +74,7 @@ internal sealed partial class LibraryCore
         => string.IsNullOrEmpty(s) ? Array.Empty<PixelSize>()
          : s.Split(';').Select(p => p.Split('x')).Select(p => new PixelSize(int.Parse(p[0], CultureInfo.InvariantCulture), int.Parse(p[1], CultureInfo.InvariantCulture))).ToList();
 
-    /// <summary>The saved tone and colour values that differ from Lumen's (exposure 0, white balance as captured, sharpening 5, the rest 0).</summary>
+    /// <summary>The saved tone and color values that differ from Lumen's (exposure 0, white balance as captured, sharpening 5, the rest 0).</summary>
     internal static string? AdjustmentsSummary(Lux.Store.StoredSettings rs)
     {
         var p = new List<string>();

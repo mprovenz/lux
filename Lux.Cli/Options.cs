@@ -41,9 +41,9 @@ public sealed class Options
     public float? FNumber { get; private set; }
     /// <summary>convert: the depth effect's f-number (Lumen's "depth effect" slider).</summary>
     public float? DepthFNumber { get; private set; }
-    /// <summary>convert: the depth effect's focus distance in millimetres.</summary>
+    /// <summary>convert: the depth effect's focus distance in millimeters.</summary>
     public float? FocusDepth { get; private set; }
-    /// <summary>convert: the depth effect's focus point, normalised to the exported image (Lumen's click to focus).</summary>
+    /// <summary>convert: the depth effect's focus point, normalized to the exported image (Lumen's click to focus).</summary>
     public (float X, float Y)? FocusPoint { get; private set; }
     /// <summary>convert: ignore the capture's saved depth edits.</summary>
     public bool NoEdits { get; private set; }
@@ -57,7 +57,7 @@ public sealed class Options
     public int? Iso { get; private set; }
     public int? Focal { get; private set; }
 
-    // ---- TONE & COLOUR (convert: Lumen's editing controls, JPG / jpg+depth only) -----------------------------
+    // ---- TONE & COLOR (convert: Lumen's editing controls, JPG / jpg+depth only) -----------------------------
     public float? Exposure { get; private set; }
     public float? Contrast { get; private set; }
     public float? Temperature { get; private set; }
@@ -68,9 +68,15 @@ public sealed class Options
     public float? Shadows { get; private set; }
     public float? Highlights { get; private set; }
     public float? Clarity { get; private set; }
-    /// <summary>True when any tone & colour control was given.</summary>
+    /// <summary>True when any tone & color control was given.</summary>
     public bool HasToneAdjustments => Exposure is not null || Contrast is not null || Temperature is not null || Tint is not null || Vibrance is not null
                                       || Saturation is not null || Sharpening is not null || Shadows is not null || Highlights is not null || Clarity is not null;
+
+    // ---- NOISE (convert: Lux controls of the module ISP, every raster format) -------------------------------------
+    /// <summary>`--grain-strength`: scale of the grain that is added after the denoiser (1 = Lumen, 0 = none).</summary>
+    public float? GrainStrength { get; private set; }
+    /// <summary>`--denoise-threshold`: scale of the denoiser's threshold (1 = Lumen).</summary>
+    public float? DenoiseThreshold { get; private set; }
 
     // ---- DNG ------------------------------------------------------------------------------------------------
     public int? DngCs { get; private set; }
@@ -234,7 +240,7 @@ public sealed class Options
                     }
                     case "--fnum": o.FNumber = float.Parse(Need("an f-number"), CultureInfo.InvariantCulture); break;
                     case "--f-number": o.DepthFNumber = float.Parse(Need("an f-number"), CultureInfo.InvariantCulture); break;
-                    case "--focus-depth": o.FocusDepth = float.Parse(Need("a distance in millimetres"), CultureInfo.InvariantCulture); break;
+                    case "--focus-depth": o.FocusDepth = float.Parse(Need("a distance in millimeters"), CultureInfo.InvariantCulture); break;
                     case "--focus-point":
                     {
                         var q = Need("x,y (0..1)").Split(',');
@@ -248,7 +254,7 @@ public sealed class Options
                     case "--iso": o.Iso = int.Parse(Need("an ISO"), CultureInfo.InvariantCulture); break;
                     case "--focal": o.Focal = int.Parse(Need("a focal length in mm"), CultureInfo.InvariantCulture); break;
 
-                    // ---- tone & colour
+                    // ---- tone & color
                     case "--exposure": o.Exposure = float.Parse(Need("stops, -3..3"), CultureInfo.InvariantCulture); break;
                     case "--contrast": o.Contrast = float.Parse(Need("-100..100"), CultureInfo.InvariantCulture); break;
                     case "--temperature": o.Temperature = float.Parse(Need("kelvin, 2000..20000"), CultureInfo.InvariantCulture); break;
@@ -261,12 +267,12 @@ public sealed class Options
                     case "--clarity": o.Clarity = float.Parse(Need("-100..100"), CultureInfo.InvariantCulture); break;
 
                     // ---- dng
-                    case "--dng-cs": o.DngCs = int.Parse(Need("a colour-space property"), CultureInfo.InvariantCulture); break;
+                    case "--dng-cs": o.DngCs = int.Parse(Need("a color space setting"), CultureInfo.InvariantCulture); break;
                     case "--dng-tone": o.DngTone = Need("a tone-mapping profile"); break;
                     case "--dng-comp": o.DngComp = int.Parse(Need("0 or 1"), CultureInfo.InvariantCulture); break;
 
                     // ---- jpeg
-                    case "--jpeg-cs": o.JpegCs = int.Parse(Need("a colour-space property"), CultureInfo.InvariantCulture); break;
+                    case "--jpeg-cs": o.JpegCs = int.Parse(Need("a color space setting"), CultureInfo.InvariantCulture); break;
                     case "--jpeg-quality": o.JpegQuality = int.Parse(Need("1-100"), CultureInfo.InvariantCulture); break;
                     case "--jpeg-sub": o.JpegSub = int.Parse(Need("0, 1 or 2"), CultureInfo.InvariantCulture); break;
                     case "--jpeg-v2": o.JpegV2 = true; break;
@@ -275,8 +281,12 @@ public sealed class Options
                     case "--jpeg-comment": o.JpegComment = Need("text"); break;
                     case "--jpeg-software": o.JpegSoftware = Need("text"); break;
 
+                    // ---- noise
+                    case "--grain-strength": o.GrainStrength = float.Parse(Need("0..4"), CultureInfo.InvariantCulture); break;
+                    case "--denoise-threshold": o.DenoiseThreshold = float.Parse(Need("0.25..4"), CultureInfo.InvariantCulture); break;
+
                     // ---- hdr
-                    case "--hdr-cs": o.HdrCs = int.Parse(Need("a colour-space property"), CultureInfo.InvariantCulture); break;
+                    case "--hdr-cs": o.HdrCs = int.Parse(Need("a color space setting"), CultureInfo.InvariantCulture); break;
 
                     // ---- lens-frames
                     case "--lens-quality": o.LensQuality = Math.Clamp(int.Parse(Need("1-100"), CultureInfo.InvariantCulture), 1, 100); break;
@@ -294,20 +304,20 @@ public sealed class Options
                     case "--parallax-loop": o.ParallaxLoop = Need("pingpong or forward").ToLowerInvariant(); break;
                     case "--parallax-fill": o.ParallaxFill = Need("donors, inpaint or none").ToLowerInvariant(); break;
                     case "--parallax-path": o.ParallaxPath = Need("sweep, arc or line").ToLowerInvariant(); break;
-                    case "--parallax-baseline": o.ParallaxBaseline = double.Parse(Need("millimetres"), CultureInfo.InvariantCulture); break;
-                    case "--parallax-converge": o.ParallaxConverge = Need("metres, auto or none").ToLowerInvariant(); break;
+                    case "--parallax-baseline": o.ParallaxBaseline = double.Parse(Need("millimeters"), CultureInfo.InvariantCulture); break;
+                    case "--parallax-converge": o.ParallaxConverge = Need("meters, auto or none").ToLowerInvariant(); break;
                     case "--parallax-converge-at": o.ParallaxConvergeAt = Pt(Need("x,y")); break;
-                    case "--parallax-ipd": o.ParallaxIpd = double.Parse(Need("millimetres"), CultureInfo.InvariantCulture); break;
-                    case "--parallax-anaglyph": o.ParallaxAnaglyph = Need("dubois, colour or grey").ToLowerInvariant(); break;
-                    case "--parallax-focus": o.ParallaxFocus = double.Parse(Need("metres"), CultureInfo.InvariantCulture); break;
+                    case "--parallax-ipd": o.ParallaxIpd = double.Parse(Need("millimeters"), CultureInfo.InvariantCulture); break;
+                    case "--parallax-anaglyph": o.ParallaxAnaglyph = Need("dubois, color or gray").ToLowerInvariant(); break;
+                    case "--parallax-focus": o.ParallaxFocus = double.Parse(Need("meters"), CultureInfo.InvariantCulture); break;
                     case "--parallax-focus-at": o.ParallaxFocusAt = Pt(Need("x,y")); break;
-                    case "--parallax-aperture": o.ParallaxAperture = double.Parse(Need("millimetres"), CultureInfo.InvariantCulture); break;
+                    case "--parallax-aperture": o.ParallaxAperture = double.Parse(Need("millimeters"), CultureInfo.InvariantCulture); break;
                     case "--parallax-layers": o.ParallaxLayers = int.Parse(Need("a layer count"), CultureInfo.InvariantCulture); break;
                     case "--parallax-rack": { var p = Need("m1,m2").Split(','); o.ParallaxRack = (double.Parse(p[0], CultureInfo.InvariantCulture), double.Parse(p[1], CultureInfo.InvariantCulture)); break; }
                     case "--parallax-rack-at": { var p = Need("x1,y1;x2,y2").Split(';'); o.ParallaxRackAt = (Pt(p[0]), Pt(p[1])); break; }
-                    case "--parallax-subject": o.ParallaxSubject = double.Parse(Need("metres"), CultureInfo.InvariantCulture); break;
+                    case "--parallax-subject": o.ParallaxSubject = double.Parse(Need("meters"), CultureInfo.InvariantCulture); break;
                     case "--parallax-subject-at": o.ParallaxSubjectAt = Pt(Need("x,y")); break;
-                    case "--parallax-dz": o.ParallaxDz = double.Parse(Need("millimetres"), CultureInfo.InvariantCulture); break;
+                    case "--parallax-dz": o.ParallaxDz = double.Parse(Need("millimeters"), CultureInfo.InvariantCulture); break;
                     case "--parallax-t": { var p = Need("tx,ty").Split(','); o.ParallaxT = (double.Parse(p[0], CultureInfo.InvariantCulture), p.Length > 1 ? double.Parse(p[1], CultureInfo.InvariantCulture) : 0); break; }
                     case "--parallax-quality": o.ParallaxQuality = int.Parse(Need("0-100"), CultureInfo.InvariantCulture); break;
                     case "--parallax-crf": o.ParallaxCrf = int.Parse(Need("0-63"), CultureInfo.InvariantCulture); break;
@@ -322,11 +332,11 @@ public sealed class Options
                     case "--anim-ms": o.AnimMs = int.Parse(Need("milliseconds"), CultureInfo.InvariantCulture); break;
                     case "--anim-loop": o.AnimLoop = Need("pingpong or forward").ToLowerInvariant(); break;
                     case "--anim-repeat": o.AnimRepeat = int.Parse(Need("a play count (0 = forever)"), CultureInfo.InvariantCulture); break;
-                    case "--anim-focus": { var p = Need("near,far in metres").Split(','); o.AnimFocus = (double.Parse(p[0], CultureInfo.InvariantCulture), double.Parse(p[1], CultureInfo.InvariantCulture)); break; }
+                    case "--anim-focus": { var p = Need("near,far in meters").Split(','); o.AnimFocus = (double.Parse(p[0], CultureInfo.InvariantCulture), double.Parse(p[1], CultureInfo.InvariantCulture)); break; }
                     case "--anim-f-from": o.AnimFFrom = float.Parse(Need("an f-number"), CultureInfo.InvariantCulture); break;
                     case "--anim-path": o.AnimPath = Need("sweep, arc, line or orbit").ToLowerInvariant(); break;
-                    case "--anim-baseline": o.AnimBaseline = double.Parse(Need("millimetres"), CultureInfo.InvariantCulture); break;
-                    case "--anim-converge": o.AnimConverge = Need("auto or metres").ToLowerInvariant(); break;
+                    case "--anim-baseline": o.AnimBaseline = double.Parse(Need("millimeters"), CultureInfo.InvariantCulture); break;
+                    case "--anim-converge": o.AnimConverge = Need("auto or meters").ToLowerInvariant(); break;
                     case "--anim-single-view": o.AnimSingleView = true; break;
                     case "--anim-gif-dither": o.AnimGifDither = Need("ordered, diffusion or none").ToLowerInvariant(); break;
                     case "--anim-gif-palette": o.AnimGifPalette = Need("global or frame").ToLowerInvariant(); break;

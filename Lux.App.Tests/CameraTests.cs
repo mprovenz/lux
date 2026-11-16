@@ -23,7 +23,7 @@ namespace Lux.App.Tests;
 /// The Camera page and the camera service on the fake camera: states (not connected, reading the file list, reading details,
 /// connected, busy), the New / All / Since filter, selection, the import as a Queue job with per-file progress, the copy into day folders
 /// under <c>M5.Root</c>, the library scan and the analysis queued after it, a cable pulled in the middle of a copy and the import continued,
-/// cancelling, the already-imported marking, virtualisation, the first-run card and the read-only guarantee. Screens: under <c>M5.Root</c>.
+/// canceling, the already-imported marking, virtualization, the first-run card and the read-only guarantee. Screens: under <c>M5.Root</c>.
 /// </summary>
 public sealed class CameraTests
 {
@@ -447,7 +447,7 @@ public sealed class CameraTests
         int kept = Directory.GetFiles(r.Dest, "*.lri").Length;
         Assert.InRange(kept, 1, 4);
         Assert.Contains(end.Notes, n => n.Contains("before it was cancelled"));
-        await r.H.SettleAsync(() => vm.LastImportState == "Cancelled", 3000, waitThumbnails: false);
+        await r.H.SettleAsync(() => vm.LastImportState == "Canceled", 3000, waitThumbnails: false);
     }
 
     [AvaloniaFact]
@@ -479,7 +479,7 @@ public sealed class CameraTests
         Shot(r, "m5-13-not-enough-space");
     }
 
-    // ------------------------------------------------------------------------------------------------ virtualisation, first run, read-only
+    // ------------------------------------------------------------------------------------------------ virtualization, first run, read-only
 
     [AvaloniaFact]
     public async Task Six_hundred_captures_stay_virtualised_and_previews_are_read_only_for_what_is_on_screen()
@@ -505,7 +505,7 @@ public sealed class CameraTests
         _out.WriteLine($"scrolled 20 screens in {sw.ElapsedMilliseconds} ms; at most {maxLive} views; {r.Camera.PreviewReads} previews read");
         Assert.InRange(maxLive, 8, 140);
         Assert.True(r.Camera.PreviewReads < 600, "not every preview was read");
-        M5.Record("ui-figures.txt", $"virtualisation: 600 captures, {live} views realised at rest, at most {maxLive} while scrolling 20 screens, {r.Camera.PreviewReads} previews read");
+        M5.Record("ui-figures.txt", $"virtualization: 600 captures, {live} views realized at rest, at most {maxLive} while scrolling 20 screens, {r.Camera.PreviewReads} previews read");
     }
 
     [AvaloniaFact]

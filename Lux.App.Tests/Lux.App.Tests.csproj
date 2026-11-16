@@ -3,7 +3,7 @@
   <!--
     Lux.App.Tests — headless UI tests of the desktop app (Avalonia's headless platform with Skia rendering): every page and state rendered
     to PNG with the fake library, interaction tests (views, selection, keys, sort, filter, export, queue, Lumen import), and the
-    virtualisation / scroll-timing measurements. Screenshots go to LUX_SHOTS_DIR (default: a UI output folder beside the solution's
+    virtualization / scroll-timing measurements. Screenshots go to LUX_SHOTS_DIR (default: a UI output folder beside the solution's
     workspace when it exists, else the test output folder).
   -->
 

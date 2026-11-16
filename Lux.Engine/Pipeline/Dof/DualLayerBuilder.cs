@@ -33,8 +33,8 @@ public static class TiledDefocusBlur
 }
 
 /// <summary>
-/// The two-layer builder (buffer, colour, depth, {focus, f, f35, pitch}, synth, device, rangeInFocus) — fills a <see cref="DualLayerBuffer"/>:
-/// the visible layer is the colour and depth handed in; the occluded layer (what blurred foreground edges reveal) is synthesised from a
+/// The two-layer builder (buffer, color, depth, {focus, f, f35, pitch}, synth, device, rangeInFocus) — fills a <see cref="DualLayerBuffer"/>:
+/// the visible layer is the color and depth handed in; the occluded layer (what blurred foreground edges reveal) is synthesized from a
 /// quarter-resolution coverage test and a push-pull fill.
 /// </summary>
 public static class DualLayerBuilder
@@ -152,7 +152,7 @@ public static class DualLayerBuilder
     }
 
     /// <summary>The coverage hole (cov, hole, depth, prm, 0, device): depth at (w/4, h/4) (toward zero); a temporary buffer with that depth and a
-    /// zero colour image goes through `RunTiledDefocusBlur(tile 512, f, pitch·4, N = (f/f35)·2.2, focus, no post)`; the alpha
+    /// zero color image goes through `RunTiledDefocusBlur(tile 512, f, pitch·4, N = (f/f35)·2.2, focus, no post)`; the alpha
     /// lane of the result is the coverage; hole = (coverage &lt; 0.99 &amp;&amp; depth &lt; focus) ? 0x00 : 0xff.
     /// Both stay at quarter resolution.</summary>
     public static (float[] Cov, byte[] Hole, int W, int H) CoverageHole(DofImage depth, float focus, float f, float f35, float pitch, int deviceType, Trace? trace = null)
@@ -167,9 +167,9 @@ public static class DualLayerBuilder
         return (cov, hole, qw, qh);
     }
 
-    /// <summary>The occluded fill (out, buffer, depth, hole, cov, 0): quarter-size colour and depth; mask = hole == 0;
-    /// push-pull fill of both with ceil(log2f(min(w, h))) levels; hole mask, colour and depth resized back to full size; where the full-size
-    /// hole byte is 0xff the occluded colour and depth are 0, elsewhere the depth is max(filled, visible) (`filled &lt;= visible ? visible : filled`).
+    /// <summary>The occluded fill (out, buffer, depth, hole, cov, 0): quarter-size color and depth; mask = hole == 0;
+    /// push-pull fill of both with ceil(log2f(min(w, h))) levels; hole mask, color and depth resized back to full size; where the full-size
+    /// hole byte is 0xff the occluded color and depth are 0, elsewhere the depth is max(filled, visible) (`filled &lt;= visible ? visible : filled`).
     /// (Mode 1 — the exemplar inpainting — is never requested.)</summary>
     public static (DofImage Colour, DofImage Depth) FillOccluded(DofImage colour, DofImage depth, byte[] hole, int qw, int qh, Trace? trace = null) => FillOccluded(colour, depth, hole, qw, qh, trace, false);
 
@@ -204,9 +204,9 @@ public static class DualLayerBuilder
         return (col, dep);
     }
 
-    /// <summary>The occluded colour inside a depth-edited region (out, colour, depth, E, rangeInFocus; only when the buffer has a
-    /// matte). Quarter-size colour; hole mask H = E &gt; 0 || (near &lt; depth &amp;&amp; depth &lt; far), reduced to quarter size by
-    /// `ImageResample&lt;0,unsigned char&gt;` (nearest, 16.16, offset 0, scale src/dst); push-pull fill of the colour over H with
+    /// <summary>The occluded color inside a depth-edited region (out, color, depth, E, rangeInFocus; only when the buffer has a
+    /// matte). Quarter-size color; hole mask H = E &gt; 0 || (near &lt; depth &amp;&amp; depth &lt; far), reduced to quarter size by
+    /// `ImageResample&lt;0,unsigned char&gt;` (nearest, 16.16, offset 0, scale src/dst); push-pull fill of the color over H with
     /// ceil(log2f(min(w, h))) levels; resized back; out = E == 0 ? 0 : filled.</summary>
     public static DofImage OccludedInEdit(DofImage colour, DofImage depth, byte[] e, float near, float far)
     {
@@ -237,13 +237,13 @@ public static class DualLayerBuilder
 
     /// <summary>The two-layer builder. <paramref name="buf"/> may already carry the depth editor's planes (occluded depth = background depth, matte);
     /// the visible layer is set to <paramref name="colour"/> / <paramref name="depth"/>. With a matte: E = 0.01 &lt; occludedDepth
-    /// and the occluded colour comes from <see cref="OccludedInEdit"/>. With <paramref name="synth"/>: the generic synthesis
-    /// (<see cref="CoverageHole"/>, <see cref="FillOccluded"/>) replaces the occluded colour and depth — everywhere without a matte, only where
+    /// and the occluded color comes from <see cref="OccludedInEdit"/>. With <paramref name="synth"/>: the generic synthesis
+    /// (<see cref="CoverageHole"/>, <see cref="FillOccluded"/>) replaces the occluded color and depth — everywhere without a matte, only where
     /// E == 0 with one.</summary>
     public static void Build(DualLayerBuffer buf, DofImage colour, DofImage depth, float focus, float f, float f35, float pitch, bool synth, int deviceType,
         float rangeNear, float rangeFar, Trace? trace = null) => Build(buf, colour, depth, focus, f, f35, pitch, synth, deviceType, rangeNear, rangeFar, trace, null);
 
-    /// <summary>With <paramref name="pooledOut"/> the synthesised full-size planes are <see cref="ScratchPool"/> arrays, listed there for the caller
+    /// <summary>With <paramref name="pooledOut"/> the synthesized full-size planes are <see cref="ScratchPool"/> arrays, listed there for the caller
     /// to give back once the buffer is no longer read.</summary>
     internal static void Build(DualLayerBuffer buf, DofImage colour, DofImage depth, float focus, float f, float f35, float pitch, bool synth, int deviceType,
         float rangeNear, float rangeFar, Trace? trace, List<float[]>? pooledOut)

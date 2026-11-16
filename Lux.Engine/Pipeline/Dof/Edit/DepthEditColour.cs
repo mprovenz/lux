@@ -6,8 +6,8 @@ using Lux.Engine.Pipeline.Isp;
 namespace Lux.Engine.Pipeline.Dof.Edit;
 
 /// <summary>
-/// The colour images of the depth editor, from the capture's own pipeline: the fused tile of the PipelineCache followed by the editor's
-/// colour conversion (in Lumen: the depth editor's own SoftISP with the settings of <see cref="BuildTuning"/>, run as
+/// The color images of the depth editor, from the capture's own pipeline: the fused tile of the PipelineCache followed by the editor's
+/// color conversion (in Lumen: the depth editor's own SoftISP with the settings of <see cref="BuildTuning"/>, run as
 /// the Color-domain runner over the whole fetched image with a zero rect). With that tuning the Color block holds: slot 2 (÷ neutral),
 /// color_correction default, the constructor's
 /// PostProcessing, and in the tone-mapping slot the working-space → output-space conversion that `tone_mapping.type = none` installs.
@@ -62,7 +62,7 @@ public sealed class DepthEditColour
         var img = new Image<Vec4F>(new RectI(0, 0, w, h));
         System.Runtime.InteropServices.MemoryMarshal.Cast<float, Vec4F>(rgba.AsSpan()).CopyTo(img.Data);
         var o = _isp.ProcessColorFloat(_frame, _stats, img, null, default, 0, null, roi: img.Rect);
-        if (o.Width != w || o.Height != h) throw new InvalidOperationException("the colour conversion changed the image size");
+        if (o.Width != w || o.Height != h) throw new InvalidOperationException("the color conversion changed the image size");
         // tone_mapping.type = none still fills the last slot of the Color block: the tone-mapping setter installs a conversion from the
         // working space (ProPhoto D50) to the Stats output space when the two differ — here linear ProPhoto → sRGB.
         var working = ColorSpace.ProPhotoD50;
@@ -73,7 +73,7 @@ public sealed class DepthEditColour
         return res;
     }
 
-    /// <summary>The colour ROI of a level: <paramref name="rect"/> in that level's pipeline frame (level rect + origin) —
+    /// <summary>The color ROI of a level: <paramref name="rect"/> in that level's pipeline frame (level rect + origin) —
     /// the tile fetch (pipelineCache, out, rect, pipeline dims of the level, −1), then the conversion. The guide of the adaptive brush and
     /// the edge heal (<see cref="DepthEditor.GuideProvider"/>) is this at the edited level; quick select uses any level
     /// (<see cref="DepthEditor.LevelGuideProvider"/>).</summary>
@@ -89,7 +89,7 @@ public sealed class DepthEditColour
     public float[] Reference(RectI rect)
         => Convert(_cache.RenderRoi(Math.Min(1, _cache.LevelDims.Length - 1), rect), rect.Width, rect.Height);
 
-    /// <summary>Install the three colour providers on an editor.</summary>
+    /// <summary>Install the three color providers on an editor.</summary>
     public void Attach(DepthEditor editor)
     {
         int level = editor.Level;

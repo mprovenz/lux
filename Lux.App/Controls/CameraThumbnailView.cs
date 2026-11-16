@@ -5,7 +5,7 @@ namespace Lux.App.Controls;
 
 /// <summary>
 /// A camera capture's thumbnail on the Camera page (made from the camera's own preview JPEG). Like <see cref="ThumbnailView"/> it asks its
-/// cache only while it is realised on screen, and cancels when it is recycled or scrolls away; while the preview is read from the camera it
+/// cache only while it is realized on screen, and cancels when it is recycled or scrolls away; while the preview is read from the camera it
 /// shows the spinner; a capture without a preview stays a neutral square.
 /// </summary>
 public sealed class CameraThumbnailView : ImageStateView
@@ -15,7 +15,7 @@ public sealed class CameraThumbnailView : ImageStateView
 
     /// <summary>The cache every camera thumbnail uses (set by the Camera page).</summary>
     public static ThumbnailCache? Cache { get; set; }
-    /// <summary>Views realised now (tests: virtualisation keeps this bounded).</summary>
+    /// <summary>Views realized now (tests: virtualization keeps this bounded).</summary>
     public static int Live { get; private set; }
 
     CancellationTokenSource? _cts;

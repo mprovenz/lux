@@ -1,10 +1,10 @@
 namespace Lux.Engine.Pipeline;
 
 /// <summary>
-/// The C runtime's float and double maths as Lumen gets it. Lumen and its Ceres library import these functions from
+/// The C runtime's float and double math as Lumen gets it. Lumen and its Ceres library import these functions from
 /// `api-ms-win-crt-math`, which resolves to `ucrtbase.dll`. The reference output comes from Lumen on Wine 10.0, so that CRT is Wine's
 /// ucrtbase. Each function here gives the same bits as that CRT; the comment of each function states the verified input domain. Use
-/// these, not <c>Math</c> or <c>MathF</c>, wherever Lumen calls the CRT: the maths libraries of the operating systems give different
+/// these, not <c>Math</c> or <c>MathF</c>, wherever Lumen calls the CRT: the math libraries of the operating systems give different
 /// last bits, and the output must not depend on the platform.
 /// <para>Wine's ucrtbase uses musl's argument reduction for sinf / cosf, but plain Taylor kernels. For some inputs its results are one
 /// ulp apart from musl's, so <c>MuslMath.Sinf/Cosf</c> do not give the same bits.</para>
@@ -116,7 +116,7 @@ public static partial class WineCrt
         {
             if (ix * 2 == 0) return float.NegativeInfinity;
             if (ix == 0x7f800000) return x;
-            if (ix * 2 > 0xff000000) return x;                            // NaN: returned unchanged (payload and signalling bit kept)
+            if (ix * 2 > 0xff000000) return x;                            // NaN: returned unchanged (payload and signaling bit kept)
             if ((ix & 0x80000000) != 0) return float.NaN;                 // negative, −inf included: the default NaN 0xffc00000
             ix = BitConverter.SingleToUInt32Bits(x * 8388608.0f);
             ix -= 23u << 23;
@@ -377,7 +377,7 @@ public static partial class WineCrt
         {
             if (ix * 2 == 0) return float.NegativeInfinity;
             if (ix == 0x7f800000) return x;
-            if (ix * 2 > 0xff000000) return x;                             // NaN: returned unchanged, payload and signalling bit kept (Wine's ucrtbase)
+            if (ix * 2 > 0xff000000) return x;                             // NaN: returned unchanged, payload and signaling bit kept (Wine's ucrtbase)
             if ((ix & 0x80000000) != 0) return float.NaN;                 // negative (−inf included): the default NaN 0xffc00000
             ix = BitConverter.SingleToUInt32Bits(x * 8388608.0f);
             ix -= 23u << 23;

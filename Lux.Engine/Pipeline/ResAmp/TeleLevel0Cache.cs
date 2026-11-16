@@ -24,7 +24,7 @@ public sealed class TeleLevel0Cache
     public readonly int CamId; public readonly string Name;
     public readonly (int W, int H) Dims;                // level-0 dims: ((int)((float)validW·σx), (int)((float)validH·σy))
     public readonly (int X, int Y) Grid;                // max(1, (256 + W) / 512)
-    public readonly AlignedCalib Calib;                 // LensUndistortCRA: H = (K_mod·inv(R_view·R_modᵀ))·inv(σ·K_view), CRA centre, polynomial LUT
+    public readonly AlignedCalib Calib;                 // LensUndistortCRA: H = (K_mod·inv(R_view·R_modᵀ))·inv(σ·K_view), CRA center, polynomial LUT
     public readonly CapturedFrame Frame;
     public readonly SoftIsp Isp;                        // module ISP (profile, config level 1, capture, (cct, tint))
     public readonly int Halo;                           // halo by sensor analog gain
@@ -41,7 +41,7 @@ public sealed class TeleLevel0Cache
     public global::Lux.Engine.Pipeline.BayerFusion.StackFusion? Stacked { get; }
 
     public TeleLevel0Cache(LriFile lri, string moduleName, CameraCalib view, CameraCalib module, (int W, int H) validSize, (float X, float Y) scale,
-                           RendererProfile profile, LumenProfile colour, float cct, float tint, global::Lux.Engine.Pipeline.BayerFusion.StackFusion? stacked = null)
+                           RendererProfile profile, LumenProfile colour, float cct, float tint, global::Lux.Engine.Pipeline.BayerFusion.StackFusion? stacked = null, NoiseControls? noise = null)
     {
         Name = moduleName; CamId = (int)lri.Modules[moduleName].Module.Id; Stacked = stacked;
         Dims = ((int)((float)validSize.W * scale.X), (int)((float)validSize.H * scale.Y));
@@ -55,9 +55,9 @@ public sealed class TeleLevel0Cache
         Calib = AlignedCalib.Build(view, module, scale.X, scale.Y, Frame.Info.DataScaleX, Frame.Info.DataScaleY, dist.PpX, dist.PpY, dist.Poly, dist.Pix, dist.Pix);
         Halo = global::Lux.Engine.Pipeline.BayerFusion.FusionSensorTuning.Halo(Frame.Info.AnalogGain);
         int cfg = Environment.GetEnvironmentVariable("LUX_TELE_CFG") is string cs ? int.Parse(cs) : 1;   // diagnostic override of the config level (Lumen: 1)
-        var tuning = ModuleIspTuning.Build(cfg, profile, Frame.Info, cct, tint);
+        var tuning = ModuleIspTuning.Build(cfg, profile, Frame.Info, cct, tint, noise: noise);
         if (Environment.GetEnvironmentVariable("LUX_TELE_SET") is string ovs) foreach (var ov in ovs.Split(';', StringSplitOptions.RemoveEmptyEntries)) tuning = tuning.Apply(ov);   // diagnostic tuning overrides key=value;…
-        // the module's own SoftISP: manual_temp at the capture (cct, tint) through the MODULE'S colour calibration (lambda_21 on this CapturedImage)
+        // the module's own SoftISP: manual_temp at the capture (cct, tint) through the MODULE'S color calibration (lambda_21 on this CapturedImage)
         Isp = new SoftIsp(tuning, global::Lux.Engine.Pipeline.BayerFusion.PackedBayerFusion.CameraProfile(lri, Frame.Module.Id));
         Isp.ComputeStats(Frame);
         if (Environment.GetEnvironmentVariable("LUX_TELE_DEBUG") == "1")
@@ -69,7 +69,7 @@ public sealed class TeleLevel0Cache
     }
 
     /// <summary>The module gain from the LRI: `((g_ref·(float)e_ref) / (g_mod·(float)e_mod)) · (rb_mod / rb_ref)` (vignetting
-    /// `relative_brightness` ratio only when both records exist and the module is colour).</summary>
+    /// `relative_brightness` ratio only when both records exist and the module is color).</summary>
     public static float ModuleGain(LriFile lri, string refName, string modName)
     {
         var rm = lri.Modules[refName].Module; var mm = lri.Modules[modName].Module;

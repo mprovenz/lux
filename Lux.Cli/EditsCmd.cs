@@ -62,7 +62,7 @@ public static class EditsCmd
     }
 
     /// <summary>`import-lumen-edits &lt;lris file or folder…&gt;`: bring Lumen session files into Lux — the depth map Lumen stored, the depth
-    /// edits when there are any, and the per-photo settings (depth effect, tone and colour, crop / rotation, rating).</summary>
+    /// edits when there are any, and the per-photo settings (depth effect, tone and color, crop / rotation, rating).</summary>
     public static int ImportLumen(List<string> inputs)
     {
         var sessions = new List<string>();
@@ -100,7 +100,7 @@ public static class EditsCmd
             Console.WriteLine();
             Console.WriteLine("Note: " + SavedDepthEdits.LumenImportWarning);
             Console.WriteLine("`lux-light convert` now renders these captures the way Lumen does after reopening the session: Lumen's depth map and camera"
-                            + " geometry, the depth edits, the depth effect (f-number and focus), the tone and colour settings and the crop / rotation."
+                            + " geometry, the depth edits, the depth effect (f-number and focus), the tone and color settings and the crop / rotation."
                             + " Options given to `convert` override the saved settings; `--no-edits` ignores all of it. `lux-light edits-info <lri>` shows what is saved.");
         }
         return failed == 0 ? 0 : 1;

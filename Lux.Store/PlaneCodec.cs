@@ -11,7 +11,7 @@ namespace Lux.Store;
 ///   bits 0–1  compressor: 0 = stored, 1 = zlib (deflate), 2 = brotli
 ///   bit 4     the 32-bit values were split into four byte planes (all byte 0s, then all byte 1s, …) before compression
 ///   bit 5     every value was XOR-ed with the same element of a reference plane the reader also has
-///   bit 6     every 32-bit value had its left neighbour subtracted (wrapping) — a horizontal predictor
+///   bit 6     every 32-bit value had its left neighbor subtracted (wrapping) — a horizontal predictor
 /// </code>
 /// The reader needs nothing but the flag byte and the element count. Float planes are handled as their bit patterns, so every value —
 /// NaN payloads and negative zero included — comes back exactly.

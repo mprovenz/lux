@@ -1,6 +1,6 @@
 namespace Lux.Engine.Pipeline.Parallax;
 
-/// <summary>The result of one synthesised view: colour, the destination depth (the z-buffer that produced it) and the
+/// <summary>The result of one synthesized view: color, the destination depth (the z-buffer that produced it) and the
 /// hole mask. Holes are kept rather than filled in the warper so a caller can decide where the fill comes from — the
 /// other real modules first, inpainting only as a fallback.</summary>
 public sealed class View
@@ -16,7 +16,7 @@ public sealed class View
 /// <summary>
 /// Depth-image-based rendering: the whole of the parallax formats' geometry lives here.
 ///
-/// A virtual camera translated by (tx,ty) millimetres from the reference, with no rotation, moves the image of a point
+/// A virtual camera translated by (tx,ty) millimeters from the reference, with no rotation, moves the image of a point
 /// at depth Z by <c>dx = −f·tx/Z</c>, <c>dy = −f·ty/Z</c> — the ordinary parallax relation, which the L16's own
 /// numbers already satisfy. With a convergence plane Z₀ the shift becomes <c>−f·t·(1/Z − 1/Z₀)</c>, so everything at
 /// Z₀ stays exactly where it is and the scene swings around it. That is the analytic replacement for the wigglegram's
@@ -25,7 +25,7 @@ public sealed class View
 /// The warp is a **forward splat with a z-buffer** (nearer wins). Forward, not backward, because the destination depth
 /// is not known in advance; splat with a per-pixel footprint, not a point, because a surface that stretches under the
 /// warp otherwise breaks into one-pixel cracks. The footprint is the interval between the midpoints to the horizontal
-/// and vertical neighbours' destinations — but only across neighbours at a similar depth, so the fill never bridges an
+/// and vertical neighbors' destinations — but only across neighbors at a similar depth, so the fill never bridges an
 /// occlusion boundary. What is left uncovered is a genuine disocclusion and is reported in <see cref="View.Hole"/>.
 ///
 /// Every parallax effect is one <see cref="Map"/> away from every other: the parallax translation, the dolly zoom's
@@ -37,7 +37,7 @@ public static class Dibr
     public delegate (float X, float Y) Map(int x, int y, float z);
 
     /// <summary>Depths within this fraction of each other count as the same surface: for the z-buffer test and for
-    /// deciding whether a footprint may stretch to a neighbour.</summary>
+    /// deciding whether a footprint may stretch to a neighbor.</summary>
     public const float DepthTol = 0.03f;
 
     /// <summary>Largest footprint half-extent, in destination pixels. A surface stretching more than this is nearly
@@ -62,7 +62,7 @@ public static class Dibr
         => Synthesise(src.Colour, src.Depth, src.Geometry.FocalPx, tx, ty, convergeZmm);
 
     /// <summary>
-    /// Dolly zoom: the camera moves <paramref name="dzMm"/> millimetres along its own axis while the focal length is
+    /// Dolly zoom: the camera moves <paramref name="dzMm"/> millimeters along its own axis while the focal length is
     /// scaled to hold a subject at <paramref name="subjectZmm"/> the same size. A point at Z projects
     /// <c>Z/(Z−dz)</c> larger after the move, and the compensating zoom is <c>(Z_s−dz)/Z_s</c>, so the net is a
     /// per-pixel radial magnification about the principal point that is exactly 1 at the subject and falls away from
@@ -188,7 +188,7 @@ public static class Dibr
     }
 
     /// <summary>Half-extent of a source pixel's destination footprint along one axis: half the distance to whichever
-    /// same-surface neighbour is farther away in the destination, floored at 0.5 (a pixel always covers itself).</summary>
+    /// same-surface neighbor is farther away in the destination, floored at 0.5 (a pixel always covers itself).</summary>
     static float Extent(float[] d, float[] z, bool[] valid, long i, int step, bool hasPrev, bool hasNext, float zc)
     {
         float e = 0.5f;

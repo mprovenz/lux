@@ -26,7 +26,7 @@
         <TextBlock Classes="title" Text="Lux · Studio design system" />
 
         <StackPanel>
-          <TextBlock Classes="sec" Text="Colour tokens" />
+          <TextBlock Classes="sec" Text="Color tokens" />
           <WrapPanel Classes="row">
             <Border Classes="swatch" Background="{DynamicResource LuxGround}"><TextBlock Classes="mono tiny" Text="LuxGround&#10;#404040" /></Border>
             <Border Classes="swatch" Background="{DynamicResource LuxPanel}"><TextBlock Classes="mono tiny" Text="LuxPanel&#10;#3a3a3a" /></Border>
@@ -109,7 +109,7 @@
             </Border>
             <Button Classes="chip on" Content="All" />
             <Button Classes="chip" Content="Rated 4 and up" />
-            <Button Classes="chip" Content="Not analysed · 12" />
+            <Button Classes="chip" Content="Not analyzed · 12" />
           </WrapPanel>
         </StackPanel>
 
@@ -193,7 +193,7 @@
         <StackPanel Spacing="8">
           <TextBlock Classes="sec" Text="Surfaces: card · note · warning · job · tooltip · status bar" />
           <Border Classes="card primary" Width="420" HorizontalAlignment="Left"><TextBlock Classes="large" Text="Card (primary)" /></Border>
-          <Border Classes="note" Width="420" HorizontalAlignment="Left"><TextBlock Classes="wrap" Text="Tone and colour adjustments are applied to JPG files." /></Border>
+          <Border Classes="note" Width="420" HorizontalAlignment="Left"><TextBlock Classes="wrap" Text="Tone and color adjustments are applied to JPG files." /></Border>
           <Border Classes="warningbox" Width="420" HorizontalAlignment="Left"><TextBlock Classes="strong wrap" Text="Imported edits are slightly lower fidelity than editing again in Lux" /></Border>
           <Border Classes="job running" Width="420" HorizontalAlignment="Left"><StackPanel Spacing="4"><TextBlock Classes="mono" Text="L16_00495" /><ProgressBar Value="0.62" /><TextBlock Classes="secondary small" Text="Rendering full detail · about 20 s left" /></StackPanel></Border>
           <Border Background="{DynamicResource ToolTipBackground}" BorderBrush="{DynamicResource ToolTipBorderBrush}" BorderThickness="1" Padding="8,5" HorizontalAlignment="Left">

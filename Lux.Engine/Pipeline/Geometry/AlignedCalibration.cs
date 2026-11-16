@@ -47,8 +47,8 @@ public static class Mat3F
 }
 
 /// <summary>`SecondOrderRatPolyMapping` polynomial branch:
-/// Brown–Conrady forward map with the .lri `Distortion.Polynomial` (centre, normalisation, coeffs [k1,k2,p1,p2,k3]).
-/// The normalisation is applied through the cofactor inverse of [nx 0 cx; 0 ny cy; 0 0 1] (rounding matters — the CRA LUT
+/// Brown–Conrady forward map with the .lri `Distortion.Polynomial` (center, normalization, coeffs [k1,k2,p1,p2,k3]).
+/// The normalization is applied through the cofactor inverse of [nx 0 cx; 0 ny cy; 0 0 1] (rounding matters — the CRA LUT
 /// amplifies it at small radii), exactly as Lumen does.</summary>
 public sealed class RatPolyMapping
 {
@@ -86,7 +86,7 @@ public sealed class RatPolyMapping
 }
 
 /// <summary>CRA radial LUT: 4096 entries indexed by radius in pixels about the CRA
-/// distortion centre; LUT[0] = 1, LUT[i] = 1 + δ(r)/r with δ = Y − X Catmull-Rom-interpolated over 30 uniform knots
+/// distortion center; LUT[0] = 1, LUT[i] = 1 + δ(r)/r with δ = Y − X Catmull-Rom-interpolated over 30 uniform knots
 /// X[i] = i·0.1 (mm), Y[i] = (poly.map(cx + i·0.1/pixCurve, cy).x − cx)·pixCurve, r = i·pixLut clamped to X[29].</summary>
 internal static class CraLut
 {

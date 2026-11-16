@@ -152,7 +152,7 @@ public sealed class DefocusBlur
 
     /// <summary>The geometric ladder (the ladder type with flag 1): bands that intersect [floor(min), ceil(max)].
     /// With B = (float)(2·bandHalf)·0.5 and L = (float)linear + B: positive [e, e+1) from B while below L, then [e, e·ratio) from L while the upper
-    /// edge is below ceil(max); the centre [−B, B] when B &gt; 0; the mirror on the negative side stored as [e', e) with e running −B, −B−1 … then ·ratio.
+    /// edge is below ceil(max); the center [−B, B] when B &gt; 0; the mirror on the negative side stored as [e', e) with e running −B, −B−1 … then ·ratio.
     /// Disc diameter (int)(2·roundf(|x − B|) + 1) with x the far edge on the positive side and the NEAR edge on the negative side
     /// ([−1,−0) → 1, [−2,−1) → 3, [−4,−2) → 5). The list is sorted by lo and one more band [first.lo − 1, first.lo) is put in front.</summary>
     public static List<Layer> Ladder(float minRadius, float maxRadius, DofDevice p)
@@ -275,7 +275,7 @@ public sealed class DefocusBlur
     // ---- band images ----
 
     /// <summary>Write band <paramref name="src"/>'s pixels into the image blurred for band <paramref name="dst"/>.
-    /// t = max(1 − (float)(uint)(long)log2((double)dst.diameter)·feather, 0.1); w = (src.hi − dst.hi)·t; a pixel takes its colour with alpha forced
+    /// t = max(1 − (float)(uint)(long)log2((double)dst.diameter)·feather, 0.1); w = (src.hi − dst.hi)·t; a pixel takes its color with alpha forced
     /// to 1, times the matte when one exists and is &gt; 0 (visible list only), times max((w + dst.hi) − radius, 0)·(1/w) when src.hi &gt; dst.hi.
     /// The occluded list is written first, then the visible list.</summary>
     void FillLayer(DofImage img, Layer src, Layer dst) => FillLayer(img, src, dst, 0, _h);
@@ -299,7 +299,7 @@ public sealed class DefocusBlur
             {
                 while (i >= rowStart + _w) { y++; rowStart += _w; }
                 int s = occ.Off + (y * occ.Stride + (i - rowStart)) * 4;
-                var px = (Vector128.LoadUnsafe(ref sb, (nuint)s) & rgbMask) | one;   // colour, alpha lane := 1.0
+                var px = (Vector128.LoadUnsafe(ref sb, (nuint)s) & rgbMask) | one;   // color, alpha lane := 1.0
                 if (feather) { float m = edge - ro[i]; m = m > 0f ? m : 0f; m *= inv; px *= Vector128.Create(m); }
                 px.StoreUnsafe(ref ob, (nuint)(img.Off + i * 4));
             }
@@ -345,7 +345,7 @@ public sealed class DefocusBlur
     /// (`ImageResample&lt;4&gt;`) by s = max(threshold/diameter, min(w,10)/w, min(h,10)/h) (the two size terms through `rcpps` + one Newton step),
     /// cropped to the scaled output rect ± 4 px, disc-filtered with radius ((int)(diameter·s) − 1)/2 (the crop is a view: the disc reads the
     /// whole resampled image), Gaussian-filtered, and resampled back by 1/s. When the crop is smaller than the resampled image the part of the
-    /// intermediate outside it is uninitialised memory in Lumen (zero here); it only reaches output pixels outside the output rect.</summary>
+    /// intermediate outside it is uninitialized memory in Lumen (zero here); it only reaches output pixels outside the output rect.</summary>
     public static DofImage BlurLayer(DofImage layer, RectI rin, RectI rout, int diameter, DofDevice p) => BlurLayer(layer, rin, rout, diameter, p, null);
 
     /// <summary><see cref="BlurLayer(DofImage, RectI, RectI, int, DofDevice)"/> with the intermediates of the downscaled path taken from the
@@ -434,7 +434,7 @@ public sealed class DefocusBlur
     /// gets exactly the band values and the composite sequence of the whole-image loop — every step is a function of rows the strip holds —
     /// but the working set of a strip stays in the cache instead of eleven full-image passes per band. Bands on the downscaled path
     /// (diameter ≥ the device's threshold; their crop and resample need the whole image) are blurred over the whole image first.
-    /// With <paramref name="normalize"/> the strip is normalised (<see cref="Normalize"/>, per pixel) once its bands are done.
+    /// With <paramref name="normalize"/> the strip is normalized (<see cref="Normalize"/>, per pixel) once its bands are done.
     /// </summary>
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
     DofImage RunStrips(DofImage outp, bool normalize)
@@ -501,7 +501,7 @@ public sealed class DefocusBlur
         return outp;
     }
 
-    /// <summary>Run, then when <paramref name="post"/> is set normalise, soften edges and add noise.</summary>
+    /// <summary>Run, then when <paramref name="post"/> is set normalize, soften edges and add noise.</summary>
     public DofImage Run(bool post, Action<string, DofImage>? observer = null) => Run(post, observer, pooledOutput: false);
 
     /// <summary>With <paramref name="pooledOutput"/> (and no observers) the result's array comes from the <see cref="ScratchPool"/>: it may be
@@ -510,7 +510,7 @@ public sealed class DefocusBlur
     {
         if (observer is null && BandObserver is null)
         {
-            // no observer — the temporaries are pooled and, with the post stage, the strip is normalised right after its last band
+            // no observer — the temporaries are pooled and, with the post stage, the strip is normalized right after its last band
             // (per pixel: the same values as the separate pass)
             _pooled = true;
             try

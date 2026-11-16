@@ -95,6 +95,15 @@ internal static class FakeData
         return $"{Root}/{t.Year}/{season}";
     }
 
+    /// <summary>A predicted blur made from the index (the random sequence of the other values does not change): about one photo in six is
+    /// above the "possibly blurred" limit. Among the first ten photos, only the fifth (index 4) is.</summary>
+    internal static float FakeBlur(int i)
+    {
+        if (i < 10) return i == 4 ? 11.5f : 0.4f + 0.3f * i;
+        double u = (i * 7919 + 101) % 997 / 997.0;
+        return (float)Math.Round(u < 0.83 ? 0.2 + u * 4.5 : 5.5 + (u - 0.83) * 90, 2);
+    }
+
     static Capture Make(FakeLibraryOptions o, Random rnd, int i, DateTime t)
     {
         // The first ten are fixed (L16_00493 …).
@@ -151,6 +160,7 @@ internal static class FakeData
             Missing = missing,
             Unreadable = unreadable,
             Error = unreadable ? "This file is not a complete Light L16 capture (it ends early)." : null,
+            PredictedBlurPixels = unreadable ? null : FakeBlur(i),
         };
         // where the photo's data lives: beside it when it has any; a few on a read-only drive (local store); one rating not saved anywhere;
         // one superseded local copy kept aside after a conflict

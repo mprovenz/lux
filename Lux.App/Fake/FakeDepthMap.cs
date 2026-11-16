@@ -9,7 +9,7 @@ namespace Lux.App.Fake;
 /// The fake capture's depth (design time and tests): the fake scene painted again as element ids in capture coordinates (sky, sun, two hill
 /// ridges, the ground, 26 trees, a house with windows, a sign, a resolution star — the same geometry and random sequence as
 /// <see cref="FakeScene"/> and <see cref="FakeThumbnails"/>), a depth per element (the ground by its distance below the horizon), and an
-/// "analysed" depth with the faults a real depth map has: nearer depth bleeding a little over edges (what refine edge fixes) and the house's
+/// "analyzed" depth with the faults a real depth map has: nearer depth bleeding a little over edges (what refine edge fixes) and the house's
 /// windows read as far away (what blend area fixes). One map pixel is <see cref="Divisor"/> capture pixels.
 /// </summary>
 internal sealed class FakeDepthMap
@@ -29,7 +29,7 @@ internal sealed class FakeDepthMap
     public float NearestMm { get; }
     public float FarthestMm { get; }
     public float DefaultFocusMm { get; }
-    /// <summary>Centres of a few elements in map pixels (synthetic saved edits use them).</summary>
+    /// <summary>Centers of a few elements in map pixels (synthetic saved edits use them).</summary>
     public IReadOnlyDictionary<byte, (float X, float Y, float Rx, float Ry)> Elements { get; }
 
     FakeDepthMap(int w, int h, int cw, int ch, byte[] ids, float[] truth, float[] analysed, Dictionary<byte, (float, float, float, float)> elements)
@@ -39,7 +39,7 @@ internal sealed class FakeDepthMap
         foreach (var d in analysed) if (float.IsFinite(d)) { near = Math.Min(near, d); far = Math.Max(far, d); }
         NearestMm = near == float.MaxValue ? 500 : near;
         FarthestMm = far <= 0 ? 100_000 : far;
-        // the camera's focus point: the house when there is one (the fake's subject), else the centre
+        // the camera's focus point: the house when there is one (the fake's subject), else the center
         int houseAt = Array.IndexOf(ids, House);
         float centre = houseAt >= 0 ? truth[houseAt] : analysed[(h / 2) * w + w / 2];
         DefaultFocusMm = float.IsFinite(centre) ? centre : (NearestMm + FarthestMm) / 8;
@@ -112,7 +112,7 @@ internal sealed class FakeDepthMap
             double mx = a.X / a.N, my = a.Y / a.N;
             elements[id] = ((float)mx, (float)my, (float)Math.Sqrt(Math.Max(0, a.X2 / a.N - mx * mx)), (float)Math.Sqrt(Math.Max(0, a.Y2 / a.N - my * my)));
         }
-        // the analysed depth: the windows read as far, nearer depth bleeds two map pixels over every edge
+        // the analyzed depth: the windows read as far, nearer depth bleeds two map pixels over every edge
         var analysed = (float[])truth.Clone();
         for (int i = 0; i < analysed.Length; i++) if (ids[i] == Windows) analysed[i] = 150_000;
         analysed = MinFilter(analysed, w, h, 2);
@@ -216,7 +216,7 @@ internal sealed class FakeDepthMap
 
     // ================================================================================================================ sampling
 
-    /// <summary>Bilinear depth at map coordinates (pixel centres at +0.5); the nearest value where the sky is involved.</summary>
+    /// <summary>Bilinear depth at map coordinates (pixel centers at +0.5); the nearest value where the sky is involved.</summary>
     public static float Sample(float[] d, int w, int h, double x, double y)
     {
         x -= 0.5; y -= 0.5;

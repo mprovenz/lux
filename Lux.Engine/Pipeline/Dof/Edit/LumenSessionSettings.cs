@@ -66,7 +66,7 @@ public sealed class LumenRendererSettings
     /// <summary>SSE `minss dst, src`: dst &lt; src ? dst : src.</summary>
     static float MinSs(float dst, float src) => dst < src ? dst : src;
 
-    /// <summary>The tone and colour settings as Lux's <see cref="Pipeline.Adjustments"/>. Temperature and tint are always given: Lumen's
+    /// <summary>The tone and color settings as Lux's <see cref="Pipeline.Adjustments"/>. Temperature and tint are always given: Lumen's
     /// white-balance property mapping runs only when they differ from the capture's loaded pair (float <c>!=</c>), which
     /// <see cref="Pipeline.Adjustments.PushesWhiteBalance"/> decides the same way. Blacks and whites have no mapper in Lumen (unreleased).
     /// No range validation: Lumen applies whatever the load clamps leave (exposure up to ±5, beyond the editor's ±3).</summary>
@@ -226,7 +226,7 @@ public sealed class LumenMetaDataState
 }
 
 /// <summary>
-/// Everything a Lumen session stores besides the depth: the renderer settings (f-number, focus, the tone and colour sliders, sharpening),
+/// Everything a Lumen session stores besides the depth: the renderer settings (f-number, focus, the tone and color sliders, sharpening),
 /// the transform (crop / rotation / flips), the rating and the image UUID — the result of reading every RendererState, Transform and
 /// MetaData record of the file in order, with Lumen's own reader semantics (a later record replaces the earlier settings / transform;
 /// MetaData merges). These three components ignore the StateType: they are read and written by every save type.

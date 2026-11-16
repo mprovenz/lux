@@ -50,7 +50,7 @@ public static class ReferenceGuide
     }
 
     /// <summary>Build the guide. <paramref name="view"/> = `Apply(pose[ref], calib(img))`, <paramref name="module"/> = the reference
-    /// module's CURRENT slot; <paramref name="keepFloat"/> keeps the pre-quantisation float image for comparisons.</summary>
+    /// module's CURRENT slot; <paramref name="keepFloat"/> keeps the pre-quantization float image for comparisons.</summary>
     public static Result Build(CapturedFrame frame, LumenProfile profile, float[] neutral, CameraCalib view, CameraCalib module, StereoImageBuilder.Distortion dist,
                                Action<string>? log = null, bool keepFloat = false, int maxTiles = int.MaxValue, int threads = 1)
     {
@@ -63,7 +63,7 @@ public static class ReferenceGuide
         var v255 = Vector128.Create(255.0f);
         int tiles = 0;
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        // the tiles are independent (disjoint output regions; SoftIsp serialises its lazy stage graph internally), so on threads > 1 they run in
+        // the tiles are independent (disjoint output regions; SoftIsp serializes its lazy stage graph internally), so on threads > 1 they run in
         // parallel — the pixels are identical, only the "guide: N tiles" progress lines are dropped
         var tileList = Tiler.Rects(new RectI(0, 0, W, H), 256, 256).Take(maxTiles).ToList();   // Tiler::Run(size, {256,256})
         void Tile(RectI tile, bool quiet)

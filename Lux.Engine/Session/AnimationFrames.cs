@@ -58,7 +58,7 @@ public sealed record AnimationSpec
     public AnimationPath Path { get; init; } = AnimationPath.Sweep;
     /// <summary>Parallax sweep: how far the virtual camera travels, mm, end to end (71.49 = the widest real baseline of the wide lenses).</summary>
     public double BaselineMm { get; init; } = 71.49;
-    /// <summary>Parallax sweep: the distance that stays still, metres as text, or "auto" (the median depth).</summary>
+    /// <summary>Parallax sweep: the distance that stays still, meters as text, or "auto" (the median depth).</summary>
     public string Converge { get; init; } = "auto";
     /// <summary>Parallax sweep from the main view alone (gaps painted in), without the other wide lenses' pictures.</summary>
     public bool SingleView { get; init; }
@@ -150,7 +150,7 @@ public sealed class AnimationRenderer
             wide >= 2
                 ? new AnimationEffectCheck(AnimationEffect.Wigglegram, true, null, $"{wide} wide lenses" + (s.Info.StackFrames > 1 ? "; a night photo uses the first picture of each lens" : ""))
                 : new AnimationEffectCheck(AnimationEffect.Wigglegram, false,
-                    anyWide ? "This photo has fewer than two colour wide lenses."
+                    anyWide ? "This photo has fewer than two color wide lenses."
                             : tele + ": they look at different parts of the scene, so there are no side-by-side views to wiggle between. Wigglegrams need a wide (28 mm) photo.", null),
             new AnimationEffectCheck(AnimationEffect.ParallaxSweep, true, null,
                 wide >= 2 ? "The other wide lenses fill in what the main view cannot see."
@@ -164,7 +164,7 @@ public sealed class AnimationRenderer
     // ------------------------------------------------------------------------------------------------ planning
 
     /// <summary>Resolve <paramref name="spec"/> against the capture (the defaults that depend on its depth, the level and size) and return a
-    /// renderer for it. The depth effects and the parallax sweep need the depth map: when the capture has not been analysed this runs the
+    /// renderer for it. The depth effects and the parallax sweep need the depth map: when the capture has not been analyzed this runs the
     /// analysis (about a minute) unless the analysis cache holds it.</summary>
     public static async Task<AnimationRenderer> CreateAsync(CaptureSession s, AnimationSpec spec, Action<string>? log = null, CancellationToken cancel = default)
     {
@@ -402,9 +402,9 @@ public sealed class AnimationRenderer
             var group = Wigglegram.SelectModules(lri, 0, includeMono: false);
             if (f != ParallaxFormat.Single && group.Count >= 2)
             {
-                // the donors exactly as `convert` builds them: every colour wide module but the reference, rendered at native size
+                // the donors exactly as `convert` builds them: every color wide module but the reference, rendered at native size
                 var colour = LumenProfile.Compute(lri); var wb = WhiteBalance.CaptureWb.From(lri, colour);
-                ulong expRef = ModuleRender.ExposureReference(lri, lri.ReferenceModule);
+                var expRef = ModuleRender.ExposureReference(lri, lri.ReferenceModule);
                 var native = new Dictionary<string, Rgba>();
                 foreach (var name in group)
                 {
@@ -417,13 +417,13 @@ public sealed class AnimationRenderer
             }
             var kind = f == ParallaxFormat.Orbit ? Paths.Kind.Orbit : Paths.Parse(P.Path);
             double cz = ParallaxRender.Converge(P, src, _log);
-            var pts = Paths.Generate(kind, P.Frames, P.Baseline, Paths.Axis(src.Geometry));
+            var pts = Paths.Generate(kind, P.Frames, P.Baseline, Paths.Axis(src.Geometry), heldTurn: Spec.TurnDegrees);
             _px = (src, donors, pts, cz, P.Fill != "none");
             return _px.Value;
         }
     }
 
-    // ---- the lenses' own pictures (wigglegram: colour-matched wide lenses; lens tour: every lens)
+    // ---- the lenses' own pictures (wigglegram: color-matched wide lenses; lens tour: every lens)
     List<Rgba>? _lens;
 
     List<Rgba> LensFrames(CancellationToken cancel)
@@ -434,7 +434,7 @@ public sealed class AnimationRenderer
             var lri = Session.Lri;
             var colour = LumenProfile.Compute(lri); var wb = WhiteBalance.CaptureWb.From(lri, colour);
             bool wiggle = Spec.Effect == AnimationEffect.Wigglegram;
-            ulong expRef = ModuleRender.ExposureReference(lri, wiggle ? lri.ReferenceModule : "A1");
+            var expRef = ModuleRender.ExposureReference(lri, wiggle ? lri.ReferenceModule : "A1");
             // each lens rendered on its own (a module render is a pure function of the capture: the same pixels in any order); two at once
             // (a full-resolution module render peaks near 2 GB; four at once need about 8 GB)
             var made = new Wigglegram.Frame[Plan.Frames.Count];
@@ -483,7 +483,7 @@ public sealed class AnimationRenderer
         return o;
     }
 
-    /// <summary>Centre a smaller frame on a black frame of the animation's size (lenses of one capture normally share a size).</summary>
+    /// <summary>Center a smaller frame on a black frame of the animation's size (lenses of one capture normally share a size).</summary>
     static Rgba Fit(Rgba img, int w, int h)
     {
         if (img.W == w && img.H == h) return img;

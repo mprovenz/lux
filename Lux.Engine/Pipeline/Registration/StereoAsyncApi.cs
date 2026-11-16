@@ -42,13 +42,13 @@ public sealed class StereoAsyncApi
     /// <summary>Per-run dense-dump prefix (`LUX_DENSE_DUMP` + the capture stem, set by the CLI so a batch does not overwrite itself); null = no dumps.</summary>
     public string? DumpPrefix;
     /// <summary>Worker threads for the per-module and per-tile work of the registration (stereo images, guide tiles, sparse drivers, the
-    /// optimisers, the dense matching costs). Every parallel section produces exactly the sequential result — results are applied and
+    /// optimizers, the dense matching costs). Every parallel section produces exactly the sequential result — results are applied and
     /// logged in the sequential order, the dense aggregation sweep itself stays serial — so 1 (the default) and N are bit-identical.</summary>
     public int Threads = 1;
     public static StereoAsyncApi Run(LriFile lri, Action<string>? log = null, bool runHigher = true, bool runDense = true, float[]? depthOverride = null, ProgressReporter? progress = null, string? dumpPrefix = null, int threads = 1)
         => Run(lri, log, runHigher, runDense, depthOverride, progress, dumpPrefix, threads, default);
 
-    /// <summary>The same, cancellable between states (a state, once started, runs to its end).</summary>
+    /// <summary>The same, cancelable between states (a state, once started, runs to its end).</summary>
     public static StereoAsyncApi Run(LriFile lri, Action<string>? log, bool runHigher, bool runDense, float[]? depthOverride, ProgressReporter? progress, string? dumpPrefix, int threads, CancellationToken cancel)
     {
         var api = new StereoAsyncApi { Lri = lri, Log = log, DumpPrefix = dumpPrefix, Progress = progress ?? ProgressReporter.None, Threads = Math.Max(1, threads) }; api.Cdp.Threads = api.Threads; api.Setup();
@@ -124,7 +124,7 @@ public sealed class StereoAsyncApi
         if (ReferenceGuide is null && Environment.GetEnvironmentVariable("LUX_NO_GUIDE") != "1") ReferenceGuide = BuildReferenceGuide(refFrame).Guide;
         Progress.Tick();
         RefStats = StereoImageBuilder.Isp(refFrame, Profile, null).ComputeStats(refFrame);
-        // The reference image first (it yields RefYuv, which every other module's colour transfer reads), then the other reference-group
+        // The reference image first (it yields RefYuv, which every other module's color transfer reads), then the other reference-group
         // modules — independent of each other — on Threads workers; their views/images/logs are applied in capture order.
         var group = RefGroupCams().ToList();
         string StereoOne(CdpCamera c, CapturedFrame frame, Geometry.CameraCalib refView)
@@ -141,7 +141,7 @@ public sealed class StereoAsyncApi
             c.Image = new Rgba8Image(r.Rgba8, r.W, r.H, r.W); c.SatLevel = r.Val;
             c.Centre = CdpInputs.WideCentre(c, Lri.Modules[c.Name].Module);
             Progress.Tick();
-            return $"state 2 cam {c.Id} ({c.Name}): {r.W}x{r.H} val {r.Val:R} centre {c.Centre} {sw.Elapsed.TotalSeconds:F1}s";
+            return $"state 2 cam {c.Id} ({c.Name}): {r.W}x{r.H} val {r.Val:R} center {c.Centre} {sw.Elapsed.TotalSeconds:F1}s";
         }
         // the reference's own view is taken BEFORE its pose gets scale2/shift2 (the sequential loop computed refView first), the others' after
         var refLine = StereoOne(group[0], refFrame, CdpCamera.ToCamera(Cams[RefId].View()));   // never inside `Log?.Invoke(...)`: a null Log would skip the call

@@ -4,7 +4,7 @@ namespace Lux.Library.Camera;
 /// The one thread that talks to the camera. libgphoto2's camera handle is not thread-safe and the USB pipe is serial anyway, so every
 /// device call — opening, listing, file information, previews, copies, polling the bus — is a small piece of work queued here and run in
 /// priority order (lower first; within a priority oldest first, or newest first for work queued with <c>newestFirst</c> — the thumbnails
-/// on screen now). Work whose token is cancelled before it starts is dropped.
+/// on screen now). Work whose token is canceled before it starts is dropped.
 /// </summary>
 internal sealed class DeviceWorker : IDisposable
 {
@@ -93,7 +93,7 @@ internal sealed class DeviceWorker : IDisposable
         try { _final?.Invoke(); } catch (Exception) { /* closing must not throw out of the thread */ }
     }
 
-    /// <summary>Stop after the piece of work in progress; queued work is cancelled; then <paramref name="last"/> runs on the worker thread
+    /// <summary>Stop after the piece of work in progress; queued work is canceled; then <paramref name="last"/> runs on the worker thread
     /// (closing the camera) — also when the call in progress outlasts <paramref name="wait"/> (it runs when that call returns).</summary>
     public void Dispose(Action? last, TimeSpan wait)
     {

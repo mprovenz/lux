@@ -53,6 +53,44 @@ public sealed record ModuleFrameInfo(
 }
 
 /// <summary>
+/// Two Lux controls of the noise in the module ISP. They act before the lenses are merged, so they change every output format
+/// (DNG, JPG, HDR, PPM). At the defaults the tuning is Lumen's, bit for bit.
+/// </summary>
+public sealed record NoiseControls
+{
+    public const float GrainStrengthMin = 0f, GrainStrengthMax = 4f;
+    public const float DenoiseThresholdMin = 0.25f, DenoiseThresholdMax = 4f;
+
+    /// <summary>Scale of the grain that the PostProcessing stage adds after the denoiser. That stage adds a blurred copy of the removed
+    /// luminance noise to the image: `grain_power · blur(L before the denoiser − L after it)`. 1 = Lumen's amount, 0 = no grain.
+    /// The value multiplies `tone_mapping.grain_power` of each module ISP that has a denoiser.</summary>
+    public float GrainStrength { get; init; } = 1f;
+    /// <summary>Scale of the denoiser's threshold. 1 = Lumen's threshold. A larger value removes more noise and more fine detail, a
+    /// smaller value removes less. The value multiplies `denoising.threshold_multiplier`.</summary>
+    public float DenoiseThreshold { get; init; } = 1f;
+
+    /// <summary>Lumen's own values (both scales 1).</summary>
+    public static readonly NoiseControls Lumen = new();
+    /// <summary>True when the controls change nothing.</summary>
+    public bool IsLumen => GrainStrength == 1f && DenoiseThreshold == 1f;
+
+    /// <summary>Throws <see cref="ArgumentOutOfRangeException"/> for a value outside its range (NaN included).</summary>
+    public NoiseControls Validate()
+    {
+        if (!(GrainStrength >= GrainStrengthMin && GrainStrength <= GrainStrengthMax)) throw new ArgumentOutOfRangeException(nameof(GrainStrength), GrainStrength, $"{nameof(GrainStrength)} must be in [{GrainStrengthMin}, {GrainStrengthMax}]");
+        if (!(DenoiseThreshold >= DenoiseThresholdMin && DenoiseThreshold <= DenoiseThresholdMax)) throw new ArgumentOutOfRangeException(nameof(DenoiseThreshold), DenoiseThreshold, $"{nameof(DenoiseThreshold)} must be in [{DenoiseThresholdMin}, {DenoiseThresholdMax}]");
+        return this;
+    }
+
+    /// <summary>Apply the controls to a finished module-ISP tuning. A scale of 1 writes nothing, so the tuning stays Lumen's.</summary>
+    public void ApplyTo(Tuning t)
+    {
+        if (GrainStrength != 1f) t.Set("tone_mapping.grain_power", (double)((float)t.Num("tone_mapping.grain_power") * GrainStrength));
+        if (DenoiseThreshold != 1f) t.Set("denoising.threshold_multiplier", (double)((float)t.Num("denoising.threshold_multiplier") * DenoiseThreshold));
+    }
+}
+
+/// <summary>
 /// Port of Lumen's module-ISP tuning per config level and of its per-(sensor, level)
 /// parameter table + stacking/grain rules). Config levels: 0–4 = ReferenceImageCache levels 0..3 use 0,2,3,4;
 /// SourceImageCache uses 1; FusionCacheBayer uses 5.
@@ -90,13 +128,14 @@ public static class ModuleIspTuning
     public const float GrainPowerFloor = 0.5f;
 
     /// <summary>The module-ISP tuning for one config level, starting from Lumen's defaults.</summary>
-    public static Tuning Build(int configLevel, RendererProfile profile, ModuleFrameInfo f, float neutralTemp, float neutralTint, Tuning? baseTuning = null)
+    /// <param name="noise">The Lux noise controls. Null or the defaults give Lumen's tuning.</param>
+    public static Tuning Build(int configLevel, RendererProfile profile, ModuleFrameInfo f, float neutralTemp, float neutralTint, Tuning? baseTuning = null, NoiseControls? noise = null)
     {
         var t = (baseTuning ?? Tuning.LumenDefaults()).Clone();
         if (configLevel == 5)
         {
             // FusionCacheBayer path: profile demosaic, lens shading default, ir crosstalk,
-            // manual_color with neutral (1,1,1), highlight/hot-pixel/output/colour-correction none, adaptive-desat default,
+            // manual_color with neutral (1,1,1), highlight/hot-pixel/output/color-correction none, adaptive-desat default,
             // profile denoise/CNR, bayer_phase_fix default on the Desktop profile when data_scale == 0.5.
             t.Set("demosaicking.type", RendererProfiles.DemosaicType(profile));
             t.Set("lens_shading.type", "default");
@@ -124,7 +163,7 @@ public static class ModuleIspTuning
         t.Set("lens_shading.type", "default");
         t.Set("cross_talk_correction.type", "ir_correction");
         t.Set("denoising.type", RendererProfiles.DenoiseType(profile));
-        // The test is the frames-per-stack count, NOT the sensor colour. A STACKED capture takes the else branch:
+        // The test is the frames-per-stack count, NOT the sensor color. A STACKED capture takes the else branch:
         // `lt::StackFusion` already ran ImagePatchHotPixels + RestoreHighlightsBayer per frame, so the module ISP must not
         // repeat them.
         if (f.NStack < 2)
@@ -159,6 +198,7 @@ public static class ModuleIspTuning
             t.Set("tone_mapping.grain_power", (double)row.GrainPower);
             t.Set("bilateral_denoiser.chroma_boost", (double)row.BilateralChroma);
         }
+        noise?.ApplyTo(t);
         return t;
     }
 

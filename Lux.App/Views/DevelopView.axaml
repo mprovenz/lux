@@ -10,7 +10,7 @@
              x:DataType="vm:DevelopViewModel"
              Focusable="True">
   <!-- The Develop page (Studio editor): tools and history on the left, the picture with the crop bar, the viewer bar
-       and the filmstrip in the middle, histogram / info / depth effect / tone and colour / geometry / presets on the right. -->
+       and the filmstrip in the middle, histogram / info / depth effect / tone and color / geometry / presets on the right. -->
   <Grid ColumnDefinitions="220,*,Auto">
 
     <!-- ================================================================ left: tools, depth version, history -->
@@ -110,7 +110,7 @@
       </DockPanel>
     </Border>
 
-    <!-- ================================================================ centre: crop bar, picture, viewer bar, filmstrip -->
+    <!-- ================================================================ center: crop bar, picture, viewer bar, filmstrip -->
     <DockPanel Grid.Column="1">
       <!-- crop tool options (S-Depth's tool option bar) -->
       <Border DockPanel.Dock="Top" Classes="toolbar2" IsVisible="{Binding IsCropping}" AutomationProperties.Name="Crop options">
@@ -190,8 +190,8 @@
             <Slider x:Name="MatchSizeSlider" Width="100" Minimum="0" Maximum="100" Value="{Binding Depth.SizeValue}" MinHeight="32" VerticalAlignment="Center"
                     AutomationProperties.Name="{Binding Depth.SizeLabel}" ToolTip.Tip="{Binding Depth.SizeTip}" IsEnabled="{Binding Depth.IsReady}" />
             <TextBlock Classes="mono" Text="{Binding Depth.SizeText}" VerticalAlignment="Center" MinWidth="54" ToolTip.Tip="{Binding Depth.SizeTip}" />
-            <CheckBox Content="Follow colour" IsChecked="{Binding Depth.FollowColour}" IsVisible="{Binding Depth.IsMatchBrush}" MinHeight="32"
-                      ToolTip.Tip="Paint only where the colour is like the start of the stroke (slower)" />
+            <CheckBox Content="Follow color" IsChecked="{Binding Depth.FollowColour}" IsVisible="{Binding Depth.IsMatchBrush}" MinHeight="32"
+                      ToolTip.Tip="Paint only where the color is like the start of the stroke (slower)" />
           </StackPanel>
         </DockPanel>
       </Border>
@@ -215,7 +215,7 @@
           </StackPanel>
         </DockPanel>
       </Border>
-      <!-- the tool's line: hint, message, progress, "Analyse now" -->
+      <!-- the tool's line: hint, message, progress, "Analyze now" -->
       <Border DockPanel.Dock="Top" Classes="toolline" IsVisible="{Binding Depth.ShowLine}">
         <DockPanel>
           <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
@@ -333,7 +333,7 @@
             <TextBlock Classes="strong wrap" Text="{Binding Depth.ReadinessTitle}" />
             <TextBlock Classes="small wrap secondary" Text="{Binding Depth.ReadinessText}" LineHeight="17" />
             <ProgressBar IsVisible="{Binding Depth.IsAnalysing}" Minimum="0" Maximum="1" Value="{Binding Depth.AnalysisProgress}" Height="4" MinHeight="4" />
-            <Button Classes="primary small" HorizontalAlignment="Left" Content="Analyse now" Command="{Binding Depth.AnalyseNowCommand}" IsVisible="{Binding Depth.CanAnalyse}" />
+            <Button Classes="primary small" HorizontalAlignment="Left" Content="Analyze now" Command="{Binding Depth.AnalyseNowCommand}" IsVisible="{Binding Depth.CanAnalyse}" />
           </StackPanel>
         </Border>
         <!-- before / after controls -->
@@ -394,7 +394,7 @@
           <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,1,0,0" Padding="12,10">
             <Grid ColumnDefinitions="*,8,*" RowDefinitions="Auto,Auto">
               <Button HorizontalAlignment="Stretch" Content="Revert to original" Command="{Binding RevertCommand}" IsEnabled="{Binding CanRevert}"
-                      ToolTip.Tip="Remove every tone, colour, crop and rotation edit (Ctrl+Shift+R; undo brings them back)" ToolTip.ShowOnDisabled="True" />
+                      ToolTip.Tip="Remove every tone, color, crop and rotation edit (Ctrl+Shift+R; undo brings them back)" ToolTip.ShowOnDisabled="True" />
               <Button Grid.Column="2" Classes="primary" HorizontalAlignment="Stretch" Content="Export…" Command="{Binding OpenExportCommand}"
                       IsEnabled="{Binding HasSession}" ToolTip.Tip="Export this photo as it is shown (Ctrl+E)" />
               <Button Grid.Row="1" Grid.ColumnSpan="3" HorizontalAlignment="Stretch" Content="Animate…" Command="{Binding OpenAnimateCommand}" Margin="0,8,0,0"
@@ -471,21 +471,21 @@
                       <TextBlock Classes="strong small wrap" Foreground="{DynamicResource LuxText}" Text="{Binding Depth.ReadinessTitle}" />
                       <TextBlock Classes="small wrap" Foreground="{DynamicResource LuxTextSecondary}" Text="{Binding Depth.ReadinessText}" LineHeight="16" />
                       <ProgressBar IsVisible="{Binding Depth.IsAnalysing}" Minimum="0" Maximum="1" Value="{Binding Depth.AnalysisProgress}" Height="4" MinHeight="4" />
-                      <Button Classes="primary small" HorizontalAlignment="Left" Content="Analyse now" Command="{Binding Depth.AnalyseNowCommand}" IsVisible="{Binding Depth.CanAnalyse}" />
+                      <Button Classes="primary small" HorizontalAlignment="Left" Content="Analyze now" Command="{Binding Depth.AnalyseNowCommand}" IsVisible="{Binding Depth.CanAnalyse}" />
                     </StackPanel>
                   </Border>
                 </StackPanel>
               </Border>
-              <!-- tone and colour -->
+              <!-- tone and color -->
               <Border Classes="devsection">
                 <StackPanel Spacing="2">
                   <Grid ColumnDefinitions="Auto,*,Auto">
-                    <TextBlock Classes="strong" Text="Tone and colour" VerticalAlignment="Center" />
+                    <TextBlock Classes="strong" Text="Tone and color" VerticalAlignment="Center" />
                     <TextBlock Grid.Column="1" Classes="small secondary" Text="JPG and preview only" VerticalAlignment="Center" Margin="8,0,0,0"
-                               ToolTip.Tip="Tone and colour change the JPG and the preview; DNG and HDR keep the unadjusted picture, as in Lumen" />
-                    <Button Grid.Column="2" Classes="link small" Content="Reset" Command="{Binding ResetToneCommand}" ToolTip.Tip="Every tone and colour slider back (Shift+R)" />
+                               ToolTip.Tip="Tone and color change the JPG and the preview; DNG and HDR keep the unadjusted picture, as in Lumen" />
+                    <Button Grid.Column="2" Classes="link small" Content="Reset" Command="{Binding ResetToneCommand}" ToolTip.Tip="Every tone and color slider back (Shift+R)" />
                   </Grid>
-                  <ItemsControl x:Name="AdjustmentList" ItemsSource="{Binding Adjustments}" AutomationProperties.Name="Tone and colour">
+                  <ItemsControl x:Name="AdjustmentList" ItemsSource="{Binding Adjustments}" AutomationProperties.Name="Tone and color">
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:AdjustmentRowViewModel">
                         <Grid ColumnDefinitions="84,*,62" Height="30">
@@ -533,6 +533,10 @@
                   </Grid>
                   <Button HorizontalAlignment="Stretch" Content="{Binding RotateAsHeldLabel}" Command="{Binding RotateAsHeldCommand}" IsVisible="{Binding CanRotateAsHeld}"
                           ToolTip.Tip="{Binding RotateAsHeldTip}" />
+                  <Grid ColumnDefinitions="Auto,8,*">
+                    <Button x:Name="LevelButton" Content="Level" Command="{Binding LevelCommand}" IsEnabled="{Binding CanLevel}" ToolTip.Tip="{Binding LevelTip}" />
+                    <TextBlock Grid.Column="2" Classes="small secondary" Text="{Binding LevelNote}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                  </Grid>
                   <TextBlock Classes="small secondary" Text="{Binding GeometryText}" />
                 </StackPanel>
               </Border>

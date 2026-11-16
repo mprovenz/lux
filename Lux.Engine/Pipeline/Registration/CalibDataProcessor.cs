@@ -14,10 +14,10 @@ public sealed class CdpCamera
     public Rgba8Image Image;                 // dense RGBA8, half-res stereo image
     public float SatLevel = 255f;
     public bool Gray;                                // uniform (channel-0) weights
-    public CalibDataFull Slot = null!;               // CURRENT stage-1 slot (K,R,t are overwritten by the optimisers / BA)
-    public CalibDataFull FactorySlot = null!;        // stage-0 slot (fallback of the nominal-centre lookup)
+    public CalibDataFull Slot = null!;               // CURRENT stage-1 slot (K,R,t are overwritten by the optimizers / BA)
+    public CalibDataFull FactorySlot = null!;        // stage-0 slot (fallback of the nominal-center lookup)
     public ViewPose Pose = null!;
-    public (float X, float Y) Centre;                // normalised matching centre
+    public (float X, float Y) Centre;                // normalized matching center
     public bool StoredResult;                        // camera contributes no observations
     public MirrorSystem? Mirror; public ActuatorMapping? Map; public double Hall;
     public int FrameW = 4160, FrameH = 3120;         // native capture size
@@ -65,12 +65,12 @@ public static class WideSparseDriver
             var mask = SparseLnrPyramid.SaturationMask(pyrB[l], satLevel);
             var Bl = pyrB[l].AsImage(); var A = refPyr[l].AsImage();
             // At the top level `mode == 0` → initLowerACamera, `mode − 1 <u 2` (i.e. 1 or 2) →
-            // initLowerBCamera, any other value → no initialiser at all (unreachable from CalibDataProcessor, which only
+            // initLowerBCamera, any other value → no initializer at all (unreachable from CalibDataProcessor, which only
             // ever passes 0/1/2).
             MatchedPoint[] m = l == top
                 ? (mode == 0 ? SparseLnrMatch.InitLowerA(A, Bl, mask, pyrB[l].W, offs[l], feats[l], l, W, viewA, viewB, bidir, mono, calibA, calibB, planeDepth)
                  : mode == 1 || mode == 2 ? SparseLnrMatch.InitLowerB(A, Bl, mask, pyrB[l].W, offs[l], feats[l], l, W, viewA, viewB, bidir, mono)
-                 : throw new NotSupportedException($"SparseLNR mode {mode} has no top-level initialiser"))
+                 : throw new NotSupportedException($"SparseLNR mode {mode} has no top-level initializer"))
                 : SparseLnrMatch.MatchLevel(A, Bl, mask, pyrB[l].W, offs[l], feats[l], viewA, viewB, farScene, bidir, mono);
             if (m.Length != feats[l].Length) throw new InvalidOperationException("feature size mismatch");
             // thrA is ALWAYS 2.0f/wB; only thrB takes the far-scene 0.6f. The same thr for both views makes no difference while view A
@@ -99,7 +99,7 @@ public static class WideSparseDriver
 /// <summary>
 /// `CalibDataProcessor`: the WIDE state machine `runReferenceGroupCams` (states
 /// 0 → 2 → 3×N → 6×N → 4×N → 7 → 8): reference features → points, per-camera WIDE sparse matching, fundamental-matrix filter,
-/// fine mirror optimizer (type-2 sensors only), triangulate + refine, sparse BA (mask schedule by <c>WideFlag</c>) with the nominal-centre /
+/// fine mirror optimizer (type-2 sensors only), triangulate + refine, sparse BA (mask schedule by <c>WideFlag</c>) with the nominal-center /
 /// reprojection acceptance. Poses are never written here; calibration slots are written in place.
 /// </summary>
 public sealed class CalibDataProcessor
@@ -112,7 +112,7 @@ public sealed class CalibDataProcessor
     public (float Min, float Max) ZRange => CamsType == 1 ? (70f, 40000f) : (200f, 640000f);
     public Action<string>? Log;
     public RegDump? Dump;                         // LUX_DENSE_DUMP: regdump-layout stage dumps (see RegDump)
-    /// <summary>Workers for the per-camera work (sparse drivers, mirror optimisers): each camera's computation is independent, so they run in
+    /// <summary>Workers for the per-camera work (sparse drivers, mirror optimizers): each camera's computation is independent, so they run in
     /// parallel and their results, slot writes, dumps and log lines are applied in list order afterwards — bit-identical to the sequential run.</summary>
     public int Threads = 1;
 
@@ -196,7 +196,7 @@ public sealed class CalibDataProcessor
     public void FineAll()
     {
         var refCam = Ref.View().Basic();
-        // the optimiser reads the shared points/reference and the camera's own slot/pose/observations: independent per camera; the slot
+        // the optimizer reads the shared points/reference and the camera's own slot/pose/observations: independent per camera; the slot
         // writes (which feed the next camera's… nothing — but the dumps and log lines) are applied in list order afterwards
         var results = ForEachCam(RefGroup, (c, i, log) =>
         {
@@ -226,7 +226,7 @@ public sealed class CalibDataProcessor
         Snapshot("2. point BA");
     }
 
-    /// <summary>Expected camera centres by module name (table chosen by <c>CamsType</c>), else the factory (stage-0) centre.</summary>
+    /// <summary>Expected camera centers by module name (table chosen by <c>CamsType</c>), else the factory (stage-0) center.</summary>
     public static readonly Dictionary<string, (double X, double Y, double Z)> NominalTable0 = new()
     {
         ["A1"] = (0, 0, 0), ["A2"] = (-27.69, -23.74, 0), ["A3"] = (8.53, -23.26, 0), ["A4"] = (24.28, 23.61, 0), ["A5"] = (-43.39, 1.12, 0),
@@ -257,7 +257,7 @@ public sealed class CalibDataProcessor
         return res;
     }
 
-    /// <summary>An optimiser's in-place write of the CURRENT slot (stage 1), dumped as `calibwrite&lt;i&gt;`.</summary>
+    /// <summary>An optimizer's in-place write of the CURRENT slot (stage 1), dumped as `calibwrite&lt;i&gt;`.</summary>
     void CalibWrite(CdpCamera c, float[] K, float[] R, float[] T, string stage)
     {
         int wi = Dump is null ? -1 : Dump.Cw++; Dump?.Bytes($"calibwrite{wi}_before", RegDump.Slot54(c.Slot));
@@ -276,7 +276,7 @@ public sealed class CalibDataProcessor
     }
 
     /// <summary>λ6 (state 8): the WIDE BA schedule (`2 − (type==1)` passes; <c>WideFlag</c> selects masks 8/1/(0x10,0x20) or (0x30)/9) and the acceptance
-    /// against the nominal centres (≤ 8) and the live reprojection error (≤ 4 when ref &lt; 5 else 15); rejected cams restore the pre-BA slot.</summary>
+    /// against the nominal centers (≤ 8) and the live reprojection error (≤ 4 when ref &lt; 5 else 15); rejected cams restore the pre-BA slot.</summary>
     public void BundleAdjustWide()
     {
         var exclusion = new HashSet<int>();
@@ -304,7 +304,7 @@ public sealed class CalibDataProcessor
             float err = Obs.TryGetValue(c.Id, out var o) ? SparseBaCaller.MeanReprojection(c.Pose, c.Slot, Points, o) : 0f;
             bool keep = d <= 8.0f && !exclusion.Contains(c.Id) && !(thr < err);
             Accepted[c.Id] = keep;
-            Log?.Invoke($"  acceptance cam {c.Id} ({c.Name}): centre ({t[0]:G6},{t[1]:G6},{t[2]:G6}) nominal ({nom[0]:G6},{nom[1]:G6},{nom[2]:G6}) d {d:G6} reproj {err:G6} → {(keep ? "keep" : "RESTORE")}");
+            Log?.Invoke($"  acceptance cam {c.Id} ({c.Name}): center ({t[0]:G6},{t[1]:G6},{t[2]:G6}) nominal ({nom[0]:G6},{nom[1]:G6},{nom[2]:G6}) d {d:G6} reproj {err:G6} → {(keep ? "keep" : "RESTORE")}");
             if (!keep) { var s = saved[c.Id]; c.Slot.K = (float[])s.K.Clone(); c.Slot.R = (float[])s.R.Clone(); c.Slot.T = (float[])s.T.Clone(); }
         }
         Snapshot("3. Camera BA");
@@ -362,7 +362,7 @@ public sealed class CalibDataProcessor
     /// <summary>λ8 (state 1): the coarse `MirrorAngleOptimizer` per type-2 camera; θ/c seeds kept for the fine pass; the slot is written by the optimizer.</summary>
     public void CoarseAll()
     {
-        // the coarse optimiser reads the shared context (reference images, depth) and the camera's own image/slot/pose: independent per camera
+        // the coarse optimizer reads the shared context (reference images, depth) and the camera's own image/slot/pose: independent per camera
         var results = ForEachCam(Higher, (c, i, log) =>
         {
             if (c.SensorType != 2) { log?.Invoke($"  coarse: cam {c.Id} sensor type {c.SensorType} → skipped"); return (null, 0.0); }

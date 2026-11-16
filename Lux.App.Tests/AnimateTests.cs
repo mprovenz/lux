@@ -90,7 +90,7 @@ public class AnimateTests
         Assert.Equal(4500f, p.Options().FocusToMm!.Value, 1);
         p.FocusToText = "far";
         p.AddToQueueCommand.Execute(null);
-        Assert.Equal("Type distances in metres, e.g. 1.5", p.Error);
+        Assert.Equal("Type distances in meters, e.g. 1.5", p.Error);
         Assert.True(h.Library.IsAnimateOpen);
     }
 
@@ -318,7 +318,7 @@ public class AnimateTests
         await h.SettleAsync(() => h.Lib.Jobs.Of(JobKind.Export).Any(j => j.Id > maxBefore));
         Assert.Equal(ExistingFilePolicy.Overwrite, panel.LastOptions!.IfExists);
         Assert.Null(h.Vm.Dialog);
-        // cancelling the question queues nothing
+        // canceling the question queues nothing
         h.Library.OpenExport();
         var p2 = h.Library.ExportPanel!;
         p2.Folder = "/home/you/Pictures/Lux Export";

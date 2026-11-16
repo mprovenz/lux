@@ -73,8 +73,8 @@ internal sealed class LumenTransform
         M[0] = 1f; M[1] = 0f; M[2] = 0f; M[3] = 0f; M[4] = 1f; M[5] = 0f; M[6] = 0f; M[7] = 0f; M[8] = 1f;
     }
 
-    /// <summary>`CIAPI::Transform::rotate90(int k)`: a rotation by k quarter turns about the crop centre (in the aspect domain),
-    /// composed onto the matrix (new = M·A), and for odd k the crop rect turned about its centre with the aspect swapped.</summary>
+    /// <summary>`CIAPI::Transform::rotate90(int k)`: a rotation by k quarter turns about the crop center (in the aspect domain),
+    /// composed onto the matrix (new = M·A), and for odd k the crop rect turned about its center with the aspect swapped.</summary>
     public void Rotate90(int k)
     {
         Ops?.Add(string.Create(CultureInfo.InvariantCulture, $"rot90 {k}"));
@@ -135,7 +135,7 @@ internal sealed class LumenTransform
         M[8] = A8 * M8 + (A7 * M5 + A6 * M2);
     }
 
-    /// <summary>`CIAPI::Transform::flipHorizontal()`: mirror about the crop's x centre — t = (c + c)·W; row 0 negated, t × the old
+    /// <summary>`CIAPI::Transform::flipHorizontal()`: mirror about the crop's x center — t = (c + c)·W; row 0 negated, t × the old
     /// row 0 added to row 2; crop unchanged.</summary>
     public void FlipHorizontal()
     {
@@ -147,7 +147,7 @@ internal sealed class LumenTransform
         M[6] = t * M0 + M[6]; M[7] = t * M1 + M[7]; M[8] = t * M2 + M[8];
     }
 
-    /// <summary>`CIAPI::Transform::flipVertical()`: mirror about the crop's y centre (row 1 negated, t × the old row 1 into row 2).</summary>
+    /// <summary>`CIAPI::Transform::flipVertical()`: mirror about the crop's y center (row 1 negated, t × the old row 1 into row 2).</summary>
     public void FlipVertical()
     {
         Ops?.Add("flipv");
@@ -156,6 +156,55 @@ internal sealed class LumenTransform
         float M3 = M[3], M4 = M[4], M5 = M[5];
         M[3] = -M3; M[4] = -M4; M[5] = -M5;
         M[6] = M3 * t + M[6]; M[7] = M4 * t + M[7]; M[8] = t * M5 + M[8];
+    }
+
+    // ------------------------------------------------------------------------------------------------ the level rotation (Lumen has none)
+
+    /// <summary>Rotate by a free angle about the crop center. <paramref name="c"/> and <paramref name="s"/> are the cosine and the sine of
+    /// the angle. The matrix is made as <see cref="Rotate90"/> makes it, and composed in the same way (new = M·A). A positive sine turns the
+    /// picture content counter-clockwise. The crop does not change.</summary>
+    public void RotateFine(float c, float s)
+    {
+        Ops?.Add($"rotate {H(c)} {H(s)}");
+        float cx = (X1 - X0) * 0.5f + X0, cy = (Y1 - Y0) * 0.5f + Y0;
+        float px = (float)AspectW * cx, py = (float)AspectH * cy;
+        float A6 = px + ((-s) * (-py) + c * (-px));
+        float A7 = py + (c * (-py) + s * (-px));
+        Compose(c, s, 0f, -s, c, 0f, A6, A7, 1f);
+    }
+
+    /// <summary>The free rotation in the matrix: the cosine and the sine that <see cref="RotateFine"/> composed onto a matrix of quarter
+    /// turns and flips. The values are the same bits that went in. (1, 0) for a matrix without a free rotation.</summary>
+    public (float C, float S) FineRotation()
+    {
+        static float Sign(float v) => v < 0f ? -1f : 1f;
+        // The matrix is Q·R. Q has only 0 and ±1. R is the free rotation. The first column of R is Qᵀ·(m0, m1).
+        bool transposed = Math.Abs(M[1]) > Math.Abs(M[0]);
+        return transposed ? (Sign(M[1]) * M[1], Sign(M[3]) * M[0]) : (Sign(M[0]) * M[0], Sign(M[4]) * M[1]);
+    }
+
+    /// <summary>The matrix has a free rotation.</summary>
+    public bool HasFineRotation => FineRotation().S != 0f;
+
+    /// <summary>Make the crop smaller about its center until its four corners map into the capture frame. A crop that is inside does not
+    /// change. Returns true when the crop changed.</summary>
+    public bool FitCropInside()
+    {
+        double w = AspectW, h = AspectH;
+        double cw = (double)X1 - X0, ch = (double)Y1 - Y0;
+        double cx = X0 + cw / 2, cy = Y0 + ch / 2;
+        double px = w * cx, py = h * cy, hw = w * cw / 2, hh = h * ch / 2;
+        // the crop center in the capture, and the largest distance of a corner from it on each axis
+        double u = M[0] * px + M[3] * py + M[6], v = M[1] * px + M[4] * py + M[7];
+        double eu = Math.Abs(M[0]) * hw + Math.Abs(M[3]) * hh, ev = Math.Abs(M[1]) * hw + Math.Abs(M[4]) * hh;
+        double k = 1.0;
+        if (eu > 0) k = Math.Min(k, Math.Min(u, w - u) / eu);
+        if (ev > 0) k = Math.Min(k, Math.Min(v, h - v) / ev);
+        if (!(k < 1.0 - 1e-6)) return false;
+        if (k < 0.05) k = 0.05;   // the center is at the border or outside: keep a small picture
+        double nw = cw * k, nh = ch * k;
+        SetCrop((float)(cx - nw / 2), (float)(cy - nh / 2), (float)nw, (float)nh);
+        return true;
     }
 }
 
@@ -178,7 +227,7 @@ internal struct QRect
 /// <summary>
 /// Lumen's `GeometryEdits` (the editor's GEOMETRY section; a Qt object with the methods `rotateRight`, `rotateLeft`, `mirrorHorizontal`,
 /// `mirrorVertical`, `applyCrop`, `setCropMode`, `initTransform` and a crop state setter) and its helpers on `CIAPI::Transform`.
-/// Its crop frame (and the frame when the crop tool opened) is a `QRectF` in the capture's own (unturned, unmirrored) normalised
+/// Its crop frame (and the frame when the crop tool opened) is a `QRectF` in the capture's own (unturned, unmirrored) normalized
 /// coordinates, so it turns with the photo. `QRectF` arithmetic in doubles, conversions where Lumen makes them.
 /// </summary>
 internal sealed class LumenGeometryEdits
@@ -209,7 +258,7 @@ internal sealed class LumenGeometryEdits
     }
 
     /// <summary>`1400409b0`: the orientation of the matrix — angle 0 / 90 / 180 / 270 (clockwise) and mirrored. A matrix that matches no
-    /// case leaves the outputs as they were (Lumen passes uninitialised locals; for the matrices its operations make every case matches).</summary>
+    /// case leaves the outputs as they were (Lumen passes uninitialized locals; for the matrices its operations make every case matches).</summary>
     public static (int Angle, bool Mirrored) Orientation(LumenTransform t)
     {
         int angle = 0; bool mir = false;
@@ -375,20 +424,66 @@ internal sealed class LumenGeometryEdits
     QRect FrameForRotation => CropState == 0 ? Frame : Original;
 
     /// <summary>`1400bb9b0` rotateRight (clockwise): crop full, canonical matrix, `rotate90(−1)`, the frame applied again.</summary>
-    public void RotateRight() => Turn(t => t.Rotate90(-1));
+    public void RotateRight() => Turn(t => t.Rotate90(-1), false);
     /// <summary>`1400bb8e0` rotateLeft (counter-clockwise): the same with `rotate90(1)`.</summary>
-    public void RotateLeft() => Turn(t => t.Rotate90(1));
+    public void RotateLeft() => Turn(t => t.Rotate90(1), false);
     /// <summary>`1400bb0d0` mirrorHorizontal.</summary>
-    public void MirrorHorizontal() => Turn(t => t.FlipHorizontal());
+    public void MirrorHorizontal() => Turn(t => t.FlipHorizontal(), true);
     /// <summary>`1400bb190` mirrorVertical.</summary>
-    public void MirrorVertical() => Turn(t => t.FlipVertical());
+    public void MirrorVertical() => Turn(t => t.FlipVertical(), true);
 
-    void Turn(Action<LumenTransform> op)
+    /// <summary>A turn or flip as Lumen makes it. Lumen rebuilds the matrix from quarter turns, so a level rotation is removed first and
+    /// applied again afterwards. A flip mirrors the picture, so the level rotation then has the opposite direction.</summary>
+    void Turn(Action<LumenTransform> op, bool mirrors)
     {
+        var (c, s) = T.FineRotation();
         SetCropFromRect(T, new QRect(0.0, 0.0, 1.0, 1.0));
         Canonical(T);
         op(T);
         SetCropFromRect(T, FrameForRotation);
+        if (s != 0f) T.RotateFine(c, mirrors ? -s : s);
+    }
+
+    /// <summary>Set the level rotation (not a Lumen operation): the picture as shown turns by the angle with the cosine <paramref name="c"/>
+    /// and the sine <paramref name="s"/> about the center of its crop. A positive sine turns the content of the capture counter-clockwise;
+    /// in a mirrored picture the direction is the opposite one. A level rotation that is already there is replaced. The crop then
+    /// becomes smaller about its center until it has no empty corners.</summary>
+    public void Level(float c, float s)
+    {
+        var frame = FrameForRotation;
+        SetCropFromRect(T, new QRect(0.0, 0.0, 1.0, 1.0));
+        Canonical(T);
+        SetCropFromRect(T, frame);
+        if (Orientation(T).Mirrored) s = -s;
+        if (s != 0f) T.RotateFine(c, s);
+        FitFrame();
+    }
+
+    /// <summary>The level rotation of the capture's content in degrees (positive = counter-clockwise), 0 when there is none. For display.</summary>
+    public static double LevelDegrees(LumenTransform t)
+    {
+        var (c, s) = t.FineRotation();
+        if (s == 0f) return 0;
+        double d = Math.Atan2(s, c) * (180.0 / Math.PI);
+        return Orientation(t).Mirrored ? -d : d;
+    }
+
+    /// <summary>Remove a level rotation from a transform. The quarter turns, the flip and the crop stay.</summary>
+    public static void RemoveLevel(LumenTransform t)
+    {
+        if (!t.HasFineRotation) return;
+        var frame = RectFromCrop(t);
+        SetCropFromRect(t, new QRect(0.0, 0.0, 1.0, 1.0));
+        Canonical(t);
+        SetCropFromRect(t, frame);
+    }
+
+    /// <summary>Keep the crop of a leveled picture inside the capture frame, and derive the frames from it again.</summary>
+    public void FitFrame()
+    {
+        if (!T.HasFineRotation || !T.FitCropInside()) return;
+        Original = RectFromCrop(T);
+        Frame = RectFromCrop(T);
     }
 
     /// <summary>`1400ba990`: the aspect of a crop mode in the transform's domain (inverted for a turned picture); free = the frame's own.</summary>
@@ -403,7 +498,7 @@ internal sealed class LumenGeometryEdits
         return v;
     }
 
-    /// <summary>`1400bba80` setCropMode: the frame reshaped to the mode's aspect — the same area, at most the whole picture, centred where it was,
+    /// <summary>`1400bba80` setCropMode: the frame reshaped to the mode's aspect — the same area, at most the whole picture, centered where it was,
     /// moved back inside.</summary>
     public void SetCropMode(int mode)
     {
@@ -457,7 +552,7 @@ internal sealed class LumenGeometryEdits
 
     // ---- the frame in the coordinates of the picture as shown (turned, mirrored, uncropped) — for the UI
 
-    /// <summary>A frame in capture coordinates → the shown, uncropped picture (normalised): the inverse of the orientation <see cref="SetCropFromRect"/>
+    /// <summary>A frame in capture coordinates → the shown, uncropped picture (normalized): the inverse of the orientation <see cref="SetCropFromRect"/>
     /// applies, without the float rounding (display only).</summary>
     public static QRect ToShown(LumenTransform t, QRect r)
     {
@@ -489,7 +584,7 @@ internal sealed class LumenGeometryEdits
         return new QRect(rx, ry, s.H, s.W);
     }
 
-    /// <summary>The crop of the transform in the shown, uncropped picture (normalised), from its crop corners and the uncropped base.</summary>
+    /// <summary>The crop of the transform in the shown, uncropped picture (normalized), from its crop corners and the uncropped base.</summary>
     public static QRect ShownCrop(LumenTransform t)
     {
         var cr = t.Crop();

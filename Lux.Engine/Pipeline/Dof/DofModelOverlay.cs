@@ -17,8 +17,8 @@ public static class DofOverlay
 {
     /// <summary>
     /// Mode 1, RefocusPoint (needs depth state ≥ 1, else "Refocus mode requested before depth available!"): every
-    /// pixel whose depth is outside `[near, far]` is blended toward the overlay colour. `colour` = ParamFloatArray 5
-    /// (Lumen's GUI sets {0.2, 0.2, 0.2, 0.91}); its 4th component is the blend weight and is replaced by 1.0 in the colour itself.
+    /// pixel whose depth is outside `[near, far]` is blended toward the overlay color. `colour` = ParamFloatArray 5
+    /// (Lumen's GUI sets {0.2, 0.2, 0.2, 0.91}); its 4th component is the blend weight and is replaced by 1.0 in the color itself.
     /// `[near, far]` = <see cref="DofModel.DefaultInFocusRange"/> with ParamFloat 19. `depth` = the depth-cache fetch
     /// of the tile rect shifted by the level origin against the pipeline dims, same size as the tile.
     /// <c>a = depth &lt; near ? w : (far &lt; depth ? w : 0);  px = a·(r, g, b, 1) + (1 − a)·px</c> on all four lanes.
@@ -57,12 +57,12 @@ public static class DofOverlay
     public static float Luma(float r, float g, float b) => b * 0.114f + (g * 0.587f + r * 0.299f);
 
     /// <summary>
-    /// Mode 2, RefocusSlider (compiled in, never selected by Lumen's GUI): the picture turns grey away from the
+    /// Mode 2, RefocusSlider (compiled in, never selected by Lumen's GUI): the picture turns gray away from the
     /// focus distance and cyan near it. The base tile is always the PipelineCache's (no depth effect). `focus` = the DOFCache's current
     /// focus depth, `depth` as in mode 1 (sizes must match, else "Depth/image size mismatch in RefocusSlider mode").
     /// <c>k = 1 / ((focus·0.075)·(focus·0.075));  W = (1 − FastExp2(−(((d − focus)·(d − focus))·k)))·0.4;  G = Luma(px);
     /// px = W·(0, 0.75, 1, 1) + ((1 − W)·G)</c> on all four lanes, then alpha = 1.
-    /// Note that <c>W</c> is 0 AT the focus distance and 0.4 far from it: the grey image is tinted where the scene is away from focus.
+    /// Note that <c>W</c> is 0 AT the focus distance and 0.4 far from it: the gray image is tinted where the scene is away from focus.
     /// </summary>
     public static void RefocusSlider(float[] rgba, int width, int height, int stride, ReadOnlySpan<float> depth, int depthStride, float focus)
     {

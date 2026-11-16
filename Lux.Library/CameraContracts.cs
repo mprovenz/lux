@@ -120,9 +120,9 @@ public sealed class CameraCapturesChangedEventArgs : EventArgs
 /// <summary>What happens after the copy (the import panel's "After copying").</summary>
 public enum CameraAfterImport
 {
-    /// <summary>Analyse and keep the 13 MP render (the default cache level).</summary>
+    /// <summary>Analyze and keep the 13 MP render (the default cache level).</summary>
     Analyse13Mp = 0,
-    /// <summary>Analyse and keep full detail.</summary>
+    /// <summary>Analyze and keep full detail.</summary>
     AnalyseFullDetail = 1,
     /// <summary>Only copy (and add to the library).</summary>
     CopyOnly = 2,
@@ -204,14 +204,14 @@ public interface ICameraService : IDisposable
 
     /// <summary>Queue an import of these captures (one Queue job; returns its id). Throws <see cref="LibraryException"/> with the plan's problem.
     /// The job copies each file to <c>.part</c> and renames it when complete, skips files already there with the same size, keeps the
-    /// finished files when it stops (cancelled, camera unplugged), then adds the destination to the library (or rescans it) and queues the
+    /// finished files when it stops (canceled, camera unplugged), then adds the destination to the library (or rescans it) and queues the
     /// analysis chosen.</summary>
     long StartImport(IReadOnlyCollection<CameraCapture> captures, CameraImportOptions options);
 
     /// <summary>The last import (null when there was none).</summary>
     CameraImportSummary? LastImport { get; }
     event EventHandler? LastImportChanged;
-    /// <summary>Of the last import's captures, how many are analysed to the level chosen (null when it only copied or found none yet).</summary>
+    /// <summary>Of the last import's captures, how many are analyzed to the level chosen (null when it only copied or found none yet).</summary>
     (int Analysed, int Total)? LastImportAnalysis();
 
     /// <summary>Try again now: open a busy / failed camera, or read the list of an open camera again.</summary>
@@ -224,7 +224,7 @@ public interface ICameraService : IDisposable
 /// <summary>Progress of a job run by code outside the library (the camera import).</summary>
 public interface IJobReporter
 {
-    /// <summary>Cancelled when the user cancels the job (or the library closes).</summary>
+    /// <summary>Canceled when the user cancels the job (or the library closes).</summary>
     CancellationToken Cancel { get; }
     long JobId { get; }
     void Report(double progress, string? status = null);
@@ -235,7 +235,7 @@ public interface IJobReporter
 
 /// <summary>Runs camera-import jobs (<see cref="CameraImportJobRequest"/>) for the library's queue: the camera service registers itself with
 /// <see cref="ILibrary.SetCameraImporter"/>. Throw <see cref="LibraryException"/> for a failure the user should read; an
-/// <see cref="OperationCanceledException"/> after <see cref="IJobReporter.Cancel"/> ends the job as cancelled.</summary>
+/// <see cref="OperationCanceledException"/> after <see cref="IJobReporter.Cancel"/> ends the job as canceled.</summary>
 public interface ICameraImporter
 {
     Task RunAsync(CameraImportJobRequest request, IJobReporter job);

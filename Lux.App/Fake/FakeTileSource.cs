@@ -32,7 +32,7 @@ public sealed record FakeTimings
 /// A synthetic picture pyramid for design time and tests, delivered like the library's: the picture as shown (turned, flipped, cropped —
 /// or uncropped while the crop tool is open), 8320 × 6240 at level 0 for an uncropped wide capture (52 MP) halving down to level 4, 512-pixel
 /// tiles painted by <see cref="FakeScene"/> after a per-level delay on a few workers. Requests: newest wins — work for tiles no longer needed
-/// is cancelled, tiles still needed keep going. While a slider is dragged the edited channel answers at <see cref="FakeTimings.DragLevel"/>
+/// is canceled, tiles still needed keep going. While a slider is dragged the edited channel answers at <see cref="FakeTimings.DragLevel"/>
 /// (the lower-level picture); the refined level follows when the drag ends. The before channel has no adjustments.
 /// </summary>
 public sealed class FakeTileSource : ITileSource, IDisposable
@@ -124,7 +124,7 @@ public sealed class FakeTileSource : ITileSource, IDisposable
 
     public event Action<TileRevalidation>? Revalidated;
 
-    /// <summary>Tests: a change confined to <paramref name="changed"/> (normalised, every level): a new version (floor kept, as for a depth change)
+    /// <summary>Tests: a change confined to <paramref name="changed"/> (normalized, every level): a new version (floor kept, as for a depth change)
     /// and the region report the library sends.</summary>
     public void ChangeOnly(Lux.Library.NormRect changed)
     {
@@ -137,7 +137,7 @@ public sealed class FakeTileSource : ITileSource, IDisposable
     /// <summary>The pyramid, the capture → picture map (full-size pixels) and the geometry version now.</summary>
     internal (Pyramid Pyramid, SKMatrix CaptureToPicture, long Geometry) Snapshot() { lock (_gate) return (_pyramid, _captureToPicture, _geometry); }
 
-    /// <summary>A point of the picture as shown (normalised) in the capture's own coordinates (normalised, unrotated, uncropped).</summary>
+    /// <summary>A point of the picture as shown (normalized) in the capture's own coordinates (normalized, unrotated, uncropped).</summary>
     public Lux.Library.NormPoint PictureToCapture(Lux.Library.NormPoint p)
     {
         var (pyr, m, _) = Snapshot();
@@ -146,7 +146,7 @@ public sealed class FakeTileSource : ITileSource, IDisposable
         return new Lux.Library.NormPoint(cx / _capture.Width, cy / _capture.Height);
     }
 
-    /// <summary>A capture point (normalised) in the picture as shown (normalised; may fall outside 0–1 when cropped away).</summary>
+    /// <summary>A capture point (normalized) in the picture as shown (normalized; may fall outside 0–1 when cropped away).</summary>
     public Lux.Library.NormPoint CaptureToPicture(Lux.Library.NormPoint c)
     {
         var (pyr, m, _) = Snapshot();
@@ -246,7 +246,7 @@ public sealed class FakeTileSource : ITileSource, IDisposable
                 start.Add((key, version, _geometry, values, cts, drag && key.Level == _t.DragLevel));
             }
         }
-        // coarse first, so the picture is on screen at once and sharpens afterwards; within a level from the centre of the view outwards
+        // coarse first, so the picture is on screen at once and sharpens afterwards; within a level from the center of the view outwards
         Pyramid pyr;
         lock (_gate) pyr = _pyramid;
         var centre = request.ImageRect.Center;
@@ -269,7 +269,7 @@ public sealed class FakeTileSource : ITileSource, IDisposable
         });
     }
 
-    /// <summary>Render one tile on a worker taken in request order (<paramref name="acquired"/>; false = it was cancelled while waiting, and only
+    /// <summary>Render one tile on a worker taken in request order (<paramref name="acquired"/>; false = it was canceled while waiting, and only
     /// the bookkeeping runs).</summary>
     async Task RenderAsync(int channel, TileKey key, long version, long geometry, IReadOnlyDictionary<string, double> values, CancellationTokenSource cts, bool drag,
                            FakeEffect? effect, bool acquired)

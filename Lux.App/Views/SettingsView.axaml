@@ -78,7 +78,7 @@
           </Grid>
           <CheckBox IsChecked="{Binding AnalyseNew}">
             <StackPanel>
-              <TextBlock Text="Analyse new captures automatically" />
+              <TextBlock Text="Analyze new captures automatically" />
               <TextBlock Classes="secondary small" Text="About a minute and 70 MB of disk per capture, in the background." />
             </StackPanel>
           </CheckBox>
@@ -107,7 +107,7 @@
           <CheckBox IsChecked="{Binding SwapWhole}">
             <StackPanel>
               <TextBlock Text="Show a changed picture all at once" />
-              <TextBlock Classes="secondary small wrap" Text="After a slider or a depth edit the new picture replaces the old one as a whole, not tile by tile. If it takes longer than the wait below, it comes in from the centre of the view outwards, each part fading in." />
+              <TextBlock Classes="secondary small wrap" Text="After a slider or a depth edit the new picture replaces the old one as a whole, not tile by tile. If it takes longer than the wait below, it comes in from the center of the view outwards, each part fading in." />
             </StackPanel>
           </CheckBox>
           <Grid ColumnDefinitions="260,90,*" RowDefinitions="Auto,Auto" RowSpacing="8" IsEnabled="{Binding SwapWhole}">

@@ -9,11 +9,11 @@ namespace Lux.Library;
 /// <summary>The file an animation is written to.</summary>
 public enum AnimationFormat
 {
-    /// <summary>GIF: plays everywhere; 256 colours per frame (dithered).</summary>
+    /// <summary>GIF: plays everywhere; 256 colors per frame (dithered).</summary>
     Gif = 0,
-    /// <summary>Animated PNG: exact colours, larger files; plays in browsers.</summary>
+    /// <summary>Animated PNG: exact colors, larger files; plays in browsers.</summary>
     Apng = 1,
-    /// <summary>Animated WebP, lossless: exact colours, smaller than APNG; plays in browsers.</summary>
+    /// <summary>Animated WebP, lossless: exact colors, smaller than APNG; plays in browsers.</summary>
     WebP = 2,
     /// <summary>MP4 video (H.264) — needs ffmpeg installed.</summary>
     Mp4 = 3,
@@ -166,7 +166,7 @@ public interface IAnimationSource : IDisposable
     CaptureItem Item { get; }
     /// <summary>What this capture can make (header facts: the lens groups), with plain reasons.</summary>
     IReadOnlyList<AnimationEffectInfo> Effects { get; }
-    /// <summary>The scene depth (mm) at a point of a preview frame of a depth-effect animation (normalised to the frame, 0,0 = top left) —
+    /// <summary>The scene depth (mm) at a point of a preview frame of a depth-effect animation (normalized to the frame, 0,0 = top left) —
     /// picking a focus distance on the photo. Computes the depth map first when needed.</summary>
     Task<float> DepthAtAsync(double x, double y, CancellationToken cancel = default);
     /// <summary>The default rack: the nearer and farther parts of the scene (10th / 90th percentile of the depth), mm; and Lumen's default

@@ -15,7 +15,7 @@ namespace Lux.Store;
 ///   tier(name, complete, descriptor, updated_utc)
 ///   block(tier, key, raw_bytes, element_size, sha256, data)   one row per block; data = codec flag byte + payload
 /// </code>
-/// Every block is stored losslessly (byte planes by element size, a left-neighbour delta, Brotli) with the SHA-256 of its raw bytes, and
+/// Every block is stored losslessly (byte planes by element size, a left-neighbor delta, Brotli) with the SHA-256 of its raw bytes, and
 /// checked against it on every read: a block that does not unpack to its checksum is never handed out (<see cref="CacheCorruptException"/>).
 /// A cache written for another engine cache version is deleted and started again — never read. Everything here can be deleted at any time;
 /// the engine recomputes what is missing.
@@ -276,7 +276,7 @@ public sealed class AnalysisCacheStore : IAnalysisCache
 /// Lossless block packing for the analysis cache: one flag byte, then the payload.
 /// <code>
 ///   bits 0–1  compressor: 0 = stored, 2 = brotli
-///   bit 6     left-neighbour delta on the elements (wrapping), stride = byte 1 (1 for a plane, 3 for half RGB)
+///   bit 6     left-neighbor delta on the elements (wrapping), stride = byte 1 (1 for a plane, 3 for half RGB)
 ///   bit 4     elements split into byte planes before compression
 /// </code>
 /// </summary>

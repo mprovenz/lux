@@ -5,7 +5,7 @@ using Lux.Engine.Lri;
 namespace Lux.Engine.Pipeline.Registration;
 
 /// <summary>The per-capture facts the CalibDataProcessor reads from the CapturedImage / CaptureStack, derived from the LRI protos exactly as the
-/// loader does: the sparse-matching centre (<c>BasePoint</c> / <c>Centre</c>), the plane depth
+/// loader does: the sparse-matching center (<c>BasePoint</c> / <c>Centre</c>), the plane depth
 /// (<c>PlaneDepth</c>), the mono (uniform-weights) flag, the mirror type ("type 2" test) and the wide flag.</summary>
 public static class CdpInputs
 {
@@ -31,7 +31,7 @@ public static class CdpInputs
         return (v[0] * inv, inv * v[1]);
     }
 
-    /// <summary>The WIDE `addImage` normalisation: centre ÷ the stereo image size.</summary>
+    /// <summary>The WIDE `addImage` normalization: center ÷ the stereo image size.</summary>
     public static (float X, float Y) WideCentre(CdpCamera c, CameraModule m)
     {
         var cc = Centre(c.Pose, c.Slot, BasePoint(m));
@@ -74,7 +74,7 @@ public static class CdpInputs
         return ((uint)(g0 | g1) >> 31) != 0;
     }
 
-    /// <summary>`GeometricCalibration.mirror_type` (0 NONE, 1 GLUED, 2 MOVABLE) — the "type 2" test of the optimiser states.</summary>
+    /// <summary>`GeometricCalibration.mirror_type` (0 NONE, 1 GLUED, 2 MOVABLE) — the "type 2" test of the optimizer states.</summary>
     public static int MirrorType(LightHeader h, CameraID id) => (int)(ModulePose.Geometry(h, id)?.MirrorType ?? GeometricCalibration.Types.MirrorType.None);
 
     /// <summary>The WIDE flag: the reference module has a per-focus bundle carrying `focus_hall_code`.</summary>

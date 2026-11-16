@@ -1,12 +1,12 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <!--
-    Studio design tokens. Every colour, face, size and radius the app uses is defined here
+    Studio design tokens. Every color, face, size and radius the app uses is defined here
     once; views and control themes refer to these keys only. To swap the faces (Archivo / JetBrains Mono), change
     LuxTextFont / LuxMonoFont.
   -->
 
-  <!-- Colours -->
+  <!-- Colors -->
   <Color x:Key="LuxGroundColor">#404040</Color>        <!-- page ground, active tab -->
   <Color x:Key="LuxPanelColor">#3a3a3a</Color>         <!-- side panels, toolbars, cards -->
   <Color x:Key="LuxBarColor">#333333</Color>           <!-- header, status bar, notes, table head -->

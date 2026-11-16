@@ -9,7 +9,7 @@ namespace Lux.Engine.Pipeline.Registration;
 /// `lt::StereoISP::CreateStereoImage`, assembled from its parts: the module ISP at half
 /// resolution with the shared reference Stats, the exposure gain, the Lanczos-3 warp through the (view, module) aligned
 /// calibration into `size`, `ConvertToYUV`, then — reference (p12): store the YUV float image and 8-bit it; non-reference with the reference
-/// crop (p13): the colour transfer onto the reference crop; higher group (p12 = p13 = 0): plain 8-bit. Mono sensors take the mono ISP path.
+/// crop (p13): the color transfer onto the reference crop; higher group (p12 = p13 = 0): plain 8-bit. Mono sensors take the mono ISP path.
 /// Returns the 8-bit image and the saturation level `val` (255, or the mono code value).
 /// </summary>
 public static class StereoImageBuilder
@@ -41,7 +41,7 @@ public static class StereoImageBuilder
     public sealed class Result { public byte[] Rgba8 = null!; public float Val; public int W, H; public float[]? RefYuv; }
 
     /// <summary>One `CreateStereoImage` call. `view` = calibA (the aligned/cropped view), `module` = calibB (the module's own half-res record),
-    /// `refView` = calib2 (only for the reference-crop colour transfer), `refYuv` = the reference YUV float image (in for non-ref, out for the ref).</summary>
+    /// `refView` = calib2 (only for the reference-crop color transfer), `refYuv` = the reference YUV float image (in for non-ref, out for the ref).</summary>
     public static Result Create(CapturedFrame frame, CapturedFrame refFrame, SoftIsp isp, CameraCalib view, CameraCalib module, (int W, int H) size, float[] neutral,
                                 float[]? refYuv, CameraCalib? refView, bool isReference, bool useRefCrop, Distortion dist, Action<string>? log = null)
     {

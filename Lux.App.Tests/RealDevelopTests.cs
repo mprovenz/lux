@@ -120,7 +120,7 @@ public sealed class RealDevelopTests
             win.RenderFrame();
             Harness.Capture(win, "real-01-develop-single", Paths.M2Shots);
 
-            // 1:1 at the centre
+            // 1:1 at the center
             sw.Restart();
             v.ZoomToActual();
             await Settle(Ready, 180_000);

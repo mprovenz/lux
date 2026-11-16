@@ -80,7 +80,7 @@ public sealed class DofTileCache
     public (int W, int H)[] DepthLevelDims { get; }
     /// <summary>`TileCache::renderROI&lt;vec4x32f&gt;` of the PipelineCache: (level, rect in level pixels) → float RGBA, `rect.Width` stride.</summary>
     public Func<int, RectI, float[]> Colour { get; }
-    /// <summary>Builder + crop + blur for one tile: (geometry, colour of <see cref="DofTileGeometry.FetchRect"/>, depth of the same rect) →
+    /// <summary>Builder + crop + blur for one tile: (geometry, color of <see cref="DofTileGeometry.FetchRect"/>, depth of the same rect) →
     /// the blur output as float RGBA with its `lt::Image` rect (in the output's own coordinates) and stride in pixels.</summary>
     public Func<DofTileGeometry, float[], DepthImage, (float[] Rgba, RectI Rect, int Stride)> Blur { get; }
 
@@ -97,7 +97,7 @@ public sealed class DofTileCache
 
     /// <summary>
     /// The DOFCache of a loaded capture, as `setInputDataStream` builds it and the renderer's property mapping sets it before a render: the PipelineCache's
-    /// level list and colour, the depth-cache image, the capture's constants and device type, the requested f-number and the focus depth
+    /// level list and color, the depth-cache image, the capture's constants and device type, the requested f-number and the focus depth
     /// (null = DefaultFocusDepth, what the renderer puts into the focus setting when the depth is published).
     /// </summary>
     public static DofTileCache ForCapture(Lux.Engine.Lri.LriFile lri, PipelineCache colour, DepthImageCache depth, float fnum, float? focusDepth)
@@ -149,7 +149,7 @@ public sealed class DofTileCache
     }
 
     /// <summary>Generate every tile a <see cref="Render"/> of <paramref name="rect"/> reads that is not cached yet, up to
-    /// <paramref name="threads"/> at once. A tile is a pure function of the capture, the f-number and the focus depth, memoised once, so the
+    /// <paramref name="threads"/> at once. A tile is a pure function of the capture, the f-number and the focus depth, memoized once, so the
     /// result does not depend on which thread makes it.</summary>
     public void Prefetch(int level, RectI rect, (int W, int H) reqDims, int threads)
     {
@@ -200,7 +200,7 @@ public sealed class DofTileCache
     /// <summary>
     /// Put another depth (and edit layer) in place — a depth editor's new snapshot after an edit — and drop exactly the tiles whose pixels it can
     /// change. A tile is a pure function of the output-relevant part of its geometry (<see cref="DofTileGeometry.SameOutputAs"/>: the rects,
-    /// which the depth range around the tile sets through the margin, and the scalars) and of the colour, depth and edit layer of its fetch rect.
+    /// which the depth range around the tile sets through the margin, and the scalars) and of the color, depth and edit layer of its fetch rect.
     /// So a cached tile is kept when (1) its fetch rect (in depth-cache pixels, as <see cref="DofGeometry.FetchDepth"/> and
     /// <see cref="Lux.Engine.Pipeline.Dof.Edit.DepthEditLayer.TileBuffer"/> read it, plus one pixel) does not meet
     /// <paramref name="changedCacheRect"/> and (2) its geometry on the new depth gives the same output — recomputed only when the pixels its

@@ -108,7 +108,7 @@ public sealed class ImageResolutionAmp
             records.Add(ModulePrep.Build(mod.Gen, s, weights, proj, gw, gh, minx, miny, maxx, maxy, m, Trace));
         }
 
-        // After the module loop the L1 view is expanded back to its whole allocation, colour-decorrelated IN PLACE (M·p, alpha
+        // After the module loop the L1 view is expanded back to its whole allocation, color-decorrelated IN PLACE (M·p, alpha
         // kept, the same operation as in the module preparation) over all (w+16)×(h+16) px, then cropped
         // again to (8,8,w+8,h+8). The 8-px halo the ImageResample<2> taps read is therefore transformed too.
         {

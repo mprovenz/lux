@@ -17,7 +17,7 @@ namespace Lux.Cli;
 /// <list type="bullet">
 /// <item>the module frames are rendered **once** through <see cref="ModuleRender"/> and handed to every consumer
 /// that wants them — the lens JPEG, the wigglegram frame (box-averaged from the same floats) and the parallax
-/// donors (the native frame, quantised) — so an A-group module never goes through the ISP twice;</item>
+/// donors (the native frame, quantized) — so an A-group module never goes through the ISP twice;</item>
 /// <item>the parallax source (<see cref="ParallaxSource"/>) is the run's own JPEG render plus the metric depth on the
 /// same grid, taken from the <see cref="ExportSession"/> — never a second pipeline build;</item>
 /// <item>`lens-frames` and `parallax-wiggle` alone need no <see cref="ExportState"/> at all: <see cref="Run"/> is
@@ -35,13 +35,19 @@ internal sealed class VisualFormats
 
     public VisualFormats(LriFile lri, ExportRequest req, ExportSession? session, string outDir, string stem,
                          List<Exporter.Output> outputs, List<string> refusals, Action<string>? log)
-    { _lri = lri; _req = req; _session = session; _outDir = outDir; _stem = stem; _outputs = outputs; _refusals = refusals; _log = log; }
+    {
+        _lri = lri; _req = req; _session = session; _outDir = outDir; _stem = stem; _outputs = outputs; _refusals = refusals; _log = log;
+        // How the camera was held belongs to the capture, not to the run: the request of each capture gets its own value.
+        // No recorded gravity counts as held level.
+        _parallax = req.Parallax is { } p ? p with { HeldTurn = Math.Max(0, Lux.Store.HeldTurn.Degrees(lri)) } : null;
+    }
+    readonly ParallaxRequest? _parallax;
 
     /// <summary>The engine's hook for the Lux-only formats (<see cref="ExportRequest.LuxFormats"/>).</summary>
     public static readonly LuxFormatsWriter Writer = (lri, req, session, outDir, stem, outputs, refusals, log) =>
         new VisualFormats(lri, req, session, outDir, stem, outputs, refusals, log).Run();
 
-    ParallaxRequest? P => _req.Parallax;
+    ParallaxRequest? P => _parallax;
     LensRequest? L => _req.LensFrames;
 
     LumenProfile Colour => _colour ??= LumenProfile.Compute(_lri);
@@ -63,8 +69,8 @@ internal sealed class VisualFormats
         var depthFormats = P?.Formats.Where(ParallaxFormats.NeedsDepth).ToList() ?? new List<ParallaxFormat>();
         bool wantDonors = P is not null && P.Fill == "donors" && depthFormats.Any(ParallaxFormats.CanUseDonors);
 
-        // The A-group colour modules: the wigglegram's frames and the donors. `Wigglegram.SelectModules` is the
-        // sweep order; the donors are the same set (every colour A module, the reference included so the
+        // The A-group color modules: the wigglegram's frames and the donors. `Wigglegram.SelectModules` is the
+        // sweep order; the donors are the same set (every color A module, the reference included so the
         // wigglegram can use it — the donor build itself drops the reference).
         IReadOnlyList<string> group = Wigglegram.SelectModules(_lri, 0, includeMono: false);
         string[]? wiggleOrder = null;
@@ -79,13 +85,12 @@ internal sealed class VisualFormats
         // ---- the module renders, one per (module, frame, ISP config), fed to every consumer
         var wiggleFrames = new Dictionary<string, Wigglegram.Frame>();
         var donorNative = new Dictionary<string, Rgba>();
-        var jobs = new List<(string Name, LriFile.ModuleRef Ref, int Frame, int Level, RendererProfile Profile, float Ev, ulong ExpRef, bool Lens, bool Group)>();
+        var jobs = new List<(string Name, LriFile.ModuleRef Ref, int Frame, int Level, RendererProfile Profile, float Ev, ModuleRender.Exposure ExpRef, bool Lens, bool Group)>();
         if (L is { } l)
         {
-            // `lens-frames` normalises every module to A1's exposure (the longest in the capture when A1 is absent),
-            // as `lenses` always did; the A-group formats use the reference module's, which is the same exposure on
-            // every capture that has an A group at all.
-            ulong expA1 = ModuleRender.ExposureReference(_lri, "A1");
+            // `lens-frames` normalizes every module to the exposure of A1: its exposure time and its analog gain. When A1 is absent,
+            // the reference is the module with the largest product of the two. The A-group formats use the reference module's exposure.
+            var expA1 = ModuleRender.ExposureReference(_lri, "A1");
             bool allF = string.Equals(l.Stack, "all", StringComparison.OrdinalIgnoreCase);
             int? oneF = !allF && l.Stack is not null ? int.Parse(l.Stack) : null;
             foreach (var (name, _) in _lri.Modules.OrderBy(k => k.Key))
@@ -99,7 +104,7 @@ internal sealed class VisualFormats
         }
         if (wantWiggle || wantDonors)
         {
-            ulong expRef = ModuleRender.ExposureReference(_lri, _lri.ReferenceModule);
+            var expRef = ModuleRender.ExposureReference(_lri, _lri.ReferenceModule);
             var names = wantWiggle ? wiggleOrder!.Union(wantDonors ? group : Array.Empty<string>()) : group;
             foreach (var name in names)
             {
@@ -153,7 +158,7 @@ internal sealed class VisualFormats
             donors = Fill.Build(src, _lri, session.Registration(), donorNative, _log);
             _log?.Invoke($"{donors.Count} real donor viewpoints prepared in {_sw.Elapsed.TotalSeconds:F1}s");
         }
-        var pairs = new Dictionary<double, (Rgba L, Rgba R)>();   // one synthesised stereo pair per interocular distance
+        var pairs = new Dictionary<double, (Rgba L, Rgba R)>();   // one synthesized stereo pair per interocular distance
         _session?.Progress.Begin("parallax", depthFormats.Count);
         foreach (var f in depthFormats)
         {
@@ -179,7 +184,7 @@ internal sealed class VisualFormats
                 case ParallaxFormat.Sbs:
                 {
                     // --parallax-ipd applies to all three; without it each keeps its own default (25 mm for the
-                    // anaglyph, 63 for the pairs), so a run asking for both synthesises two pairs
+                    // anaglyph, 63 for the pairs), so a run asking for both synthesizes two pairs
                     double ipd = P.Ipd ?? ParallaxFormats.DefaultIpd(f);
                     if (!pairs.TryGetValue(ipd, out var pair)) pairs[ipd] = pair = ParallaxRender.StereoPair(src, P, ipd, donors, _log);
                     Rgba img = f switch
@@ -249,7 +254,7 @@ internal sealed class VisualFormats
             // from what remains: the B and C modules are mosaic tiles aimed at different parts of the scene to be
             // stitched, not alternative viewpoints of one framing, so sweeping them yields no parallax.
             bool noA = !_lri.Modules.Any(m => Wigglegram.Group((int)m.Value.Module.Id) == 0);
-            refusal = $"parallax-wiggle: need at least 2 colour modules in group A, found {chosen.Length}."
+            refusal = $"parallax-wiggle: need at least 2 color modules in group A, found {chosen.Length}."
                     + (noA ? $"\n       This capture has no A-group modules (reference {_lri.ReferenceModule}, "
                            + $"{_lri.Header.ImageFocalLength} mm) — it is a telephoto frame, whose B/C modules are mosaic\n"
                            + "       tiles of different parts of the scene rather than offset views of the same one.\n"

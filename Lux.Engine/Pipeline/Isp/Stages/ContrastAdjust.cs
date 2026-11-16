@@ -58,5 +58,5 @@ public sealed class ContrastAdjustStage : IStage
     /// Reached when `contrast_adjust.value ≠ 0`, i.e. the contrast setting (ParamFloat 7).</summary>
     static double Exp2Double(double x) => WineCrt.Exp2(x);
     /// <summary>UCRT `log2f`. `log2f(0.217f)` is a compile-time-constant argument here.</summary>
-    static float Log2f(float x) => WineCrt.Log2f(x);   // CRT log2f; MathF.Log2 equals it on every non-NaN float (it quiets signalling NaNs)
+    static float Log2f(float x) => WineCrt.Log2f(x);   // CRT log2f; MathF.Log2 equals it on every non-NaN float (it quiets signaling NaNs)
 }

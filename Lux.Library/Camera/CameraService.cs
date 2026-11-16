@@ -992,7 +992,7 @@ public sealed class CameraService : ICameraService, ICameraImporter
                 await Task.Delay(500).ConfigureAwait(false);   // a scan the folder watcher started meanwhile is picked up in the next round
             }
             Log($"import: {ids.Count} of {summary.Files.Count} files found in the library");
-            // the analysis chosen follows a complete import (a stopped or cancelled one is in the library; continuing it queues the analysis)
+            // the analysis chosen follows a complete import (a stopped or canceled one is in the library; continuing it queues the analysis)
             if (summary.State == CameraImportState.Complete)
             {
                 var items = ids.Select(_lib.Get).Where(c => c is not null).Select(c => c!).ToList();

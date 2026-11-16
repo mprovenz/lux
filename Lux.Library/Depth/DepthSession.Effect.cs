@@ -145,7 +145,7 @@ internal sealed partial class DepthSession
         return DepthOverlay.Make(_lv, depth, range, _shade, sel, prev, _editSize, _selColour);
     }
 
-    /// <summary>Put the overlay of the present settings in place: committed = everything re-rendered (a mode or colour change), else only
+    /// <summary>Put the overlay of the present settings in place: committed = everything re-rendered (a mode or color change), else only
     /// <paramref name="rect"/> (a stroke preview, the selection after a stroke).</summary>
     void UpdateOverlay(bool committed, NormRect? rect)
     {

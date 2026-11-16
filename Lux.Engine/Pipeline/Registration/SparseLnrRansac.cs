@@ -7,7 +7,7 @@ namespace Lux.Engine.Pipeline.Registration;
 /// </summary>
 public static class SparseLnrRansac
 {
-    /// <summary>Accumulated (feature-normalised, match-normalised) pairs per level for a view.</summary>
+    /// <summary>Accumulated (feature-normalized, match-normalized) pairs per level for a view.</summary>
     public sealed class ViewPoints
     {
         public List<(float X, float Y)>[] Src, Dst;

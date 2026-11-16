@@ -284,9 +284,9 @@ public sealed class DenseLayer
         }
         _RangeS[cur * _halfR + slot] = (ushort)start; _RangeC[cur * _halfR + slot] = (ushort)cap;
     }
-    // Neighbour-block reads run up to 8 lanes past a path block (`Lp = N[q+1..q+8]`, whatever is in the buffer). Inside the
+    // Neighbor-block reads run up to 8 lanes past a path block (`Lp = N[q+1..q+8]`, whatever is in the buffer). Inside the
     // allocation that is the next block / the next half (the array is laid out exactly like Lumen's, so the same words are read); past the
-    // END of the allocation — the margin slot w+1 of half B, i.e. the up-right neighbour of the last column on an odd row whose padding
+    // END of the allocation — the margin slot w+1 of half B, i.e. the up-right neighbor of the last column on an odd row whose padding
     // lanes (count..cap) reach beyond maxHi — Lumen reads the zero-filled pages behind its buffer, so `m = 0` and the lane's path cost
     // saturates to 0. With the 2000 guard there, `L = raw` instead (+255 per visit; pass 1 visits the last column twice), and the WTA
     // of the cells that the up-right path feeds changes.

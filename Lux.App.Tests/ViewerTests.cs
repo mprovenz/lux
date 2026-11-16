@@ -12,7 +12,7 @@ using NormRect = Lux.Library.NormRect;
 
 namespace Lux.App.Tests;
 
-/// <summary>A tile source the test drives by hand: it records requests and delivers the tiles the test pushes (solid colours).</summary>
+/// <summary>A tile source the test drives by hand: it records requests and delivers the tiles the test pushes (solid colors).</summary>
 public sealed class ScriptedTileSource : ITileSource
 {
     Pyramid _p;
@@ -70,7 +70,7 @@ public sealed class ScriptedTileSource : ITileSource
     }
 }
 
-/// <summary>The viewer's arithmetic and behaviour: zoom / pan maths, clamping, high DPI, visible-rectangle requests, progressive swap without
+/// <summary>The viewer's arithmetic and behavior: zoom / pan math, clamping, high DPI, visible-rectangle requests, progressive swap without
 /// gaps, stale tiles dropped, the memory bound, geometry changes.</summary>
 public sealed class ViewerTests
 {
@@ -90,7 +90,7 @@ public sealed class ViewerTests
         Dispatcher.UIThread.RunJobs();
     }
 
-    // ------------------------------------------------------------------------------------------------ pure maths
+    // ------------------------------------------------------------------------------------------------ pure math
 
     [Fact]
     public void Zoom_about_a_point_keeps_it_fixed_and_offsets_clamp()
@@ -103,7 +103,7 @@ public sealed class ViewerTests
         var back = (anchor - off2) / s1;
         Assert.Equal(img.X, back.X, 9);
         Assert.Equal(img.Y, back.Y, 9);
-        // smaller than the view: centred; larger: no margin either side
+        // smaller than the view: centered; larger: no margin either side
         var c = ViewerMath.ClampOffset(new Vector(50, 50), 0.1, new Size(8320, 6240), new Size(1000, 750));
         Assert.Equal((1000 - 832) / 2.0, c.X, 6);
         Assert.Equal((750 - 624) / 2.0, c.Y, 6);
@@ -268,7 +268,7 @@ public sealed class ViewerTests
         src.DeliverNeeded(Colors.Red);
         Pump(win);
         Assert.Equal(3, v.LevelOnScreen);
-        // 1:1 at the centre: level 0, the visible 1000 × 750 picture pixels about the centre, only the tiles there
+        // 1:1 at the center: level 0, the visible 1000 × 750 picture pixels about the center, only the tiles there
         v.ZoomToActual(new Point(500, 375));
         Pump(win);
         var r = src.Requests.Last();
@@ -455,7 +455,7 @@ public sealed class ViewerTests
 }
 
 /// <summary>The tile-swap policy: a new version replaces the picture as a whole while dragging and when it is quick;
-/// otherwise centre-outwards with a short fade; never a patchwork of versions.</summary>
+/// otherwise center-outwards with a short fade; never a patchwork of versions.</summary>
 public sealed class TileSwapTests
 {
     static async Task<(Harness H, Lux.App.Viewer.PhotoViewer V, Lux.App.Fake.FakeDevelopSession S)> Open(Lux.App.Fake.FakeTimings timings)
@@ -517,7 +517,7 @@ public sealed class TileSwapTests
         Xunit.Assert.True(v.Stats.FadedTiles > 0, $"mixed {v.Stats.MixedFrames} swaps {v.Stats.Swaps} held {v.Stats.HeldFrames} faded {v.Stats.FadedTiles}");   // then tiles fade in as they come
         // after the window the new version's whole coarse picture stands in where the sharp tiles have not come yet: never old next to new
         Xunit.Assert.True(v.Stats.MixedFrames == 0, $"mixed {v.Stats.MixedFrames}");
-        // the fake renders the visible tiles from the centre outwards
+        // the fake renders the visible tiles from the center outwards
         var req = s.FakeTiles.Requests.Last(r => r.Level == 1);
         await h.SettlePictureAsync(() => v.Stats.Swaps > 0, timeoutMs: 15000);
         Xunit.Assert.True(v.Stats.Swaps > 0);

@@ -68,19 +68,19 @@
             </Grid>
             <Grid ColumnDefinitions="110,*,Auto" ColumnSpacing="12" IsVisible="{Binding IsRack}">
               <TextBlock Text="Focus from" VerticalAlignment="Center" />
-              <TextBox Grid.Column="1" Classes="mono" Text="{Binding FocusFromText}" Watermark="near · metres" AutomationProperties.Name="Focus from, metres" />
+              <TextBox Grid.Column="1" Classes="mono" Text="{Binding FocusFromText}" Watermark="near · meters" AutomationProperties.Name="Focus from, meters" />
               <Button Grid.Column="2" Content="Pick" Classes.primary="{Binding IsPickingFrom}" Command="{Binding PickFromCommand}" Padding="14,0"
                       ToolTip.Tip="Click the photo where the focus starts" AutomationProperties.Name="Pick the start on the photo" />
             </Grid>
             <Grid ColumnDefinitions="110,*,Auto" ColumnSpacing="12" IsVisible="{Binding IsRack}">
               <TextBlock Text="Focus to" VerticalAlignment="Center" />
-              <TextBox Grid.Column="1" Classes="mono" Text="{Binding FocusToText}" Watermark="far · metres" AutomationProperties.Name="Focus to, metres" />
+              <TextBox Grid.Column="1" Classes="mono" Text="{Binding FocusToText}" Watermark="far · meters" AutomationProperties.Name="Focus to, meters" />
               <Button Grid.Column="2" Content="Pick" Classes.primary="{Binding IsPickingTo}" Command="{Binding PickToCommand}" Padding="14,0"
                       ToolTip.Tip="Click the photo where the focus ends" AutomationProperties.Name="Pick the end on the photo" />
             </Grid>
             <Grid ColumnDefinitions="110,*,Auto" ColumnSpacing="12" IsVisible="{Binding IsAperture}">
               <TextBlock Text="Focus" VerticalAlignment="Center" />
-              <TextBox Grid.Column="1" Classes="mono" Text="{Binding FocusText}" Watermark="as the camera focused" AutomationProperties.Name="Focus, metres" />
+              <TextBox Grid.Column="1" Classes="mono" Text="{Binding FocusText}" Watermark="as the camera focused" AutomationProperties.Name="Focus, meters" />
               <Button Grid.Column="2" Content="Pick" Classes.primary="{Binding IsPickingFocus}" Command="{Binding PickFocusCommand}" Padding="14,0"
                       ToolTip.Tip="Click the photo where it stays sharp" AutomationProperties.Name="Pick the focus on the photo" />
             </Grid>
@@ -91,7 +91,7 @@
             <Grid ColumnDefinitions="110,*" ColumnSpacing="12" IsVisible="{Binding IsParallax}">
               <TextBlock Text="Movement" VerticalAlignment="Center" />
               <Grid Grid.Column="1" ColumnDefinitions="*,Auto">
-                <Slider Minimum="20" Maximum="150" SmallChange="1" LargeChange="10" Value="{Binding Amplitude}" AutomationProperties.Name="Movement, millimetres" />
+                <Slider Minimum="20" Maximum="150" SmallChange="1" LargeChange="10" Value="{Binding Amplitude}" AutomationProperties.Name="Movement, millimeters" />
                 <TextBlock Grid.Column="1" Classes="mono" Text="{Binding AmplitudeText}" VerticalAlignment="Center" Margin="12,0,0,0" MinWidth="56" />
               </Grid>
             </Grid>
@@ -119,8 +119,8 @@
             <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Sizes}" SelectedItem="{Binding Size}" AutomationProperties.Name="Size" />
             <TextBlock Grid.Row="2" Text="File type" VerticalAlignment="Center" />
             <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding Formats}" SelectedItem="{Binding Format}" AutomationProperties.Name="File type" />
-            <TextBlock Grid.Row="3" Text="GIF colours" VerticalAlignment="Center" IsVisible="{Binding IsGif}" />
-            <ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding Dithers}" SelectedItem="{Binding Dither}" IsVisible="{Binding IsGif}" AutomationProperties.Name="GIF colours" />
+            <TextBlock Grid.Row="3" Text="GIF colors" VerticalAlignment="Center" IsVisible="{Binding IsGif}" />
+            <ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding Dithers}" SelectedItem="{Binding Dither}" IsVisible="{Binding IsGif}" AutomationProperties.Name="GIF colors" />
             <TextBlock Grid.Row="4" Text="Folder" VerticalAlignment="Center" />
             <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto">
               <TextBox Classes="tall mono" Text="{Binding Folder}" AutomationProperties.Name="Animation folder" />

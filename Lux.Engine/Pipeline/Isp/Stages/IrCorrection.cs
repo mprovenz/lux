@@ -169,7 +169,7 @@ public static class IrCorrection
         return v2 * inv + v0 * inv;
     }
 
-    /// <summary>The fit: the blend p ∈ {k/19} minimising the score, or −1 when the C map scores better under
+    /// <summary>The fit: the blend p ∈ {k/19} minimizing the score, or −1 when the C map scores better under
     /// 3000 ≤ CCT &lt; 5000 and 2504070 ≤ light &lt; 6504070.</summary>
     public static float FitBlend(float[] nodes, int cols, int rows, int cameraId, float cct, float light, int sensorType, bool flag)
     {

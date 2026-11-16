@@ -177,7 +177,7 @@ public sealed class RealCameraTests
         // (byte-identity with the camera is checked with lux-light pull and a second read)
         M5.Record("real-import-files.txt", string.Join(" ", job.ResultFiles));
 
-        // the destination joins the library; the scan identifies the captures; the analysis is queued for each (held, then cancelled)
+        // the destination joins the library; the scan identifies the captures; the analysis is queued for each (held, then canceled)
         var ids = new List<string>();
         Assert.True(await Until(() =>
         {

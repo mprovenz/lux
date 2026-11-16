@@ -4,7 +4,7 @@ using Lux.Engine.Pipeline.Color;
 namespace Lux.Engine.Pipeline;
 
 /// <summary>
-/// Lumen's tone and colour adjustments — the editor's seven sliders (exposure, contrast, temperature, tint, vibrance,
+/// Lumen's tone and color adjustments — the editor's seven sliders (exposure, contrast, temperature, tint, vibrance,
 /// saturation, sharpening) and the three further renderer settings Lumen's interface never shows (shadows, highlights,
 /// clarity) — as one plain value, with exactly what Lumen does with each.
 ///
@@ -46,6 +46,14 @@ public sealed record Adjustments
     /// <summary>ParamFloat 13, [−100, 100]. `tone_mapping.sharpening` = value / (value &gt; 0 ? 5 : 33) (slot 11, PostProcessing).
     /// Default 5 = what Lumen's renderers carry (`CIAPI::ApplyTuning(0)` writes it), i.e. sharpening 1.0.</summary>
     public float Sharpening { get; init; } = GuiSharpening;
+    /// <summary>The response to <see cref="Sharpening"/>. False = Lumen's response at each value (the default; a Lumen session renders as in
+    /// Lumen). True = the monotone response of Lux (<see cref="Isp.Stages.PostProcessingLumen.MonotoneSharpenSigmas"/>): a larger value never
+    /// sharpens less, and a negative value softens at each image size.
+    /// <para>The two responses give the same picture for 0 to 20 at each export level, for 20 to 100 at levels 0 and 1, and for negative
+    /// values at level 0 (full size). They differ only where Lumen's response fails: above 20 at levels 2 to 4 (Lumen's Gaussian radii
+    /// go below one pixel and the sharpening decreases), and below 0 at levels 1 to 4 (Lumen's blur radius decreases faster than the
+    /// image).</para></summary>
+    public bool MonotoneSharpening { get; init; }
     /// <summary>ParamFloat 5 (`shadow_boost`), [−100, 100]. `tone_adjust.lpyr_shadows` = value · (−0.01) + 1 (slot 13, ToneAdjust).</summary>
     public float Shadows { get; init; }
     /// <summary>ParamFloat 6 (`highlight_boost`), [−100, 100]. `tone_adjust.lpyr_highlights` = value · (−0.01) + 1 (slot 13).</summary>
@@ -99,7 +107,7 @@ public sealed record Adjustments
 
     /// <summary>
     /// The white-balance branch of the setting mappers: xy of (temp, tint), the ColorMatrix interpolated at <b>temp itself</b>
-    /// (another Lumen path first converts the xy back to a CCT), `n = M·XYZ(xy)` normalised by its G.
+    /// (another Lumen path first converts the xy back to a CCT), `n = M·XYZ(xy)` normalized by its G.
     /// </summary>
     public static float[] NeutralFromTempTint(float temp, float tint, LumenProfile p)
     {
@@ -144,6 +152,7 @@ public sealed record Adjustments
         if (Shadows != 0f) t.Set("tone_adjust.lpyr_shadows", (double)ShadowsKey(Shadows));
         if (Clarity != 0f) t.Set("tone_adjust.lpyr_clarity", (double)ClarityKey(Clarity));
         t.Set("tone_mapping.sharpening", (double)SharpeningKey(Sharpening));
+        if (MonotoneSharpening) t.Set(Isp.Stages.PostProcessingStage.MonotoneSharpeningKey, 1.0);   // a Lux key; absent = Lumen's response
         if (neutral is not null) t.Set("auto_white_balance.neutral_color", neutral.Select(v => (double)v).ToArray());
         return t;
     }
@@ -199,7 +208,7 @@ public sealed record Adjustments
         var (t0, u0) = CaptureWhiteBalance(wb);
         bool wbA = a.PushesWhiteBalance(wb), wbB = b.PushesWhiteBalance(wb);
         if (wbA != wbB || (wbA && ((a.Temperature ?? t0) != (b.Temperature ?? t0) || (a.Tint ?? u0) != (b.Tint ?? u0)))) return 0;   // slot 2
-        if (a.Saturation != b.Saturation || a.Vibrance != b.Vibrance || SharpeningKey(a.Sharpening) != SharpeningKey(b.Sharpening)) return 2;   // slot 11
+        if (a.Saturation != b.Saturation || a.Vibrance != b.Vibrance || SharpeningKey(a.Sharpening) != SharpeningKey(b.Sharpening) || a.MonotoneSharpening != b.MonotoneSharpening) return 2;   // slot 11
         if (a.Shadows != b.Shadows || a.Highlights != b.Highlights || a.Clarity != b.Clarity) return 4;   // slot 13
         if (a.Contrast != b.Contrast) return 5;   // slot 14
         if (a.Exposure != b.Exposure) return 6;   // slot 15
@@ -210,7 +219,7 @@ public sealed record Adjustments
     {
         static string F(float v) => v.ToString("R", CultureInfo.InvariantCulture);
         return $"exposure {F(Exposure)} contrast {F(Contrast)} temperature {(Temperature is float t ? F(t) : "as shot")} tint {(Tint is float u ? F(u) : "as shot")}{(WhiteBalancePushed ? " (white balance pushed)" : "")} " +
-               $"vibrance {F(Vibrance)} saturation {F(Saturation)} sharpening {F(Sharpening)} shadows {F(Shadows)} highlights {F(Highlights)} clarity {F(Clarity)}";
+               $"vibrance {F(Vibrance)} saturation {F(Saturation)} sharpening {F(Sharpening)}{(MonotoneSharpening ? " (monotone)" : "")} shadows {F(Shadows)} highlights {F(Highlights)} clarity {F(Clarity)}";
     }
 
     /// <summary>Parse "exposure=1,contrast=-20,temperature=4500,…" (the names of the properties, case-insensitive; also the

@@ -12,7 +12,7 @@ namespace Lux.Cli;
 ///
 /// The recipes are not ffmpeg's defaults, and the differences were measured on this material:
 /// * GIF gets **one global palette** (`palettegen=stats_mode=full` over the whole sequence). Per-frame palettes shift
-///   the colours between frames, which on a short loop reads as flicker rather than as parallax.
+///   the colors between frames, which on a short loop reads as flicker rather than as parallax.
 /// * GIF gets **Bayer dithering**, not error diffusion. Error diffusion is dithered per frame, so its pattern crawls:
 ///   measured bayer 33.6 dB vs sierra 31.6 dB, a smaller file, and bayer *reduced* the frame-to-frame delta by 0.19
 ///   where sierra *added* 0.37.
@@ -89,7 +89,7 @@ public static class Animation
     }
 
     /// <summary>Ping-pong: play out and back, minus the repeated endpoints. A straight loop snaps across the whole
-    /// baseline in one frame, which is the artefact a sweep order exists to avoid.</summary>
+    /// baseline in one frame, which is the artifact a sweep order exists to avoid.</summary>
     public static List<Rgba> Boomerang(IReadOnlyList<Rgba> f)
     {
         if (f.Count < 3) return f.ToList();

@@ -57,7 +57,7 @@ public partial class CameraView : UserControl
         }
     }
 
-    /// <summary>The cell of a capture when it is realised (tests).</summary>
+    /// <summary>The cell of a capture when it is realized (tests).</summary>
     public Control? CellOf(CameraItemViewModel item) =>
         CameraRows.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => b.Classes.Contains("camcell") && ReferenceEquals(b.DataContext, item));
 }

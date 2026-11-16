@@ -95,7 +95,7 @@
                     ToolTip.Tip="Keep a full-detail render of the selected captures: full-size exports and zoomed views start at once" />
             <Button Content="Release full detail" Command="{Binding ReleaseSelectedCommand}" ToolTip.Tip="Go back to the 13 MP working copy and free the space" />
             <Button Content="Copy adjustments" Command="{Binding CopyAdjustmentsCommand}" IsEnabled="{Binding CanCopyAdjustments}"
-                    ToolTip.Tip="Copy the tone, colour, crop or rotation of one photo (choose which)" ToolTip.ShowOnDisabled="True" />
+                    ToolTip.Tip="Copy the tone, color, crop or rotation of one photo (choose which)" ToolTip.ShowOnDisabled="True" />
             <Button Content="{Binding PasteLabel}" Command="{Binding PasteAdjustmentsCommand}" IsEnabled="{Binding CanPasteAdjustments}"
                     ToolTip.Tip="Paste the copied adjustments to the selected photos (undo from the notice)" ToolTip.ShowOnDisabled="True" />
             <Button Content="Apply preset" IsEnabled="{Binding HasPresets}" ToolTip.Tip="Apply a saved preset to the selected photos (undo from the notice)"

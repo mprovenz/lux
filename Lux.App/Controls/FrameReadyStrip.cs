@@ -22,7 +22,7 @@ public sealed class FrameReadyStrip : Control
     public override void Render(DrawingContext context)
     {
         if (Ready is not { Count: > 0 } r || Bounds.Width <= 0) return;
-        // the slider's thumb centre runs from half a thumb in from each end
+        // the slider's thumb center runs from half a thumb in from each end
         const double inset = 10;
         double w = Math.Max(1, Bounds.Width - 2 * inset), step = r.Count > 1 ? w / (r.Count - 1) : w;
         for (int i = 0; i < r.Count; i++)

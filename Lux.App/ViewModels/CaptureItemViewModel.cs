@@ -32,7 +32,7 @@ public sealed class CaptureItemViewModel : ObservableObject
         if (thumbChanged) ThumbVersion++;
     }
 
-    /// <summary>A job of this capture started or ended (the cache tag says "queued" / "analysing").</summary>
+    /// <summary>A job of this capture started or ended (the cache tag says "queued" / "analyzing").</summary>
     public void JobStateChanged()
     {
         OnPropertyChanged(nameof(CacheTag));
@@ -112,13 +112,21 @@ public sealed class CaptureItemViewModel : ObservableObject
         _ => _item.IsStacked ? $"stack ×{_item.StackFrames}" : Text.Lens(_item.FocalLengthMm),
     };
 
+    /// <summary>The camera moved during the exposure (a hint from its motion sensor, not a measurement of the picture).</summary>
+    public bool PossiblyBlurred => _item.PossiblyBlurred && !HasProblem;
+    public const string BlurTip = "Possibly blurred: the camera moved during the exposure. Check the photo at full size.";
+    /// <summary>The note of the details panel: the hint with the predicted size of the blur. Null when the photo is not marked.</summary>
+    public string? BlurNote => PossiblyBlurred
+        ? $"Possibly blurred: the camera's motion sensor predicts a blur of about {Math.Round(_item.PredictedBlurPixels ?? 0)} pixels at full size. Check the photo at full size."
+        : null;
+
     /// <summary>Grid corner tag: FULL / 13 / GEO / ···.</summary>
     public string CacheTag => ActiveState is not null && _item.CacheLevel < CacheLevel.Linear13 ? "···" : Text.CacheTag(_item.CacheLevel);
 
-    /// <summary>Timeline card: FULL / 13 MP / queued / analysing / none.</summary>
+    /// <summary>Timeline card: FULL / 13 MP / queued / analyzing / none.</summary>
     public string CacheWord => ActiveState switch
     {
-        JobState.Running when _queue.ActiveKindOf(_item.Id) == JobKind.Analysis => "analysing",
+        JobState.Running when _queue.ActiveKindOf(_item.Id) == JobKind.Analysis => "analyzing",
         JobState.Running when _queue.ActiveKindOf(_item.Id) == JobKind.CacheUpgrade => "upgrading",
         JobState.Waiting or JobState.Paused when _item.DepthState != DepthState.Analysed => "queued",
         _ => Text.CacheWord(_item.CacheLevel),
@@ -134,6 +142,7 @@ public sealed class CaptureItemViewModel : ObservableObject
             if (_item.Edits.Source == EditSource.Lux) parts.Add("edited");
             else if (_item.Edits.Source == EditSource.Lumen) parts.Add("Lumen");
             if (_item.Missing) parts.Add("missing");
+            if (PossiblyBlurred) parts.Add("possibly blurred");
             return string.Join(" · ", parts);
         }
     }
@@ -158,13 +167,13 @@ public sealed class CaptureItemViewModel : ObservableObject
 
     public string DepthText => _item.Unreadable ? "Can't read" : _item.Missing ? "Missing" : ActiveState switch
     {
-        JobState.Running when _queue.ActiveKindOf(_item.Id) == JobKind.Analysis => "Analysing",
+        JobState.Running when _queue.ActiveKindOf(_item.Id) == JobKind.Analysis => "Analyzing",
         JobState.Waiting or JobState.Paused when _item.DepthState != DepthState.Analysed => "Queued",
         _ => _item.DepthState switch
         {
             DepthState.Analysed => _item.Edits.Source == EditSource.Lumen ? "From Lumen" : "Ready",
             DepthState.Failed => "Failed",
-            _ => "Not analysed",
+            _ => "Not analyzed",
         },
     };
 

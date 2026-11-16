@@ -87,8 +87,8 @@ public sealed class QualityChanges
             text = target == ViewQuality.FullDetail
                 ? (n == 1 ? $"Full detail keeps a larger copy of this photo: about {Text.Mb(bytes)} more on disk. Full-size exports and close-up views then start at once."
                           : $"Full detail keeps larger copies of these {Text.Number(n)} photos: about {Text.Mb(bytes)} more on disk in all. Full-size exports and close-up views then start at once.")
-                : (n == 1 ? $"The 13 MP copy is kept after this photo is analysed: about {Text.Mb(bytes)} on disk. The photo then opens straight away and the depth tools are ready."
-                          : $"The 13 MP copies are kept after these {Text.Number(n)} photos are analysed: about {Text.Mb(bytes)} on disk in all. They then open straight away and the depth tools are ready.");
+                : (n == 1 ? $"The 13 MP copy is kept after this photo is analyzed: about {Text.Mb(bytes)} on disk. The photo then opens straight away and the depth tools are ready."
+                          : $"The 13 MP copies are kept after these {Text.Number(n)} photos are analyzed: about {Text.Mb(bytes)} on disk in all. They then open straight away and the depth tools are ready.");
             action = target == ViewQuality.FullDetail ? "Keep full detail" : "Keep 13 MP";
         }
         else

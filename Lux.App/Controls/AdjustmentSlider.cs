@@ -21,7 +21,7 @@ public interface IAdjustmentSliderTarget
 }
 
 /// <summary>
-/// A tone / colour slider in the Studio style: a thin track, an accent fill from the default value to the current one, a round thumb. A press
+/// A tone / color slider in the Studio style: a thin track, an accent fill from the default value to the current one, a round thumb. A press
 /// starts a drag (the picture follows at a lower level, no history step), moves drag, the release commits one step. Keys: ← → one step,
 /// Shift ten steps, Home / End the ends; key presses within 0.6 s count as one drag (one history step). Optional gradient track (temperature
 /// blue → yellow, tint green → magenta, as Lumen's). Never waits for anything: it only calls its target.

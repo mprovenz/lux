@@ -18,7 +18,7 @@ internal sealed record FakeEffect(double FNumber, double OffFNumber, double Focu
 }
 
 /// <summary>Paints a fake tile with the depth effect: the sharp tile with a margin, a ladder of blurred copies, and per pixel the copy whose
-/// radius matches the depth's blur (blended between neighbouring rungs).</summary>
+/// radius matches the depth's blur (blended between neighboring rungs).</summary>
 internal static class FakeEffectRender
 {
     static readonly double[] Rungs = { 0, 1, 2, 4, 8, 16, 24 };

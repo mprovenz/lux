@@ -38,7 +38,7 @@ public static class SparseLnrPyramid
         return pyr;
     }
 
-    /// <summary>`ImageGaussianFilterAndSubSample&lt;vec4x8ui&gt;`: output (X,Y) ← centre (2X,2Y), 5 taps, source-rect clamp.</summary>
+    /// <summary>`ImageGaussianFilterAndSubSample&lt;vec4x8ui&gt;`: output (X,Y) ← center (2X,2Y), 5 taps, source-rect clamp.</summary>
     public static PaddedRgba8 Downsample(PaddedRgba8 src, int pad)
     {
         int w = src.W, h = src.H, w2 = (w + 1) / 2, h2 = (h + 1) / 2;

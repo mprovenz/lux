@@ -24,7 +24,7 @@ public interface IContentHashCache
 /// <para><b>Resolution</b> (per file): reading looks next to the capture first, then in the local store (<see cref="LocalContextStore"/>;
 /// <see cref="LocalContextStore.Current"/> unless another is given). A file that does not exist yet is created next to the capture when the
 /// capture's folder can be written (a real write probe, cached per folder), else in the local store. Without a local store this is exactly
-/// the earlier behaviour (next to the capture only). Nothing here hashes the capture when no context data can exist for it.</para>
+/// the earlier behavior (next to the capture only). Nothing here hashes the capture when no context data can exist for it.</para>
 /// </summary>
 public sealed class ImageContext
 {

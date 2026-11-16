@@ -8,7 +8,7 @@ using HistoryKind = Lux.App.Develop.HistoryKind;
 namespace Lux.App.ViewModels;
 
 /// <summary>
-/// One tone / colour row: label (double-click → default), slider, numeric value (typed values commit on Enter, Esc reverts). The slider's
+/// One tone / color row: label (double-click → default), slider, numeric value (typed values commit on Enter, Esc reverts). The slider's
 /// drag goes to the session's drag calls — the picture follows at a lower level and the release makes one history step; nothing here waits.
 /// </summary>
 public sealed partial class AdjustmentRowViewModel : ObservableObject, IAdjustmentSliderTarget
@@ -151,7 +151,7 @@ public sealed partial class ToolViewModel(string name, string key, string tip, b
     [ObservableProperty] string _tip = tip;
     public bool IsAvailable { get; } = available;
     [ObservableProperty] bool _isActive;
-    /// <summary>The depth map is not ready: the row is dimmed (a click explains why and offers "Analyse now").</summary>
+    /// <summary>The depth map is not ready: the row is dimmed (a click explains why and offers "Analyze now").</summary>
     [ObservableProperty] bool _isDimmed;
 }
 
@@ -185,7 +185,7 @@ public sealed partial class SliderOption(string key, string name, string detail,
     [ObservableProperty] bool _isOn = on && available;
 }
 
-/// <summary>A group check box of the copy / paste / preset dialog; tone, colour and sharpening list their sliders under it (the group is
+/// <summary>A group check box of the copy / paste / preset dialog; tone, color and sharpening list their sliders under it (the group is
 /// ticked when all are, empty when none, mixed otherwise).</summary>
 public sealed partial class GroupOption : ObservableObject
 {
@@ -227,7 +227,7 @@ public sealed partial class GroupOption : ObservableObject
 public enum PatchKind { Copy, Paste, Preset }
 
 /// <summary>
-/// Lumen's patch dialog (copy adjustments / paste adjustments / save as preset): the groups to include — tone, colour, sharpening, rotation
+/// Lumen's patch dialog (copy adjustments / paste adjustments / save as preset): the groups to include — tone, color, sharpening, rotation
 /// and flip, crop — each with what it holds; a name for a preset.
 /// </summary>
 public sealed partial class PatchDialogViewModel : ObservableObject
@@ -257,7 +257,7 @@ public sealed partial class PatchDialogViewModel : ObservableObject
         Groups = new List<GroupOption>
         {
             new(EditGroups.Tone, "Tone", perSlider ? "" : Values(EditGroups.Tone), (preselect & EditGroups.Tone) != 0, Has(EditGroups.Tone), SlidersOf(EditGroups.Tone)),
-            new(EditGroups.Colour, "Colour", perSlider ? "" : Values(EditGroups.Colour), (preselect & EditGroups.Colour) != 0, Has(EditGroups.Colour), SlidersOf(EditGroups.Colour)),
+            new(EditGroups.Colour, "Color", perSlider ? "" : Values(EditGroups.Colour), (preselect & EditGroups.Colour) != 0, Has(EditGroups.Colour), SlidersOf(EditGroups.Colour)),
             new(EditGroups.Sharpening, "Sharpening", perSlider ? "" : Values(EditGroups.Sharpening), (preselect & EditGroups.Sharpening) != 0, Has(EditGroups.Sharpening), SlidersOf(EditGroups.Sharpening)),
             new(EditGroups.DepthEffect, "Depth effect", Has(EditGroups.DepthEffect) ? set.DepthEffectText : "Not carried",
                 (preselect & EditGroups.DepthEffect) != 0, Has(EditGroups.DepthEffect)),

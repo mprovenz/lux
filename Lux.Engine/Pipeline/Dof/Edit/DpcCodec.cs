@@ -14,7 +14,7 @@ namespace Lux.Engine.Pipeline.Dof.Edit;
 ///   chunk "strp": size 0                             strips follow; without it one "data" chunk holds the whole image
 ///   n × chunk "data": size = the bytes of one PNG    n = <see cref="StripCount"/>(height); every strip is 128 rows, the last takes the rest
 /// </code>
-/// A strip is a complete PNG file — 16-bit greyscale, written and read with libpng 1.6.34's simplified API as `PNG_FORMAT_LINEAR_Y`
+/// A strip is a complete PNG file — 16-bit grayscale, written and read with libpng 1.6.34's simplified API as `PNG_FORMAT_LINEAR_Y`
 /// (`png_image_begin_read_from_memory`, format 4, `png_image_finish_read`); its samples are the depth codes, unchanged.
 /// A code is an index into a table of 16384 depths that are <b>uniform in inverse depth</b> between 1/200 and 1/640000 mm⁻¹
 /// (<see cref="Table"/>); code 0xffff stands for 0. The writer picks the nearest table entry in inverse depth, so the format is lossy:
@@ -149,7 +149,7 @@ public static class DpcCodec
     }
 
     /// <summary>
-    /// The PNG subset the writer produces: 8-byte signature, IHDR (width, height, bit depth 16, colour type 0, no interlace), any ancillary
+    /// The PNG subset the writer produces: 8-byte signature, IHDR (width, height, bit depth 16, color type 0, no interlace), any ancillary
     /// chunks (gAMA 100000 and cHRM are present and change nothing: file and output are both linear), IDAT (zlib), IEND. Samples are
     /// big-endian 16-bit; the five row filters with a pixel stride of two bytes. Any other PNG (at best "failed to read compressed
     /// depth data" in Lumen) is rejected.
@@ -170,7 +170,7 @@ public static class DpcCodec
                 case 0x49484452: // IHDR
                     if (len != 13 || BinaryPrimitives.ReadUInt32BigEndian(body) != (uint)w || BinaryPrimitives.ReadUInt32BigEndian(body[4..]) != (uint)rows
                         || body[8] != 16 || body[9] != 0 || body[10] != 0 || body[11] != 0 || body[12] != 0)
-                        throw new InvalidDataException("depth strip is not a 16-bit greyscale PNG of the expected size");
+                        throw new InvalidDataException("depth strip is not a 16-bit grayscale PNG of the expected size");
                     header = true; break;
                 case 0x49444154: idat.Write(body); break; // IDAT
                 case 0x49454e44: end = true; break;       // IEND

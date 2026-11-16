@@ -11,7 +11,7 @@ namespace Lux.Library.Depth;
 /// <summary>
 /// The depth of one open photo (<see cref="IPhotoDepth"/>, <see cref="IDepthEdit"/>, <see cref="IPhotoHistory"/>): the engine's depth editor
 /// (<see cref="DepthEditor"/>, one per open photo and version) bound to the photo's edit database (<see cref="DepthEditPersistence"/>), its
-/// colour guide from the photo's own pipeline (<see cref="DepthEditColour"/>), and the render snapshot every depth reader of the photo's
+/// color guide from the photo's own pipeline (<see cref="DepthEditColour"/>), and the render snapshot every depth reader of the photo's
 /// engine session uses (<see cref="CaptureSession.UpdateDepth"/>). Everything that touches the editor runs on <see cref="DepthWorker"/>; readers
 /// (renders, the depth view, read-outs) only ever see immutable snapshots.
 /// </summary>
@@ -31,7 +31,7 @@ internal sealed partial class DepthSession : IPhotoDepth, IDepthEdit, IPhotoHist
     RectI? _changed;                    // depth-cache rect written by the running operation
     CancellationToken _tok;             // the running job's token, read by the editor's providers
     Action<double>? _solveProgress;     // the running edge heal's matting progress
-    (int W, int H) _cacheDims0;          // PipelineCache level dims at the base level (the canvas the point mapping normalises to)
+    (int W, int H) _cacheDims0;          // PipelineCache level dims at the base level (the canvas the point mapping normalizes to)
 
     /// <summary>The render snapshot (any thread).</summary>
     internal sealed record Snapshot(DepthImageCache Cache, DepthEditLayer Layer, DepthViewMapping Map, DepthRange Scene, DepthOrigin Origin, long Version);
@@ -93,7 +93,7 @@ internal sealed partial class DepthSession : IPhotoDepth, IDepthEdit, IPhotoHist
             _ => null,
         };
         if (title is null) return;
-        // the background jobs start again by themselves later: no stop offered for them; a cancellable foreground job can be stopped
+        // the background jobs start again by themselves later: no stop offered for them; a cancelable foreground job can be stopped
         long jobId = it.Id;
         _queueRow = _s.Lib.ActivityLog.Start(_s.CaptureId, title, it.Phase ?? "Working",
                                              it.CanCancel && !it.Background ? () => _worker.CancelJob(jobId) : null);
@@ -102,7 +102,7 @@ internal sealed partial class DepthSession : IPhotoDepth, IDepthEdit, IPhotoHist
     internal void Start()
     {
         _s.EditImpl.Changed += OnEditChanged;
-        // a photo whose depth is at hand (analysed, or a version with its own pinned depth) reads it in the background at once
+        // a photo whose depth is at hand (analyzed, or a version with its own pinned depth) reads it in the background at once
         var item = _s.Lib.Get(_s.CaptureId) ?? _s.Item;
         bool hasVersion = item.Edits.Variant is not null || _s.Engine.SavedState is not null;
         if (item.CacheLevel >= CacheLevel.Geometry || item.DepthState == DepthState.Analysed || hasVersion) StartAttach(analyse: false);
@@ -136,7 +136,7 @@ internal sealed partial class DepthSession : IPhotoDepth, IDepthEdit, IPhotoHist
         if (Status.Availability != DepthAvailability.Analysing) return;
         string phase = u.Phase.Length == 0 ? "" : char.ToUpperInvariant(u.Phase[0]) + u.Phase[1..];
         double? f = u.Total > 0 ? (double)u.Done / u.Total : null;
-        SetStatus(s => s with { ProgressText = "Analysing the photo: " + phase, Progress = f });
+        SetStatus(s => s with { ProgressText = "Analyzing the photo: " + phase, Progress = f });
     }
 
     public Task EnsureDepthAsync(CancellationToken cancel = default)
@@ -165,7 +165,7 @@ internal sealed partial class DepthSession : IPhotoDepth, IDepthEdit, IPhotoHist
             _ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         }
         SetStatus(s => s with { Availability = DepthAvailability.Analysing, Progress = null, Error = null,
-                                ProgressText = analyse ? "Analysing the photo" : "Reading the depth" });
+                                ProgressText = analyse ? "Analyzing the photo" : "Reading the depth" });
         var tcs = _ready;
         _worker.Enqueue("Reading the depth", c => { AttachJob(c, analyse); return new DepthJobResult(DepthJobOutcome.Done, null); }, cancellable: false);
         return tcs;
@@ -183,7 +183,7 @@ internal sealed partial class DepthSession : IPhotoDepth, IDepthEdit, IPhotoHist
                             || _s.Engine.CacheLevel >= CacheLevel.Geometry;
             if (!hasDepth)
             {
-                c.Report("Analysing the photo");
+                c.Report("Analyzing the photo");
                 if (!(_s.Engine.SavedState?.SessionGeometry is not null)) WaitForQueuedDepth(c);
             }
             c.Report("Reading the depth");
@@ -199,7 +199,7 @@ internal sealed partial class DepthSession : IPhotoDepth, IDepthEdit, IPhotoHist
     }
 
     /// <summary>The depth map is computed by a Queue job named after the photo (it shows, can be stopped and
-    /// follows the job limits) — before, the open photo computed it itself, out of sight (at the first depth tool, "Analyse now", the depth
+    /// follows the job limits) — before, the open photo computed it itself, out of sight (at the first depth tool, "Analyze now", the depth
     /// effect, a version switch). The job keeps it in the photo's cache and this session reads it from there. Worker thread.</summary>
     void WaitForQueuedDepth(DepthWorker.Ctx? c)
     {
@@ -218,7 +218,7 @@ internal sealed partial class DepthSession : IPhotoDepth, IDepthEdit, IPhotoHist
             bool running = info.State == JobState.Running;
             c?.Report(running ? $"Computing the depth map (in the Queue) · {(int)Math.Round(info.Progress * 100)} %" : "Waiting for the depth map (in the Queue)", running ? info.Progress : null);
             if (Status.Availability == DepthAvailability.Analysing)
-                SetStatus(st => st with { ProgressText = running ? "Analysing the photo (in the Queue)" : "Waiting in the Queue to analyse the photo", Progress = running ? info.Progress : null });
+                SetStatus(st => st with { ProgressText = running ? "Analyzing the photo (in the Queue)" : "Waiting in the Queue to analyze the photo", Progress = running ? info.Progress : null });
             Thread.Sleep(200);
         }
         _s.Engine.RefreshCache();
@@ -314,7 +314,7 @@ internal sealed partial class DepthSession : IPhotoDepth, IDepthEdit, IPhotoHist
         ScheduleReplay();
     }
 
-    /// <summary>The editor's providers, made stoppable: the colour guide and the matting check the running job's token (a provider may only
+    /// <summary>The editor's providers, made stoppable: the color guide and the matting check the running job's token (a provider may only
     /// stop an operation before it writes — the persistence then rolls the editor back, DepthEditor.RollBack).</summary>
     void Wire(DepthEditSession ses)
     {
@@ -419,7 +419,7 @@ internal sealed partial class DepthSession : IPhotoDepth, IDepthEdit, IPhotoHist
         var dims = _st!.Cache.LevelDims[cacheLevel];
         const int grow = 40;
         double u0 = (double)(r.X0 - grow) / dims.W, v0 = (double)(r.Y0 - grow) / dims.H, u1 = (double)(r.X1 + grow) / dims.W, v1 = (double)(r.Y1 + grow) / dims.H;
-        // canvas-normalised → export-window-normalised (level 1's window; the same frame at every level)
+        // canvas-normalized → export-window-normalized (level 1's window; the same frame at every level)
         int l = Math.Min(1, _lv.ExportDims.Length - 1); var pd = _lv.PipelineDims[l]; var o = _lv.Origins[l]; var (ew, eh) = _lv.ExportDims[l];
         double x0 = (u0 * pd.W - o.X) / ew, y0 = (v0 * pd.H - o.Y) / eh, x1 = (u1 * pd.W - o.X) / ew, y1 = (v1 * pd.H - o.Y) / eh;
         return _s.ViewImpl.CaptureRectToPicture(x0, y0, x1, y1);
@@ -439,7 +439,7 @@ internal sealed partial class DepthSession : IPhotoDepth, IDepthEdit, IPhotoHist
 
     // ================================================================================================================ the depth view
 
-    /// <summary>The depth view's pixels of a picture rect of a plan (the export resampler over Lux's grey depth on the export grid).</summary>
+    /// <summary>The depth view's pixels of a picture rect of a plan (the export resampler over Lux's gray depth on the export grid).</summary>
     internal byte[] RenderDepthView(PictureRenderer.Plan p, RectI pr, CancellationToken tok)
     {
         var snap = _snap ?? throw new InvalidOperationException("the depth is not ready");
@@ -448,7 +448,7 @@ internal sealed partial class DepthSession : IPhotoDepth, IDepthEdit, IPhotoHist
 
     // ================================================================================================================ read-outs
 
-    /// <summary>Picture point → the point `getDepthAtPoint` takes (normalised export window) as floats; null outside [0, 1).</summary>
+    /// <summary>Picture point → the point `getDepthAtPoint` takes (normalized export window) as floats; null outside [0, 1).</summary>
     (float X, float Y)? InsidePoint(NormPoint p)
     {
         var (cx, cy) = _s.ViewImpl.ToCapture(p);
@@ -456,7 +456,7 @@ internal sealed partial class DepthSession : IPhotoDepth, IDepthEdit, IPhotoHist
         return x < 0f || x >= 1f || y < 0f || y >= 1f ? null : (x, y);
     }
 
-    /// <summary>Lumen's 3×3 mean at a normalised export-window point of a depth-cache image.</summary>
+    /// <summary>Lumen's 3×3 mean at a normalized export-window point of a depth-cache image.</summary>
     float? DepthAtCapture(DepthImage depth, float x, float y)
     {
         var q = DofModel.MapExportPoint(x, y, _lv.ExportDims[0], _lv.Origins[0], _cacheDims0);

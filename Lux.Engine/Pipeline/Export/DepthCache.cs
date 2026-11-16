@@ -27,7 +27,7 @@ public sealed class DepthImage
 /// <summary>
 /// `lt::ImageResample&lt;0, float&gt;` — the 3-argument `(dst, src, size)` overload and its tile functor.
 ///
-/// Mode 0 is **nearest neighbour in 16.16 fixed point**: `offset` and `scale` are `Vec2&lt;double&gt;`, each multiplied
+/// Mode 0 is **nearest neighbor in 16.16 fixed point**: `offset` and `scale` are `Vec2&lt;double&gt;`, each multiplied
 /// by 65536.0 and truncated (`cvttsd2si`), then per destination pixel
 /// <c>src[clamp((sy16·y + oy16) &gt;&gt; 16, rect.y0, rect.y1−1)][clamp((sx16·x + ox16) &gt;&gt; 16, rect.x0, rect.x1−1)]</c>
 /// with `x`/`y` the **absolute** destination coordinates and the clamps against the *source view's* rect.
@@ -80,8 +80,8 @@ public static class ImageResample0
 ///   inv'  = ImageResample&lt;0,float&gt;(inv, this-&gt;image.dims)     — nearest, offset 0
 ///   this-&gt;pending = lt::InverseDepthClip(inv', 100000.0f)      — min(rcpps(x), 1e5)
 /// </code>
-/// so the cache holds **metric depth in millimetres, clipped to 100 000 mm**, on the canvas grid at half canvas
-/// resolution. `GDepth:Far="100000.0"` in every fmt-4 artefact is that clip, not a scene value; `GDepth:Near` is
+/// so the cache holds **metric depth in millimeters, clipped to 100 000 mm**, on the canvas grid at half canvas
+/// resolution. `GDepth:Far="100000.0"` in every fmt-4 artifact is that clip, not a scene value; `GDepth:Near` is
 /// the scene minimum, carried through the two `rcpps` round trips (≈ 2.4·10⁻⁴ relative).
 /// </summary>
 public sealed class DepthImageCache

@@ -7,14 +7,14 @@ namespace Lux.Engine.Pipeline.Isp.Stages;
 /// <summary>
 /// Lumen's `lt::Internal::A::DemosaickLightV1&lt;rx,ry&gt;` (dispatcher, tile lambda for &lt;1,0&gt;,
 /// row functions for the source rows × per-site neutral, for the guide planes and for
-/// the colour-difference plane). Halide-style pipeline, ported plane by plane with Lumen's
+/// the color-difference plane). Halide-style pipeline, ported plane by plane with Lumen's
 /// float operation order and SSE `rcpss/rcpps` approximations (`IntelApprox.Reciprocal*`, the reference CPU's table — Lumen's
 /// own output is CPU-dependent at that level):
 ///   S(x,y)  = src(clamp-by-parity) · neutral[site]                       (source row function)
 ///   C       = 5×5 filter of S at G sites (weights 56, 6, −4, −2, 1; /64)   (guide row function, inner)
 ///   B       = C at G sites; at R/B sites the gradient-inverse blend of C±1 minus the S mid-points, eps₂
 ///   A       = B at R/B sites; at G sites the refined blend of (B − S) differences, eps₂
-///   D       = raw − A (raw un-scaled; replicated by parity outside the source) (colour-difference row function)
+///   D       = raw − A (raw un-scaled; replicated by parity outside the source) (color-difference row function)
 ///   out     = A + directional gradient-inverse blend of D (eps₁), alpha 1  (tile lambda)
 /// eps₁ = 0.009765625·max(neutral), eps₂ = 0.0009765625·max(neutral).
 /// </summary>
@@ -27,7 +27,7 @@ public static class DemosaicLightV1
     private static Vector128<float> Rcp4(Vector128<float> v) => IntelApprox.Reciprocal(v);
     private static float Abs(float x) => MathF.Abs(x);
 
-    /// <summary>Demosaic <paramref name="src"/> (w×h float Bayer, 0..1 normalised) over <paramref name="roi"/> into
+    /// <summary>Demosaic <paramref name="src"/> (w×h float Bayer, 0..1 normalized) over <paramref name="roi"/> into
     /// <paramref name="dst"/> (RGBA, roi-sized, stride roi width). Red at (rx, ry).</summary>
     public static void Run(float[] src, int w, int h, RectI roi, int rx, int ry, float[] neutral, Vec4F[] dst)
     {
@@ -128,7 +128,7 @@ public static class DemosaicLightV1
                 float r, g, b;
                 if (isG)
                 {
-                    // G site: horizontal neighbours are R when the row parity is ry
+                    // G site: horizontal neighbors are R when the row parity is ry
                     float wl = Rcp(Abs(a - Ag(x - 1, y)) + eps1), wr = Rcp(Abs(a - Ag(x + 1, y)) + eps1);
                     float wu = Rcp(Abs(a - Ag(x, y - 1)) + eps1), wd = Rcp(Abs(a - Ag(x, y + 1)) + eps1);
                     float nh = Rcp(wr + wl), nv = Rcp(wd + wu);

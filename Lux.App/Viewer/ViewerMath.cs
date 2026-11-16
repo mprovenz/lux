@@ -62,7 +62,7 @@ public readonly record struct Turn(int Quarter, bool Mirror)
     };
 }
 
-/// <summary>Helpers on the library's normalised rectangle (0–1 of the picture as shown).</summary>
+/// <summary>Helpers on the library's normalized rectangle (0–1 of the picture as shown).</summary>
 public static class NormRects
 {
     public static bool IsFull(this NormRect r) => Math.Abs(r.X) < 1e-9 && Math.Abs(r.Y) < 1e-9 && Math.Abs(r.Width - 1) < 1e-9 && Math.Abs(r.Height - 1) < 1e-9;
@@ -70,7 +70,7 @@ public static class NormRects
     public static NormRect FromPixels(Rect r, Size frame) => new(r.X / frame.Width, r.Y / frame.Height, r.Width / frame.Width, r.Height / frame.Height);
     /// <summary>The same region after the frame turns clockwise: (x, y) → (1 − y, x).</summary>
     public static NormRect RotateRight(this NormRect r) => new(1 - r.Y - r.Height, r.X, r.Height, r.Width);
-    /// <summary>After the frame turns anticlockwise: (x, y) → (y, 1 − x).</summary>
+    /// <summary>After the frame turns counterclockwise: (x, y) → (y, 1 − x).</summary>
     public static NormRect RotateLeft(this NormRect r) => new(r.Y, 1 - r.X - r.Width, r.Height, r.Width);
     public static NormRect FlipHorizontal(this NormRect r) => new(1 - r.X - r.Width, r.Y, r.Width, r.Height);
     public static NormRect FlipVertical(this NormRect r) => new(r.X, 1 - r.Y - r.Height, r.Width, r.Height);
@@ -169,7 +169,7 @@ public sealed class Pyramid
 /// <list type="bullet">
 /// <item><b>image</b> — level-0 pixels of the picture as the source delivers it (already turned, flipped and cropped; in crop mode the
 /// uncropped picture); level L maps to it by <see cref="Pyramid.ScaleOf"/>;</item>
-/// <item><b>picture</b> — the same, normalised 0–1 (crop frames, overlays, the library's <c>NormRect</c>);</item>
+/// <item><b>picture</b> — the same, normalized 0–1 (crop frames, overlays, the library's <c>NormRect</c>);</item>
 /// <item><b>view</b> — device-independent pixels of the control: view = image · <see cref="Scale"/> + <see cref="Offset"/>.</item>
 /// </list>
 /// <see cref="Scale"/> is view units per image pixel; times <see cref="RenderScaling"/> it is physical pixels per image pixel (1 = "1:1").
@@ -231,7 +231,7 @@ public static class ViewerMath
         return (min, Math.Max(min, max));
     }
 
-    /// <summary>Keep the picture in view: centred on an axis where it is smaller than the view, otherwise no empty margin.</summary>
+    /// <summary>Keep the picture in view: centered on an axis where it is smaller than the view, otherwise no empty margin.</summary>
     public static Vector ClampOffset(Vector offset, double scale, Size display, Size viewport)
     {
         static double Axis(double o, double content, double view) => content <= view ? (view - content) / 2 : Math.Clamp(o, view - content, 0);
@@ -252,7 +252,7 @@ public static class ViewerMath
         return r.Intersect(new Rect(0, 0, t.ImageSize.Width, t.ImageSize.Height));
     }
 
-    /// <summary>The library's normalised rectangle of an image-pixel rectangle.</summary>
+    /// <summary>The library's normalized rectangle of an image-pixel rectangle.</summary>
     public static NormRect ToNorm(Rect imageRect, PixelSize image) =>
         new(imageRect.X / image.Width, imageRect.Y / image.Height, imageRect.Width / image.Width, imageRect.Height / image.Height);
 
@@ -309,7 +309,7 @@ public static class CropMath
     /// <summary>Handle positions: corners and edge midpoints.</summary>
     public enum Handle { None, Move, TopLeft, Top, TopRight, Right, BottomRight, Bottom, BottomLeft, Left }
 
-    /// <summary>The largest rectangle of <paramref name="ratio"/> (width ÷ height) centred in <paramref name="within"/>.</summary>
+    /// <summary>The largest rectangle of <paramref name="ratio"/> (width ÷ height) centered in <paramref name="within"/>.</summary>
     public static Rect Fit(Rect within, double ratio)
     {
         if (ratio <= 0) return within;
@@ -318,8 +318,8 @@ public static class CropMath
         return new Rect(within.Center.X - w / 2, within.Center.Y - h / 2, w, h);
     }
 
-    /// <summary>Apply an aspect preset to a crop: the largest rectangle of that aspect centred inside the current crop (on an uncropped
-    /// photo: the largest centred crop of that aspect).</summary>
+    /// <summary>Apply an aspect preset to a crop: the largest rectangle of that aspect centered inside the current crop (on an uncropped
+    /// photo: the largest centered crop of that aspect).</summary>
     public static Rect ApplyAspect(Rect crop, Size frame, double ratio) => ratio <= 0 ? crop : ClampInto(Fit(crop, ratio), frame);
 
     /// <summary>Move a rectangle inside the frame (size kept when it fits, else shrunk keeping its aspect).</summary>
@@ -351,7 +351,7 @@ public static class CropMath
         if (bottom) b = Math.Clamp(b + delta.Y, t + minSize, frame.Height);
         if (ratio <= 0) return new Rect(l, t, r - l, b - t);
 
-        // aspect lock: corners follow the larger change from the fixed corner; edges grow the other side about the centre
+        // aspect lock: corners follow the larger change from the fixed corner; edges grow the other side about the center
         double w = r - l, h = b - t;
         bool corner = (left || right) && (top || bottom);
         if (corner)

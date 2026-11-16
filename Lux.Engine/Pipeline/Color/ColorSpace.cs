@@ -7,7 +7,7 @@ using static Lux.Engine.Pipeline.Color.LumenColorTables;
 
 namespace Lux.Engine.Pipeline.Color;
 
-/// <summary>The white point of a Lumen colour space: x, y and the illuminant enum. <see cref="Of"/> takes x and y from a fixed table
+/// <summary>The white point of a Lumen color space: x, y and the illuminant enum. <see cref="Of"/> takes x and y from a fixed table
 /// (valid enums mask `0x1ffd`, "invalid illuminant requested!"); illuminant 0 = `output.white_point native` = (0, 0, 0).</summary>
 public readonly record struct WhitePoint(float X, float Y, int Illuminant)
 {
@@ -21,7 +21,7 @@ public readonly record struct WhitePoint(float X, float Y, int Illuminant)
 }
 
 /// <summary>
-/// Lumen's colour space (`lt::ColorSpace`): the RGB→XYZ matrix (9 floats, row-major), the white point and the space enum
+/// Lumen's color space (`lt::ColorSpace`): the RGB→XYZ matrix (9 floats, row-major), the white point and the space enum
 /// (`output.color_space` table: 0 = custom matrix, 1 none, 2 srgb, 3 adobe_rgb, 4 linear_srgb, 5 linear_prophoto_rgb, 6 linear_adobe_rgb, 7–10 other).
 /// </summary>
 public sealed class ColorSpace
@@ -71,7 +71,7 @@ public sealed class ColorSpace
     }
 
     static ColorSpace? _proPhotoD50;
-    /// <summary>Once-initialised static: `Standard(5, WhitePoint.Of(5), 1)` — linear ProPhoto RGB at D50, the working space of
+    /// <summary>Once-initialized static: `Standard(5, WhitePoint.Of(5), 1)` — linear ProPhoto RGB at D50, the working space of
     /// `color_correction` (target) and of the tone mappers (source).</summary>
     public static ColorSpace ProPhotoD50 => _proPhotoD50 ??= Standard(5, WhitePoint.Of(5), 1);
 

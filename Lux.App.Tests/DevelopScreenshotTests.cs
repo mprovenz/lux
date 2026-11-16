@@ -35,7 +35,7 @@ public sealed class DevelopScreenshotTests
     {
         await using var h = await DevelopHarness.OpenAsync();
         var v = h.Viewer();
-        // the house's windows and the sign at 100 %, centred
+        // the house's windows and the sign at 100 %, centered
         v.ZoomToActual(animate: false);
         var t = v.Transform()!;
         var target = t.FrameToView(new Point(0.668, 0.668));

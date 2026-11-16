@@ -6,7 +6,7 @@ namespace Lux.Engine.Pipeline.BayerFusion;
 /// <summary>
 /// The stream's per-module `lt::StackFusion` results — the stacked float Bayer and the uint8 gain map that Lumen
 /// returns for a stacked capture, from a map keyed by camera id that the stream fills lazily on first use. One shared, lazily
-/// computed fusion per module, so the reference cache (`ReferenceImageCache::processLevel`), the level-1 colour fusion, the mono
+/// computed fusion per module, so the reference cache (`ReferenceImageCache::processLevel`), the level-1 color fusion, the mono
 /// fusion (`MonoFusion::initialize`), the fusion render's STD plane (`FusionCacheBayer::render`) and the telephoto level-0 caches
 /// (`SourceImageCache::lambda`) all consume the same frame, as in Lumen where the stream owns it.
 /// <para><b>Frame 0's black</b> follows the load order: the stack driver estimates the black of every frame IT decodes
@@ -23,7 +23,7 @@ public sealed class StackProvider
 
     public string ReferenceModule { get; }
     /// <summary>Frame-0 black rule for the non-reference modules: `true` = per-frame estimate (level-1 flow), `false` = sensor DB black (level-0 flow).
-    /// CLI override `LUX_FUSION_SRC_BLACK=db|estimate` (shared with the colour fusion's single-frame sources).</summary>
+    /// CLI override `LUX_FUSION_SRC_BLACK=db|estimate` (shared with the color fusion's single-frame sources).</summary>
     public bool SourceFrameBlackEstimate { get; }
     public bool IsStacked => _lri.StackFrames >= 2;
 

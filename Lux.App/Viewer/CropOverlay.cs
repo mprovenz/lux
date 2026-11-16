@@ -9,7 +9,7 @@ namespace Lux.App.Viewer;
 /// <summary>
 /// The crop frame (crop mode): the whole photo fitted with the area outside the crop shaded, the frame with corner and edge handles, the
 /// rule-of-thirds guides, and the crop size while dragging. Drag a handle to resize (keeping <see cref="Ratio"/> when set), drag inside to
-/// move. The rectangle is normalised in the picture shown (the uncropped, turned photo); the page applies it on Enter and drops it on Esc.
+/// move. The rectangle is normalized in the picture shown (the uncropped, turned photo); the page applies it on Enter and drops it on Esc.
 /// </summary>
 public sealed class CropOverlay : ViewerOverlay
 {
@@ -34,7 +34,7 @@ public sealed class CropOverlay : ViewerOverlay
     public bool IsDragging => _drag != CropMath.Handle.None;
     public CropMath.Handle ActiveHandle => _drag;
 
-    /// <summary>The crop, normalised in the oriented frame.</summary>
+    /// <summary>The crop, normalized in the oriented frame.</summary>
     public NormRect Rect
     {
         get => _rect;

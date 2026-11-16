@@ -88,8 +88,8 @@ public sealed class Fix1RealTests(ITestOutputHelper output)
             if (only.Contains("clean"))
             {
                 await using (var ph = await lib.OpenPhotoAsync(id)) { var r = await ph.DepthEdit.SwitchVersion("clean").Completion; Say($"switch to clean: {r.Outcome} {r.Message}"); }
-                await RunCase("clean version (analysed)", lib, id, openPhoto: false);
-                await RunCase("clean version (analysed), open", lib, id, openPhoto: true);
+                await RunCase("clean version (analyzed)", lib, id, openPhoto: false);
+                await RunCase("clean version (analyzed), open", lib, id, openPhoto: true);
             }
             if (only.Contains("lumen"))
             {
@@ -98,7 +98,7 @@ public sealed class Fix1RealTests(ITestOutputHelper output)
                 await RunCase("from Lumen (imported session), open", lib, id, openPhoto: true);
             }
         }
-        // ---- 2. a fresh library: nothing analysed (the analysis is queued by the preview)
+        // ---- 2. a fresh library: nothing analyzed (the analysis is queued by the preview)
         if (only.Contains("fresh"))
         {
             var dir = Fix1.MakeLib("r49fresh", new[] { lri }, withSessions: true);
@@ -106,10 +106,10 @@ public sealed class Fix1RealTests(ITestOutputHelper output)
             await using var lib = await Fix1.OpenLibraryAsync(appData, dir);
             var id = Fix1.Item(lib, "L16_00049").Id;
             foreach (var j in lib.ImportLumenEdits(new[] { id })) await lib.Jobs.WaitAsync(j);
-            await RunCase("fresh, not analysed, from Lumen (session render)", lib, id, openPhoto: false);
-            await RunCase("fresh, not analysed, from Lumen (session render), open", lib, id, openPhoto: true);
+            await RunCase("fresh, not analyzed, from Lumen (session render)", lib, id, openPhoto: false);
+            await RunCase("fresh, not analyzed, from Lumen (session render), open", lib, id, openPhoto: true);
             await using (var ph = await lib.OpenPhotoAsync(id)) { var r = await ph.DepthEdit.SwitchVersion("clean").Completion; Say($"switch to clean: {r.Outcome} {r.Message}"); }
-            await RunCase("fresh, not analysed, clean (the preview queues the analysis)", lib, id, openPhoto: false);
+            await RunCase("fresh, not analyzed, clean (the preview queues the analysis)", lib, id, openPhoto: false);
             Say("jobs: " + string.Join("; ", lib.Jobs.GetJobs().Select(j => $"{j.Kind} \"{j.Title}\" {j.State}")));
         }
     }
@@ -632,7 +632,7 @@ public sealed class Fix1RealTests(ITestOutputHelper output)
         await Task.Delay(500);
         var tj = lib.Jobs.GetJobs(includeFinished: true).Where(j => j.Kind == JobKind.Thumbnail).OrderByDescending(j => j.Id).FirstOrDefault();
         Say($"thumbnail job: \"{tj?.Title}\" status \"{tj?.Status}\"");
-        // the depth asked for by the open photo ("Analyse now", a depth tool, the depth effect): a Queue job named after the photo
+        // the depth asked for by the open photo ("Analyze now", a depth tool, the depth effect): a Queue job named after the photo
         await using var ph = await lib.OpenPhotoAsync(id);
         var sw = Stopwatch.StartNew();
         var ensure = ph.Depth.EnsureDepthAsync();

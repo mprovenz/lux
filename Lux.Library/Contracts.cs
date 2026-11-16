@@ -52,7 +52,7 @@ public static class LibraryPaths
 // ====================================================================================================================== the library
 
 /// <summary>
-/// The user's library: the folders it indexes, the captures in them, and everything organised around them (ratings, albums, thumbnails,
+/// The user's library: the folders it indexes, the captures in them, and everything organized around them (ratings, albums, thumbnails,
 /// cache levels, edit summaries), plus the background job queue. One instance per open database; thread-safe.
 /// </summary>
 public interface ILibrary : IDisposable, IAsyncDisposable
@@ -122,7 +122,7 @@ public interface ILibrary : IDisposable, IAsyncDisposable
     /// <summary>Library-wide figures for the status bar.</summary>
     LibraryStats GetStats();
 
-    // ---------------------------------------------------------------------------------------------------------- organising
+    // ---------------------------------------------------------------------------------------------------------- organizing
 
     /// <summary>Set the rating (0 = none … 5) of one capture. Never fails because of the capture's folder.
     /// <para><b>Rule.</b> A rating always goes into the capture's context database
@@ -181,11 +181,11 @@ public interface ILibrary : IDisposable, IAsyncDisposable
 
     // ---------------------------------------------------------------------------------------------------------- the analysis cache
 
-    /// <summary>Analyse captures now and build their cache to the folder's default level (<see cref="ILibrarySettings.EffectiveCacheLevel"/>):
+    /// <summary>Analyze captures now and build their cache to the folder's default level (<see cref="ILibrarySettings.EffectiveCacheLevel"/>):
     /// one <see cref="JobKind.Analysis"/> job each. Returns the job ids (captures already at that level get none).</summary>
     IReadOnlyList<long> AnalyseNow(IReadOnlyCollection<string> captureIds);
 
-    /// <summary>Raise captures' cache to full detail (one <see cref="JobKind.CacheUpgrade"/> job each, analysing first where needed).</summary>
+    /// <summary>Raise captures' cache to full detail (one <see cref="JobKind.CacheUpgrade"/> job each, analyzing first where needed).</summary>
     IReadOnlyList<long> UpgradeToFullDetail(IReadOnlyCollection<string> captureIds);
 
     /// <summary>Release captures' full-detail tier (back to the 13 MP tier; one <see cref="JobKind.CacheRelease"/> job each — quick).</summary>
@@ -352,9 +352,9 @@ public static class LuxLibrary
 /// <summary>How the capture's depth stands.</summary>
 public enum DepthState
 {
-    /// <summary>Never analysed: no depth kept (the depth effect, focus and depth tools need an analysis first).</summary>
+    /// <summary>Never analyzed: no depth kept (the depth effect, focus and depth tools need an analysis first).</summary>
     NotAnalysed = 0,
-    /// <summary>Analysed: the geometry and depth are kept in the capture's cache.</summary>
+    /// <summary>Analyzed: the geometry and depth are kept in the capture's cache.</summary>
     Analysed = 1,
     /// <summary>The last analysis failed (see the job's error).</summary>
     Failed = 2,
@@ -427,7 +427,7 @@ public sealed record EditSummary(string? Variant, int OperationCount, EditSource
     public float? SavedFNumber { get; init; }
     /// <summary>The saved focus distance, mm; null = Lumen's default focus.</summary>
     public float? SavedFocusMm { get; init; }
-    /// <summary>The saved tone and colour settings that differ from Lumen's, in short ("exposure +0.30, contrast 20"); null = none.</summary>
+    /// <summary>The saved tone and color settings that differ from Lumen's, in short ("exposure +0.30, contrast 20"); null = none.</summary>
     public string? AdjustmentsSummary { get; init; }
     /// <summary>A saved crop, rotation or flip.</summary>
     public bool HasCropOrRotation { get; init; }
@@ -540,6 +540,15 @@ public sealed record CaptureItem
     /// <summary>How the camera was held (from its accelerometer). Lumen ignores it — a portrait photo stays sideways until it is rotated — so it
     /// is information, applied only with <see cref="ILibrarySettings.ShowPhotosAsHeld"/>.</summary>
     public PhotoOrientation HeldOrientation { get; init; }
+    /// <summary>The motion blur that the camera's gyroscope predicts, in full-size pixels at the center of the 70 mm modules. The value is
+    /// the rotation of the camera during the exposure multiplied by the focal length. It does not see subject motion or focus errors.
+    /// Null when the capture has no usable gyroscope samples, or when its header was read by an older version.</summary>
+    public float? PredictedBlurPixels { get; init; }
+    /// <summary>The predicted blur above which a photo is marked "possibly blurred". In a test on pairs of almost equal photos, the photo
+    /// with more predicted blur was the softer one in most pairs when the blur was this large.</summary>
+    public const float PossiblyBlurredPixels = 5f;
+    /// <summary>The camera moved enough during the exposure to blur the photo visibly. This is a hint, not a measurement of the picture.</summary>
+    public bool PossiblyBlurred => PredictedBlurPixels is float b && b > PossiblyBlurredPixels;
     /// <summary>Degrees clockwise the UI turns the photo when drawing it (thumbnail, preview): 0 unless <see cref="ILibrarySettings.ShowPhotosAsHeld"/>
     /// is on and the photo has no geometry decision of its own (<see cref="GeometryDecided"/>), then the held orientation's. Exports never
     /// turn by it.</summary>
@@ -583,7 +592,7 @@ public enum LumenSessionState
     None = 0,
     /// <summary>Opened in Lumen, nothing changed (the settings are a fresh renderer's).</summary>
     OpenedUnchanged = 1,
-    /// <summary>Settings changed in Lumen (f-number, focus, tone or colour, crop / rotation, rating) — no depth edits.</summary>
+    /// <summary>Settings changed in Lumen (f-number, focus, tone or color, crop / rotation, rating) — no depth edits.</summary>
     SettingsChanged = 2,
     /// <summary>Depth edited in Lumen (settings may have changed too).</summary>
     DepthEdited = 3,
@@ -721,7 +730,7 @@ public sealed record CaptureQuery
     public bool? Stacked { get; init; }
     /// <summary>Telephoto (true) / wide (false).</summary>
     public bool? Telephoto { get; init; }
-    /// <summary>Analysed (true) / not analysed (false).</summary>
+    /// <summary>Analyzed (true) / not analyzed (false).</summary>
     public bool? Analysed { get; init; }
     /// <summary>A Lumen session lies beside it.</summary>
     public bool? HasLumenSession { get; init; }
@@ -730,6 +739,8 @@ public sealed record CaptureQuery
     public bool? EditedInLumen { get; init; }
     /// <summary>Missing (true) / present (false).</summary>
     public bool? Missing { get; init; }
+    /// <summary>Possibly blurred (true) / not marked (false). See <see cref="CaptureItem.PossiblyBlurred"/>.</summary>
+    public bool? PossiblyBlurred { get; init; }
     /// <summary>Exactly this cache level.</summary>
     public CacheLevel? CacheLevel { get; init; }
     /// <summary>Free text: matches (case-insensitive substring) the name, any location's path, the reference module, the active edit variant
@@ -766,6 +777,8 @@ public enum SmartFilter
     FullDetail = 8,
     /// <summary>Edited in Lumen (depth edits or changed settings in its session).</summary>
     EditedInLumen = 9,
+    /// <summary>The camera moved during the exposure (<see cref="CaptureItem.PossiblyBlurred"/>).</summary>
+    PossiblyBlurred = 10,
 }
 
 /// <summary>Helpers for <see cref="SmartFilter"/>.</summary>
@@ -784,6 +797,7 @@ public static class SmartFilters
         SmartFilter.Missing => q with { Missing = true },
         SmartFilter.FullDetail => q with { CacheLevel = Lux.Engine.Session.CacheLevel.Full },
         SmartFilter.EditedInLumen => q with { EditedInLumen = true },
+        SmartFilter.PossiblyBlurred => q with { PossiblyBlurred = true },
         _ => q,
     };
 
@@ -799,11 +813,12 @@ public static class SmartFilters
         SmartFilter.DepthEdited => "Depth edited",
         SmartFilter.Stacked => "Low light (stacked)",
         SmartFilter.Telephoto => "Telephoto",
-        SmartFilter.NotAnalysed => "Not analysed",
+        SmartFilter.NotAnalysed => "Not analyzed",
         SmartFilter.HasLumenSession => "Has Lumen session",
         SmartFilter.EditedInLumen => "Edited in Lumen",
         SmartFilter.Missing => "Missing",
         SmartFilter.FullDetail => "Full detail kept",
+        SmartFilter.PossiblyBlurred => "Possibly blurred",
         _ => f.ToString(),
     };
 }
@@ -861,7 +876,7 @@ public enum ExistingFilePolicy
 
 /// <summary>
 /// An export from the library — the same export as <c>lux-light convert</c> with the same settings (byte for byte, apart from the time
-/// stamp in DNG / JPG). Saved edits and settings (depth effect, focus, tone, crop / rotation) are honoured unless <see cref="UseSavedEdits"/>
+/// stamp in DNG / JPG). Saved edits and settings (depth effect, focus, tone, crop / rotation) are honored unless <see cref="UseSavedEdits"/>
 /// is off; a value set here overrides the saved one.
 /// </summary>
 public sealed record ExportOptions
@@ -887,7 +902,7 @@ public sealed record ExportOptions
     public bool DepthEffectOff { get; init; }
     /// <summary>Depth effect focus distance, mm (overrides the saved one); null = as saved, else Lumen's default focus.</summary>
     public float? FocusDepthMm { get; init; }
-    /// <summary>Tone and colour (JPG only; overrides every saved tone setting); null = as saved (or none).</summary>
+    /// <summary>Tone and color (JPG only; overrides every saved tone setting); null = as saved (or none).</summary>
     public Adjustments? Adjustments { get; init; }
     /// <summary>JPG quality (1–100); null = Lumen's.</summary>
     public int? JpegQuality { get; init; }
@@ -904,7 +919,7 @@ public sealed record ExportOptions
     /// Lumen's own rotate, exactly as if "Rotate as the camera was held" had been saved; true = as captured, exactly as Lumen exports it;
     /// null = the setting (<see cref="ILibrarySettings.ExportUnturned"/>). Photos with a saved crop or rotation always follow it.</summary>
     public bool? Unturned { get; init; }
-    /// <summary>Embeds the colour profile (sRGB) in JPG files. The default is off. Lumen's JPGs have no profile, and the default JPG does not
+    /// <summary>Embeds the color profile (sRGB) in JPG files. The default is off. Lumen's JPGs have no profile, and the default JPG does not
     /// change.</summary>
     public bool EmbedColorProfile { get; init; }
 }
@@ -943,7 +958,7 @@ public interface ILibrarySettings : INotifyPropertyChanged
     /// <summary>The library database file (read-only: chosen when the library is opened).</summary>
     string DatabasePath { get; }
 
-    /// <summary>The cache level every analysed capture is brought to (app-wide default): <see cref="CacheLevel.Linear13"/> (geometry + depth
+    /// <summary>The cache level every analyzed capture is brought to (app-wide default): <see cref="CacheLevel.Linear13"/> (geometry + depth
     /// and the 13 MP tier) unless changed.</summary>
     CacheLevel DefaultCacheLevel { get; set; }
     /// <summary>A folder's own default cache level; null = it follows <see cref="DefaultCacheLevel"/>.</summary>
@@ -952,7 +967,7 @@ public interface ILibrarySettings : INotifyPropertyChanged
     /// <summary>The level that applies to a folder (its own, else the app-wide default).</summary>
     CacheLevel EffectiveCacheLevel(long folderId);
 
-    /// <summary>Analyse new captures automatically after a scan (to the folder's cache level). Off by default: an analysis takes about a minute
+    /// <summary>Analyze new captures automatically after a scan (to the folder's cache level). Off by default: an analysis takes about a minute
     /// and 70 MB of disk per capture at the default level.</summary>
     bool AnalyseNewCaptures { get; set; }
 
@@ -1162,7 +1177,7 @@ public sealed record JobInfo
     public string? CaptureId { get; init; }
     /// <summary>The indexed folder (folder scans).</summary>
     public long? FolderId { get; init; }
-    /// <summary>Plain-language title ("Analysing L16_00493", "Exporting L16_00493 as DNG + JPG").</summary>
+    /// <summary>Plain-language title ("Analyzing L16_00493", "Exporting L16_00493 as DNG + JPG").</summary>
     public required string Title { get; init; }
     /// <summary>A short line under the title ("DNG + JPG · full size · f/2.0", "depth + 13 MP render").</summary>
     public string Detail { get; init; } = "";
@@ -1219,7 +1234,7 @@ public abstract record JobRequest
 /// <summary>Thumbnails of a batch of captures.</summary>
 public sealed record ThumbnailJobRequest(IReadOnlyList<string> CaptureIds) : JobRequest { public override JobKind Kind => JobKind.Thumbnail; }
 
-/// <summary>Analyse a capture and bring its cache to <paramref name="TargetLevel"/> (null = the folder's default level).</summary>
+/// <summary>Analyze a capture and bring its cache to <paramref name="TargetLevel"/> (null = the folder's default level).</summary>
 public sealed record AnalysisJobRequest(string CaptureId, CacheLevel? TargetLevel = null) : JobRequest { public override JobKind Kind => JobKind.Analysis; }
 
 /// <summary>Set a capture's cache level (raise: <see cref="JobKind.CacheBuild"/> / <see cref="JobKind.CacheUpgrade"/> for full detail;
@@ -1305,11 +1320,11 @@ public interface IJobQueue
     bool Cancel(long jobId);
     /// <summary>Cancel every unfinished job (of one kind); returns how many.</summary>
     int CancelAll(JobKind? kind = null);
-    /// <summary>Queue a failed or cancelled job again; returns the new job's id (null when the job cannot be retried).</summary>
+    /// <summary>Queue a failed or canceled job again; returns the new job's id (null when the job cannot be retried).</summary>
     long? Retry(long jobId);
-    /// <summary>Remove a finished job from the list (an unfinished one is cancelled first).</summary>
+    /// <summary>Remove a finished job from the list (an unfinished one is canceled first).</summary>
     bool Remove(long jobId);
-    /// <summary>Remove every finished job (done, failed, cancelled); returns how many.</summary>
+    /// <summary>Remove every finished job (done, failed, canceled); returns how many.</summary>
     int ClearFinished();
     /// <summary>Hold a waiting job (it is not started until resumed). A running job is not interrupted.</summary>
     bool Pause(long jobId);

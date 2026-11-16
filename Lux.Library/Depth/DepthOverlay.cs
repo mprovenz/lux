@@ -53,7 +53,7 @@ internal sealed class DepthOverlay : IDisplayOverlay
 
 /// <summary>
 /// Lux's depth view ("Photo + depth", <see cref="ViewMode.Depth"/>): the depth on an export level's grid, as the overlays fetch it
-/// (Lumen's depth fetch of the export-window rect shifted by the level origin, against the level's pipeline dims), mapped to grey by
+/// (Lumen's depth fetch of the export-window rect shifted by the level origin, against the level's pipeline dims), mapped to gray by
 /// <see cref="DepthViewMapping"/>: <c>t = clamp((1/d − 1/far) / (1/near − 1/far), 0, 1)</c>, <c>grey = round(255 · t^(1/2.2))</c>.
 /// </summary>
 internal static class DepthViewRender

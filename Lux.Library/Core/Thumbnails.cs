@@ -131,7 +131,7 @@ internal sealed class ThumbnailService : IDisposable
         return nid;
     }
 
-    /// <summary>The job ended (done, cancelled, or the queue was paused / closed).</summary>
+    /// <summary>The job ended (done, canceled, or the queue was paused / closed).</summary>
     public void JobEnded(long jobId, bool cancelled)
     {
         List<Waiter> fail = new();
@@ -141,7 +141,7 @@ internal sealed class ThumbnailService : IDisposable
             _jobId = null;
             if (cancelled)
             {
-                // the user cancelled the thumbnail job: drop what is queued
+                // the user canceled the thumbnail job: drop what is queued
                 foreach (var r in _pending.Values) fail.AddRange(r.Waiters);
                 _pending.Clear(); _interactive.Clear(); _batch.Clear(); _batchSet.Clear(); _total = 0; _done = 0;
             }

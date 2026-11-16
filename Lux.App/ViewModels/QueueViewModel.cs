@@ -39,7 +39,7 @@ public sealed partial class QueueBatchViewModel : ObservableObject
             var parts = new List<string> { $"{Done} of {Jobs.Count} done" };
             if (Jobs.Count(j => j.IsRunning) is int r and > 0) parts.Add($"{r} running");
             if (Failed > 0) parts.Add($"{Failed} failed");
-            if (Jobs.Count(j => j.IsCancelled) is int c and > 0) parts.Add($"{c} cancelled");
+            if (Jobs.Count(j => j.IsCancelled) is int c and > 0) parts.Add($"{c} canceled");
             if (!IsFinished) parts.Add(Text.Percent(Progress));
             return string.Join(" · ", parts);
         }
@@ -184,7 +184,7 @@ public sealed partial class JobViewModel : ObservableObject
                     return string.Join(" · ", parts);
                 }
                 case JobState.Failed: return "Stopped: " + LowerFirst(i.Error ?? "the job failed");
-                case JobState.Cancelled: return "Cancelled" + (i.FinishedUtc is { } c ? " " + Text.Time(c) : "");
+                case JobState.Cancelled: return "Canceled" + (i.FinishedUtc is { } c ? " " + Text.Time(c) : "");
                 default: return i.Status;
             }
         }
@@ -196,7 +196,7 @@ public sealed partial class JobViewModel : ObservableObject
     static bool StartsWithName(string s) => s.StartsWith("Lux", StringComparison.Ordinal) || s.StartsWith("Lumen", StringComparison.Ordinal) || s.StartsWith("Light", StringComparison.Ordinal)
                                             || s.StartsWith("Windows", StringComparison.Ordinal) || s.StartsWith("L16", StringComparison.Ordinal);
 
-    /// <summary>The main action: Cancel (running), Remove (waiting), Resume (paused), Show file (done), Retry (failed / cancelled).</summary>
+    /// <summary>The main action: Cancel (running), Remove (waiting), Resume (paused), Show file (done), Retry (failed / canceled).</summary>
     public string PrimaryAction => _info.State switch
     {
         JobState.Running => "Cancel",
@@ -274,7 +274,7 @@ public sealed partial class QueueViewModel : ObservableObject
     public IReadOnlyCollection<ActivityRowViewModel> Activities => _activities.Values;
     internal void StopActivity(ActivityRowViewModel a) { long id = a.Info.Id; Run(() => _s.Library.CancelActivity(id)); }
 
-    /// <summary>Flattened list for the virtualised view: group headings and jobs.</summary>
+    /// <summary>Flattened list for the virtualized view: group headings and jobs.</summary>
     public ObservableCollection<object> Rows { get; } = new();
 
     /// <summary>Captures whose active job started or ended (their tags change).</summary>
@@ -376,7 +376,7 @@ public sealed partial class QueueViewModel : ObservableObject
     readonly Dictionary<string, QueueBatchViewModel> _batches = new(StringComparer.Ordinal);
 
     /// <summary>The section a batch shows in: running when any of its jobs runs, else waiting when any waits, else failed when any failed or was
-    /// cancelled, else finished.</summary>
+    /// canceled, else finished.</summary>
     static int BatchGroup(IReadOnlyList<JobViewModel> jobs) =>
         jobs.Any(j => j.IsRunning) ? 0 : jobs.Any(j => j.IsWaiting) ? 1 : jobs.Any(j => j.IsFailed) ? 3 : 2;
 
@@ -456,7 +456,7 @@ public sealed partial class QueueViewModel : ObservableObject
             if (r == null) return IsPaused ? "Queue paused" : UnfinishedCount > 0 ? "Waiting to start" : "Nothing running";
             string verb = r.Info.Kind switch
             {
-                JobKind.Export => "Exporting", JobKind.Analysis => "Analysing", JobKind.CacheUpgrade => "Upgrading",
+                JobKind.Export => "Exporting", JobKind.Analysis => "Analyzing", JobKind.CacheUpgrade => "Upgrading",
                 JobKind.CacheRelease => "Releasing", JobKind.CacheBuild => "Building", JobKind.LumenImport => "Importing edits of",
                 JobKind.FolderScan => "Scanning", JobKind.Thumbnail => "Making thumbnails", JobKind.ContextStoreMove => "Moving photo data", JobKind.Animation => "Animating",
                 JobKind.Import => "Importing", _ => "Working on",
@@ -468,7 +468,7 @@ public sealed partial class QueueViewModel : ObservableObject
 
     public string MemoryText => $"Memory in use {Text.GiB(_status.ReservedMemoryBytes / (double)(1L << 30))} of {Text.GiB(_status.MemoryBudgetBytes / (double)(1L << 30))} budget";
 
-    /// <summary>"Analysing 3 of 15" for the library status bar; empty when no analysis is queued.</summary>
+    /// <summary>"Analyzing 3 of 15" for the library status bar; empty when no analysis is queued.</summary>
     public string AnalysisSummary
     {
         get
@@ -478,7 +478,7 @@ public sealed partial class QueueViewModel : ObservableObject
             if (open == 0) return "";
             int doneToday = a.Count(j => j.IsDone);
             int running = a.Count(j => j.IsRunning);
-            return $"Analysing {doneToday + running} of {a.Count(j => !j.IsCancelled && !j.IsFailed)}";
+            return $"Analyzing {doneToday + running} of {a.Count(j => !j.IsCancelled && !j.IsFailed)}";
         }
     }
 

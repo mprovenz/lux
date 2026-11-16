@@ -5,27 +5,27 @@ namespace Lux.Engine.Pipeline.Export;
 /// <summary>The animation containers Lux writes itself (no external tool): GIF, APNG and lossless animated WebP.</summary>
 public enum AnimationContainer
 {
-    /// <summary>GIF89a: a palette of at most 256 colours, LZW, loop count, per-frame delays in hundredths of a second.</summary>
+    /// <summary>GIF89a: a palette of at most 256 colors, LZW, loop count, per-frame delays in hundredths of a second.</summary>
     Gif,
-    /// <summary>Animated PNG: true colour, deflate, exact pixels, per-frame delays in milliseconds.</summary>
+    /// <summary>Animated PNG: true color, deflate, exact pixels, per-frame delays in milliseconds.</summary>
     Apng,
     /// <summary>Animated WebP, lossless (VP8L): exact pixels, usually smaller than APNG.</summary>
     WebP,
 }
 
-/// <summary>How the GIF writer reduces each frame to 256 colours.</summary>
+/// <summary>How the GIF writer reduces each frame to 256 colors.</summary>
 public enum GifPalette
 {
-    /// <summary>One palette for the whole animation (default): colours stay the same from frame to frame, so nothing flickers.</summary>
+    /// <summary>One palette for the whole animation (default): colors stay the same from frame to frame, so nothing flickers.</summary>
     Global,
-    /// <summary>A palette per frame: slightly better colour per frame, but colours can shift between frames.</summary>
+    /// <summary>A palette per frame: slightly better color per frame, but colors can shift between frames.</summary>
     PerFrame,
 }
 
 /// <summary>Dithering of the GIF writer.</summary>
 public enum GifDither
 {
-    /// <summary>None: flat colour bands where the palette is coarse; the smallest files.</summary>
+    /// <summary>None: flat color bands where the palette is coarse; the smallest files.</summary>
     None,
     /// <summary>An ordered (Bayer 8×8) pattern fixed to the pixel grid (default): still areas stay still from frame to frame, which also keeps
     /// the frame-to-frame differences small.</summary>
@@ -46,7 +46,7 @@ public sealed record AnimationEncodeOptions
     /// <summary>Strength of the ordered dither in 8-bit levels, peak to peak (default 8: measured on real frames, 6 → 39.0 dB, 12 → 35.9 dB
     /// PSNR, with the bands of an undithered palette mostly gone).</summary>
     public double GifDitherStrength { get; init; } = 8;
-    /// <summary>Colours in the palette, 2–256 (one is used for "unchanged" when <see cref="FrameDifferencing"/> is on).</summary>
+    /// <summary>Colors in the palette, 2–256 (one is used for "unchanged" when <see cref="FrameDifferencing"/> is on).</summary>
     public int GifColours { get; init; } = 256;
     /// <summary>Deflate effort for APNG (default: optimal — measured within 1 % of "smallest size" at less than half the time).</summary>
     public System.IO.Compression.CompressionLevel PngCompression { get; init; } = System.IO.Compression.CompressionLevel.Optimal;
@@ -110,7 +110,7 @@ public static class AnimationEncoder
         return r with { Bytes = counting.Written, Seconds = sw.Elapsed.TotalSeconds };
     }
 
-    /// <summary>Encode into a file: written beside it under a temporary name and renamed into place when complete, so a cancelled or failed
+    /// <summary>Encode into a file: written beside it under a temporary name and renamed into place when complete, so a canceled or failed
     /// encode leaves no partial file.</summary>
     public static AnimationEncodeResult WriteFile(string path, AnimationContainer container, IReadOnlyList<Rgba> frames, IReadOnlyList<int> delaysMs,
                                                   AnimationEncodeOptions? options = null, bool keepDisplayedFrames = false)

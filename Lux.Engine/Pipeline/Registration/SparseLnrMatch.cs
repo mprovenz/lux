@@ -18,7 +18,7 @@ public struct MatchedPoint
     public int RefIdx;
     public float Mx, My;          // matched pixel position (integer-valued), level coordinates
     public float PredX, PredY;    // predicted position (un-rounded)
-    public float NmX, NmY;        // normalised matched position ((m − centreB) · 2/wB)
+    public float NmX, NmY;        // normalized matched position ((m − centreB) · 2/wB)
     public float Score;           // best SAD × 1/192
     public float Ratio;           // best / (second + 1e-7)
     public int Status;            // 0 low texture, 1 fail, 3 weak, 4 good, 5 RANSAC inlier
@@ -142,7 +142,7 @@ public static class SparseLnrMatch
     }
 
     /// <summary>A band of half-width `hw` along p0→p1 (unit steps in the major axis); end points outside the
-    /// rect are walked inwards along the (rsqrtss-normalised) direction; empty region if that fails.</summary>
+    /// rect are walked inwards along the (rsqrtss-normalized) direction; empty region if that fails.</summary>
     public static Region Band((int X0, int Y0, int X1, int Y1) rect, (int X, int Y) p0, (int X, int Y) p1, int hw)
     {
         bool Inside((int X, int Y) p) => rect.Y0 <= p.Y && p.Y < rect.Y1 && rect.X0 <= p.X && p.X < rect.X1;
@@ -275,7 +275,7 @@ public static class SparseLnrMatch
     }
 
     /// <summary>
-    /// `initLowerBCamera&lt;8&gt;` (outer loop + per-feature `lambda_1`) — the top-level initialiser used when
+    /// `initLowerBCamera&lt;8&gt;` (outer loop + per-feature `lambda_1`) — the top-level initializer used when
     /// the mode is 1 or 2, i.e. the reference module is **B4 (id 8) or C5 (id 14)**.
     /// Unlike `initLowerACamera` it takes no calibration and no plane depth: the prediction is simply `ref − offs`, and the
     /// search is a band of half-width 5 along the epipolar direction `(near − far)·invScale` through it, extending

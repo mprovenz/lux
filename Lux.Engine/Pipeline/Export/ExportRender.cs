@@ -6,7 +6,7 @@ namespace Lux.Engine.Pipeline.Export;
 
 /// <summary>
 /// The fields of Lumen's `CIAPI::Transform::impl` that `GetExportTransformOutput` reads: the 3×3 matrix (Lumen's
-/// storage order — `x' = m0·x + m3·y + m6`), the reduced aspect ratio and the normalised crop rect.
+/// storage order — `x' = m0·x + m3·y + m6`), the reduced aspect ratio and the normalized crop rect.
 /// <see cref="MatrixForSize"/> converts the matrix "to a size": elements 6/7 are scaled by `W/aspectW` (throws when the size's reduced
 /// aspect differs). The L16 default (Lumen's export path) is the identity, crop (0,0,1,1), aspect 4:3.
 /// </summary>
@@ -25,7 +25,7 @@ public sealed class ExportTransform
     /// <summary>The rotation Lumen bakes into the DNG (`Orientation` stays 1). This matrix makes `GetExportTransformOutput`'s affine come out as the
     /// exact 90°/180°/270° remap of the level-0 export window — for 90° `u = y`, `v = H0 − x` (Lumen's portrait export has
     /// `portrait[Y][X] = landscape[H0 − X][Y]`). `m6/m7` are stored pre-scaled by `aspectW/W` because `MatrixForSize` multiplies them by
-    /// `W/aspectW`. Lumen's own `CIAPI::Transform::rotate90(k)` parametrises the same rotation differently (aspect stays 4:3, matrix
+    /// `W/aspectW`. Lumen's own `CIAPI::Transform::rotate90(k)` parametrizes the same rotation differently (aspect stays 4:3, matrix
     /// `[0 ±1 0 | ∓1 0 0 | …]` plus a rotated crop rect), but reduces to the same per-block affine for all three angles
     /// (90 = rotate90(−1), 180 = rotate90(2), 270 = rotate90(1)).</summary>
     public static ExportTransform Rotate(int degrees, (int W, int H) dims0)
@@ -239,7 +239,7 @@ public sealed class ExportRenderer
     }
 
     /// <summary>Tiles rendered at once inside <see cref="RenderSource"/> and <see cref="Prefetch"/>; 1 = the sequential order. Every tile is a
-    /// pure function of the capture, memoised once by the caches, so the pixels do not depend on the schedule — only the order of the log
+    /// pure function of the capture, memoized once by the caches, so the pixels do not depend on the schedule — only the order of the log
     /// lines and of the diagnostic hooks does.</summary>
     public int Threads { get; set; } = 1;
     /// <summary>Progress: "render tiles" per <see cref="RenderSource"/> call, one unit per export tile.</summary>
@@ -339,7 +339,7 @@ public static class ExportResample
 {
     static readonly float[] Table = WarpResample.BuildTable();
 
-    /// <summary>Lanczos-2 taps (n, scale): `x = (i − n/2)/scale`; `w = 1` at 0, `2·sin(πx)·sin(πx/2)/(x²·π²)` for |x| &lt; 2, else 0; normalised by the sum.</summary>
+    /// <summary>Lanczos-2 taps (n, scale): `x = (i − n/2)/scale`; `w = 1` at 0, `2·sin(πx)·sin(πx/2)/(x²·π²)` for |x| &lt; 2, else 0; normalized by the sum.</summary>
     public static float[] LanczosKernel(int n, float scale)
     {
         var k = new float[n]; float inv = 1f / scale, sum = 0f;
@@ -569,7 +569,7 @@ public static class ExportWindow
                 float w = x1 - x0, hh = y1 - y0;
                 if (1.0000000e-7f < w && hh < 1.0000001f && w < 1.0000001f && 1.0000000e-7f < hh) return new RectF(x0, y0, x1, y1);
             }
-            // the digital zoom: r = the reference GROUP's 35 mm-equivalent focal over the capture's effective focal length, centred
+            // the digital zoom: r = the reference GROUP's 35 mm-equivalent focal over the capture's effective focal length, centered
             float r = Focal35(h, Group((int)h.ImageReferenceCamera) * 5), eff = (float)h.ImageFocalLength;
             if (eff < r) throw new NotSupportedException("Effective focal length must be larger than reference focal length!");
             r /= eff;

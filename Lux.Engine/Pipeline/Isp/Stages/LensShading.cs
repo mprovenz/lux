@@ -7,7 +7,7 @@ namespace Lux.Engine.Pipeline.Isp.Stages;
 /// Lumen's `lt::A::RemoveVignettingGeneric&lt;vec4x32f,1&gt;` (dispatcher, grid builder, cell rects, tile lambda)
 /// = `LensShading:default` on the Color domain (the `setLensShading` stage lambda calls it with the payload float rect,
 /// the CapturedImage, `lens_shading.multiplier` and the inverse flag). Gain grid: the module's `VignettingCharacterization`
-/// model for the capture's mirror hall code (single model for fixed lenses; movable mirrors lerp the two neighbouring
+/// model for the capture's mirror hall code (single model for fixed lenses; movable mirrors lerp the two neighboring
 /// hall codes),
 /// transformed to `g' = (g − 1)·m + 1` (or `((g − 1)·m + 1)/g` when inverse), then bilinearly interpolated over
 /// the frame: node spacing `hspace = W_frame·sx/(cols−1)`, `vspace = H_frame·sy/(rows−1)` with `sx = W_tile/(x1−x0)`,
@@ -28,7 +28,7 @@ public static class LensShadingKernel
             var v = models[0].Vignetting;
             return ((int)v.Width, (int)v.Height, v.Data.ToArray());
         }
-        // movable mirror: neighbouring hall codes around the capture's mirror position
+        // movable mirror: neighboring hall codes around the capture's mirror position
         int hall = m.MirrorPosition;   // CameraModule.mirror_position (NOT af_info.mirror_position; the two values can differ)
         // On the std::map<hallCode, model>: hall ≤ min key → the min model; hall ≥ max key → the max model;
         // otherwise `hi = lower_bound(hall)` (the first model with code ≥ hall; == hall → that model alone) and `lo = the model

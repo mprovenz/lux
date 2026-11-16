@@ -30,7 +30,7 @@ public interface ICaptureContext
 /// <summary>
 /// The per-photo render settings a capture's saved-edits variant keeps besides its depth edits — today those of an imported Lumen session
 /// (`Pipeline/Dof/Edit/LumenSessionSettings.cs`): the fourteen renderer settings as Lumen loads them (f-number, focus depth, the tone and
-/// colour settings, sharpening), the photo transform (crop / rotation / flips), the rating, and — for a Lumen session — the session's own
+/// color settings, sharpening), the photo transform (crop / rotation / flips), the rating, and — for a Lumen session — the session's own
 /// registration geometry and depth, which a session render uses in place of the computed ones (<see cref="BuildOptions.SessionRender"/>).
 /// </summary>
 public sealed class SavedRenderState
@@ -59,7 +59,7 @@ public sealed class SavedRenderState
     /// <summary>The focus depth (`ParamFloat 1`, ≤ 0 = Lumen's default focus): <see cref="Settings"/>' unless set explicitly.</summary>
     public float? FocusDepth { get => _focusSet ? _focus : Settings?[Lux.Engine.Pipeline.Dof.Edit.LumenRendererSettings.FocusDepthId]; init { _focus = value; _focusSet = true; } }
 
-    /// <summary>The tone and colour settings: ids 2–13 of <see cref="Settings"/> as <see cref="Lux.Engine.Pipeline.Adjustments"/> (null without
+    /// <summary>The tone and color settings: ids 2–13 of <see cref="Settings"/> as <see cref="Lux.Engine.Pipeline.Adjustments"/> (null without
     /// settings), unless set explicitly (a Lux recipe's own adjustments, whose temperature / tint may be null = the capture's own).</summary>
     public Lux.Engine.Pipeline.Adjustments? Adjustments
     {

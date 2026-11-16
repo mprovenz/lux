@@ -13,7 +13,7 @@ public static class CoarseImageHelpers
 {
     static float Sinf(float x) => WineCrt.Sinf(x);
 
-    /// <summary>64-phase × 6-tap Lanczos-3 table (k = −2..3), normalised by the sequential sum (same as the stereo warp table).</summary>
+    /// <summary>64-phase × 6-tap Lanczos-3 table (k = −2..3), normalized by the sequential sum (same as the stereo warp table).</summary>
     public static float[] Taps()
     {
         var t = new float[64 * 6];
@@ -147,7 +147,7 @@ public static class CoarseImageHelpers
     public static float[] ToFloat4(Rgba8Image img) { var o = new float[img.W * img.H * 4]; for (int y = 0; y < img.H; y++) for (int x = 0; x < img.W; x++) for (int c = 0; c < 4; c++) o[(y * img.W + x) * 4 + c] = img.Data[img.Offset(x, y) + c]; return o; }
     public static float[] Channel0(Rgba8Image img) { var o = new float[img.W * img.H]; for (int y = 0; y < img.H; y++) for (int x = 0; x < img.W; x++) o[y * img.W + x] = img.Data[img.Offset(x, y)]; return o; }
 
-    /// <summary>`ImageBoxFilter&lt;vec4x32f&gt;` 5×5: per 256×256 tile running column sums, in-image count normalisation.</summary>
+    /// <summary>`ImageBoxFilter&lt;vec4x32f&gt;` 5×5: per 256×256 tile running column sums, in-image count normalization.</summary>
     public static float[] Box5(float[] src, int W, int H)
     {
         const int kw = 5, kh = 5, hw = 2, hh = 2;
@@ -223,7 +223,7 @@ public static class CoarseImageHelpers
 
 /// <summary>
 /// `lt::MirrorAngleOptimizer::optimize`: the coarse mirror-angle search on the dense depth —
-/// 13 θ nodes (±0.6°) × 41 principal-point shifts along the θ-flow (×8 on the 1/8 grid), z-buffered reprojection cost of the 1/8 colour
+/// 13 θ nodes (±0.6°) × 41 principal-point shifts along the θ-flow (×8 on the 1/8 grid), z-buffered reprojection cost of the 1/8 color
 /// (high-pass) + gradient images, `sel = cost[centre]·0.95 ≥ cost[best] ? best : centre`.
 /// </summary>
 public static class MirrorAngleOptimizerCoarse
@@ -302,7 +302,7 @@ public static class MirrorAngleOptimizerCoarse
         return new Result { Theta = thetas[sel], Cx = cxs[sel], Cy = cys[sel], Sel = sel, Best = best, Cost = cost, Written = MirrorPose.Shift(camSel, cxs[sel], cys[sel]) };
     }
 
-    /// <summary>Z-buffered visibility, then the mean absolute colour/gradient difference (N &gt; 100 else FLT_MAX).</summary>
+    /// <summary>Z-buffered visibility, then the mean absolute color/gradient difference (N &gt; 100 else FLT_MAX).</summary>
     public static float Score(Context ctx, float[] Mm, float[] Mc, float[] colourMod, float[] scalarMod, int Wm8, int Hm8)
     {
         int W8 = ctx.W8, H8 = ctx.H8;

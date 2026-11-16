@@ -8,7 +8,7 @@ namespace Lux.Engine.Pipeline.Color;
 public sealed record IlluminantEntry(ColorCalibration.Types.IlluminantType ProtoType, int InternalIlluminant, double Cct, double Tint,
     float[] ColorMatrix, float[] ProtoForwardMatrix, ColorFit Fit);
 
-/// <summary>Lumen's colour profile object: the lowest- and highest-CCT entries of the reference
+/// <summary>Lumen's color profile object: the lowest- and highest-CCT entries of the reference
 /// module with their DNG-facing matrices and HSV maps.</summary>
 public sealed record LumenProfile(IlluminantEntry Low, IlluminantEntry High, IReadOnlyList<IlluminantEntry> All)
 {
@@ -65,7 +65,7 @@ public static class LumenComponents
             StageRegistry.Register(dom, StageName.ToneMapping, "linear", _ => new Isp.Stages.ToneMappingLinearStage("linear"));
         }
         // BayerFloat block (pipeline index 5 of the level-1 fusion cache): the same kernels on the float
-        // source; slot 3 = the float LinearizeAndColorScale delegate (normalisation + WB scale of the fused raw-DN Bayer).
+        // source; slot 3 = the float LinearizeAndColorScale delegate (normalization + WB scale of the fused raw-DN Bayer).
         StageRegistry.Register(PayloadDomain.BayerFloat, StageName.Placeholder, "default", _ => new Isp.Stages.BayerFloatLinearizeStage());
         StageRegistry.Register(PayloadDomain.BayerFloat, StageName.CrossTalkCorrection, "ir_correction", _ => new Isp.Stages.CrossTalkStage());
         StageRegistry.Register(PayloadDomain.BayerFloat, StageName.Demosaicking, "light_v1", _ => new Isp.Stages.DemosaicLightV1Stage());
@@ -78,7 +78,7 @@ public static class LumenComponents
         StageRegistry.Register(PayloadDomain.BayerFloat, StageName.PostProcessing, "default", _ => new Isp.Stages.PostProcessingStage());
         StageRegistry.Register(PayloadDomain.BayerFloat, StageName.LensShading, "default", _ => new Isp.Stages.LensShadingStage(false));
         StageRegistry.Register(PayloadDomain.BayerFloat, StageName.LensShading, "inverse", _ => new Isp.Stages.LensShadingStage(true));
-        // Color block (vec4 → vec4; the mono branch of the level-1 fusion cache): slot 2 = the colour scale
+        // Color block (vec4 → vec4; the mono branch of the level-1 fusion cache): slot 2 = the color scale
         // (÷ neutral), then the shared bodies of CNR, AdaptiveDesat, Denoise and PostProcessing.
         StageRegistry.Register(PayloadDomain.Color, StageName.Placeholder, "default", _ => new Isp.ColorScaleStage());
         StageRegistry.Register(PayloadDomain.Color, StageName.ColorNoiseReduction, "default", _ => new Isp.Stages.ColorNoiseReductionStage());

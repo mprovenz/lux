@@ -123,7 +123,7 @@ public sealed class FakeJobQueue : IJobQueue, IDisposable
         var kind = r is CacheJobRequest { Release: true } ? JobKind.CacheRelease : r.Kind;
         (string title, double secs, long mem) = r switch
         {
-            AnalysisJobRequest a => (a.TargetLevel >= CacheLevel.Linear13 ? $"Analysing {name}: depth map and 13 MP" : $"Analysing {name}", 9.0, 5L << 30),
+            AnalysisJobRequest a => (a.TargetLevel >= CacheLevel.Linear13 ? $"Analyzing {name}: depth map and 13 MP" : $"Analyzing {name}", 9.0, 5L << 30),
             CacheJobRequest { Release: true } => ($"Releasing full detail of {name}", 0.6, 64L << 20),
             CacheJobRequest c when c.Target == CacheLevel.Full => ($"Keeping full detail for {name}" + (cap is { CacheLevel: < CacheLevel.Geometry } ? " (depth map first)" : ""), 7.0, 6L << 30),
             CacheJobRequest => ($"Building the cache of {name}", 4.0, 3L << 30),

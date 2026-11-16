@@ -205,7 +205,7 @@ internal sealed class FakeLayerSource : ITileSource, IDisposable
         return px;
     }
 
-    /// <summary>The selection mask: the accent colour, translucent inside, solid on the outline (S-Depth: "blue = selected").</summary>
+    /// <summary>The selection mask: the accent color, translucent inside, solid on the outline (S-Depth: "blue = selected").</summary>
     public static byte[]? PaintMask(byte[] mask, FakeDepthMap map, LayerTile t)
     {
         var px = new byte[t.Width * t.Height * 4];

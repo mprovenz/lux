@@ -36,7 +36,7 @@ public static class DisplayIspTuning
 
     /// <summary>
     /// One pyramid level's output tuning.
-    /// <paramref name="gateV2"/> is Lumen's v2 renderer gate: false → `light_v1` + the **neutralised** local-Laplacian set
+    /// <paramref name="gateV2"/> is Lumen's v2 renderer gate: false → `light_v1` + the **neutralized** local-Laplacian set
     /// (branch A); true → `light_v2` + the Stats-derived
     /// `lpyr_*` percentiles and samples (branch B, which Lumen's GUI exports carry).
     /// </summary>

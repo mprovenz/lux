@@ -6,7 +6,7 @@ namespace Lux.Engine.Pipeline.Registration;
 /// `MatchedPoint` vectors (0x2c records) and the full-res output (`drv&lt;i&gt;_match&lt;l&gt;` / `drv&lt;i&gt;_out`, `tdrv…`), the
 /// FundamentalMatrixFilter in/out (`flt&lt;i&gt;_cam&lt;c&gt;_{pre,post}`), the triangulator points (`tri_{before,after,refined}_points`,
 /// 20-byte {u,v,X,Y,Z}), the BA caller's slots before/after write-back (`bac&lt;i&gt;_{in,out}`), the post-acceptance slots
-/// (`final&lt;i&gt;_slots`) and every optimiser calibration write (`calibwrite&lt;i&gt;_{before,after}`, 0x54 = {K, R, t} of the CURRENT slot).
+/// (`final&lt;i&gt;_slots`) and every optimizer calibration write (`calibwrite&lt;i&gt;_{before,after}`, 0x54 = {K, R, t} of the CURRENT slot).
 /// Enabled by `LUX_DENSE_DUMP` (the prefix is shared with the dense-stereo dumps).
 /// </summary>
 public sealed class RegDump

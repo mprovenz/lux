@@ -34,7 +34,7 @@ public sealed class JpegEncoder
     /// <summary>`opts.quality` — the literal 98 (0x62). Passed to `jpeg_set_quality(…, force_baseline = TRUE)`.</summary>
     public int Quality = 98;
     /// <summary>`opts.subsamplingId` — the literal 2 = 4:2:0 (the subsampling map: key 2 → `2,2 / 1,1 / 1,1`).
-    /// 0 = 4:4:4, 1 = 4:2:2. Ignored for grayscale (Lumen reads the map only in the colour branch).</summary>
+    /// 0 = 4:4:4, 1 = 4:2:2. Ignored for grayscale (Lumen reads the map only in the color branch).</summary>
     public int SubsamplingId = 2;
     /// <summary>`jpeg_write_marker(0xFE, …)` — the COM marker text (Lumen writes its library name and `CIAPI::GetVersion()`). Empty → not written.</summary>
     public string? Comment;
@@ -555,7 +555,7 @@ public sealed class JpegEncoder
     static int Ceil(long a, long b) => (int)((a + b - 1) / b);
 
     /// <summary>
-    /// `jccolor.c` + `jcsample.c` + `jcprepct.c`, materialised as whole planes. The edge rules libjpeg applies through
+    /// `jccolor.c` + `jcsample.c` + `jcprepct.c`, materialized as whole planes. The edge rules libjpeg applies through
     /// its row-group buffers reduce exactly to clamped sampling of the source: `expand_right_edge` replicates column
     /// `W−1`, `expand_bottom_edge` (both the `prep` one and the iMCU-row one) replicates row `H−1`.
     /// </summary>

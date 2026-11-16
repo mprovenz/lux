@@ -14,7 +14,7 @@ namespace Lux.App.Fake;
 internal sealed record FakeVersion(string Id, VersionKind Kind, string Name);
 
 /// <summary>The depth part of a fake editing state (one per history step): the depth effect and each version's edits.</summary>
-/// <param name="FocusCapture">The clicked focus point in capture coordinates (normalised), null for the default focus or a typed value.</param>
+/// <param name="FocusCapture">The clicked focus point in capture coordinates (normalized), null for the default focus or a typed value.</param>
 internal sealed record FakeDepthState(double? FNumber, double FocusMm, bool FocusDefault, NormPoint? FocusCapture, string Version,
                                       ImmutableDictionary<string, ImmutableList<FakeDepthOp>> Ops, ImmutableList<FakeVersion> Versions)
 {
@@ -313,7 +313,7 @@ public sealed class FakeDepthSession : IDepthSession, IDisposable
 
     public IToolStroke BeginStroke()
     {
-        if (!Status.IsReady || _map == null) throw new InvalidOperationException("The depth map is not ready yet: analyse the photo first.");
+        if (!Status.IsReady || _map == null) throw new InvalidOperationException("The depth map is not ready yet: analyze the photo first.");
         if (_tool == null) throw new InvalidOperationException("Choose a depth tool first.");
         return new Stroke(this, _tool.Value, _mode, _options);
     }
@@ -379,7 +379,7 @@ public sealed class FakeDepthSession : IDepthSession, IDisposable
                 default:
                 {
                     if (pts.Length < 2) return new ToolOutcome(ToolResult.NothingChanged, "Paint a stroke (a single click is not enough).");
-                    var (r, mask) = await RunAsync(options.FollowColour ? "Following the colours" : "Painting the area", options.FollowColour ? 900 : 40,
+                    var (r, mask) = await RunAsync(options.FollowColour ? "Following the colors" : "Painting the area", options.FollowColour ? 900 : 40,
                         _ => FakeDepthOps.BrushMask(map, pts, RadiusMap(options.BrushSize), options.FollowColour)).ConfigureAwait(true);
                     if (r.Result != ToolResult.Applied) return r;
                     SetPending(MatchMode.Brush, mask, Array.Empty<NormPoint>());
@@ -428,7 +428,7 @@ public sealed class FakeDepthSession : IDepthSession, IDisposable
         return new FakeVersion(n == 1 ? "lux" : $"lux-{n}", VersionKind.Lux, n == 1 ? "Lux edits" : $"Lux edits {n}");
     }
 
-    /// <summary>Run a job off the UI thread with the simulated time (progress every 50 ms, cancellable); one at a time, in call order.</summary>
+    /// <summary>Run a job off the UI thread with the simulated time (progress every 50 ms, cancelable); one at a time, in call order.</summary>
     int _queued, _cancelGeneration;
 
     async Task<(ToolOutcome Outcome, T Result)> RunAsync<T>(string label, int ms, Func<CancellationToken, T> work)

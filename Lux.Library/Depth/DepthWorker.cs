@@ -179,7 +179,7 @@ internal sealed class DepthWorker : IDisposable
         try { ActivityChanged?.Invoke(a); } catch (Exception e) { _trace("depth activity listener: " + e.Message); }
     }
 
-    /// <summary>Stop: queued jobs are cancelled, the running one is asked to stop, and the thread ends after it (waits up to
+    /// <summary>Stop: queued jobs are canceled, the running one is asked to stop, and the thread ends after it (waits up to
     /// <paramref name="wait"/>).</summary>
     public void Stop(TimeSpan wait)
     {

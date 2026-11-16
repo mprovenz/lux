@@ -92,7 +92,7 @@ public sealed class RealLibraryTests
 
             Harness.Capture(win, "real-24-folder-tree-levels");
 
-            // the selection bar's upgrade: the shared notice for the whole selection (cancelled — nothing is requested)
+            // the selection bar's upgrade: the shared notice for the whole selection (canceled — nothing is requested)
             await vm.Library.UpgradeSelectedCommand.ExecuteAsync(null);
             if (vm.Dialog is StorageNoticeViewModel notice)
             {
@@ -129,7 +129,7 @@ public sealed class RealLibraryTests
             Harness.Capture(win, "real-07-lumen-import");
             dlg.CancelCommand.Execute(null);
 
-            // quality selector and its storage notice (nothing is requested: the notice is cancelled)
+            // quality selector and its storage notice (nothing is requested: the notice is canceled)
             vm.Library.Click(items[0], false, false);
             await Settle(() => s.Thumbnails.InFlight == 0, 60_000);
             Harness.Capture(win, "real-19-quality-selector");

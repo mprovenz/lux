@@ -51,7 +51,7 @@ public sealed class ViewerStats
 /// <summary>
 /// How a new version of the picture replaces the one on screen (never tile by tile in arbitrary order).
 /// While a slider is dragged, and whenever every visible tile of the new version arrives within <see cref="WindowMs"/>, the whole visible picture
-/// is swapped at once; otherwise, after the window, the new tiles are shown as they come — the source renders them from the centre of the view
+/// is swapped at once; otherwise, after the window, the new tiles are shown as they come — the source renders them from the center of the view
 /// outwards — each cross-fading over the previous picture for <see cref="FadeMs"/>.
 /// </summary>
 public sealed class TileSwapSettings
@@ -169,7 +169,7 @@ public sealed class PhotoViewer : Control, IViewerCommands
     public double FitMargin { get; set; } = 16;
     Size FitViewport => new(Math.Max(1, Viewport.Width - 2 * FitMargin), Math.Max(1, Viewport.Height - 2 * FitMargin));
     double FitScaleNow => ViewerMath.FitScale(FitViewport, ImageSizeD);
-    /// <summary>Overrides the window's render scaling (tests of high-DPI maths).</summary>
+    /// <summary>Overrides the window's render scaling (tests of high-DPI math).</summary>
     public double? RenderScalingOverride { get; set; }
     /// <summary>Level bias: positive values ask for coarser levels (faster, softer).</summary>
     public double LevelBias { get; set; }
@@ -318,7 +318,7 @@ public sealed class PhotoViewer : Control, IViewerCommands
     {
         base.OnSizeChanged(e);
         if (_mode == ZoomMode.Free && _lastViewport.Width > 0)
-            _offset += new Vector((e.NewSize.Width - _lastViewport.Width) / 2, (e.NewSize.Height - _lastViewport.Height) / 2);   // keep the centre
+            _offset += new Vector((e.NewSize.Width - _lastViewport.Width) / 2, (e.NewSize.Height - _lastViewport.Height) / 2);   // keep the center
         UpdateView();
     }
 
@@ -331,7 +331,7 @@ public sealed class PhotoViewer : Control, IViewerCommands
 
     /// <summary>
     /// The page is about to change the picture's geometry: hold the current picture, turned by <paramref name="turn"/>, drawing its region
-    /// <paramref name="source"/> (normalised in the old picture) into <paramref name="target"/> (normalised in the new one), until the new
+    /// <paramref name="source"/> (normalized in the old picture) into <paramref name="target"/> (normalized in the new one), until the new
     /// picture's coarsest level is in. Rotate right = (RotateRight, full, full); apply a crop = (identity, the frame, full); open the crop
     /// tool = (identity, full, the saved crop in the uncropped picture).
     /// </summary>
@@ -364,7 +364,7 @@ public sealed class PhotoViewer : Control, IViewerCommands
     public void ZoomToFit() { _animating = false; _mode = ZoomMode.Fit; UpdateView(); }
     public void ZoomToFill() { if (LocksView) return; _animating = false; _mode = ZoomMode.Fill; UpdateView(); }
 
-    /// <summary>1:1 — one image pixel per physical pixel — about <paramref name="anchor"/> (default: the view's centre).</summary>
+    /// <summary>1:1 — one image pixel per physical pixel — about <paramref name="anchor"/> (default: the view's center).</summary>
     public void ZoomToActual(Point? anchor = null, bool? animate = null) => ZoomToScale(1 / RenderScaling, anchor, animate);
 
     /// <summary>Zoom to <paramref name="percent"/> (physical) about <paramref name="anchor"/>.</summary>
@@ -423,7 +423,7 @@ public sealed class PhotoViewer : Control, IViewerCommands
         UpdateView();
     }
 
-    /// <summary>Centre the picture without changing the zoom.</summary>
+    /// <summary>Center the picture without changing the zoom.</summary>
     public void CenterImage()
     {
         var display = ImageSizeD;

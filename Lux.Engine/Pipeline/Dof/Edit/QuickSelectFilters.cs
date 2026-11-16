@@ -6,7 +6,7 @@ using Lux.Engine.Pipeline.Registration;
 
 namespace Lux.Engine.Pipeline.Dof.Edit;
 
-/// <summary>Image kernels of quick select: grey conversion, the sRGB → CIELAB kernel behind the colour samples, the domain-transform
+/// <summary>Image kernels of quick select: gray conversion, the sRGB → CIELAB kernel behind the color samples, the domain-transform
 /// filter of the mask, the mask clean-up.</summary>
 public static class QuickSelectFilters
 {
@@ -14,7 +14,7 @@ public static class QuickSelectFilters
     static int Bits(float f) => BitConverter.SingleToInt32Bits(f);
     static float FromBits(int b) => BitConverter.Int32BitsToSingle(b);
 
-    // the fast log2 / exp2 polynomials shared by Lumen's vectorised pow kernels
+    // the fast log2 / exp2 polynomials shared by Lumen's vectorized pow kernels
     static readonly float L0 = F(0x3e511af3), L1 = F(0xbfa05375), L2 = F(0x40552f75), L3 = F(0xc0121769),
         E0 = F(0x3d9fcb52), E1 = F(0x3e677e26), E2 = F(0x3f322226), E3 = F(0x3f7ffb19);
 
@@ -39,7 +39,7 @@ public static class QuickSelectFilters
         return FromBits(unchecked((i << 23) + Bits(p)));
     }
 
-    /// <summary>vec4 → float through Lumen's grey pixel converter:
+    /// <summary>vec4 → float through Lumen's gray pixel converter:
     /// <c>(g·0.587 + r·0.299) + b·0.114</c>.</summary>
     public static float[] Grey(float[] rgba, int w, int h)
     {
@@ -200,7 +200,7 @@ public static class QuickSelectFilters
     ///
     /// Feedback <c>a = expf(−√2 / (2^(n−1)·(σs·√3)·rsqrt(4^n − 1)))</c> (n = iterations; `rsqrtss` + one Newton step; CRT `expf`).
     /// Weights (per 256×256 tile): <c>wA[y][x] = a^(1 + |g[y][x] − g[y][x−1]|·σs/σr)</c>,
-    /// <c>wB[y][x] = a^(1 + |g[y][x] − g[y−1][x]|·σs/σr)</c>, computed with the vectorised pow approximation
+    /// <c>wB[y][x] = a^(1 + |g[y][x] − g[y−1][x]|·σs/σr)</c>, computed with the vectorized pow approximation
     /// <c>exp2(d·((pm + L3) + e))</c> — except, with the CRT `powf`, the last pixels of image row 0 of each tile that the 4-wide loop
     /// does not reach and wB in column 0. wA[·][0] = 0, wB[0][·] = 0.
     /// Passes (the tile wavefront reduces to whole-image passes): down the columns x ≥ 1, then along the rows
@@ -231,7 +231,7 @@ public static class QuickSelectFilters
                 for (int k = 0; k < 4; k++) wA[x + k] = Fast(guide[x + k] - guide[x + k - 1]);
             for (; x < X1; x++) wA[x] = Crt(guide[x] - guide[x - 1]);
         }
-        // rows ≥ 1: every pixel x ≥ 1 through the vectorised pow, column 0 wA = 0 and wB by the CRT powf — eight lanes and row bands
+        // rows ≥ 1: every pixel x ≥ 1 through the vectorized pow, column 0 wA = 0 and wB by the CRT powf — eight lanes and row bands
         var L8 = Vector256.Create(L); var R8 = Vector256.Create(ratio); var one8 = Vector256.Create(1.0f);
         Parallel.For(0, Bands(h - 1), b =>
         {

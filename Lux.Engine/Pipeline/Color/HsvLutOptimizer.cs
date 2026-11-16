@@ -4,7 +4,7 @@ using static Lux.Engine.Pipeline.Color.LumenColorTables;
 
 namespace Lux.Engine.Pipeline.Color;
 
-/// <summary>Result of the per-illuminant colour fit: the fitted camera-RGB→XYZ(D50) matrix, the DNG
+/// <summary>Result of the per-illuminant color fit: the fitted camera-RGB→XYZ(D50) matrix, the DNG
 /// ForwardMatrix derived from it, and the 32×32×1 HSV map stored Lumen-style as a padded 33×33 vec4 grid.</summary>
 public sealed record ColorFit(
     float[] Matrix,          // row-major 3×3, xyz = M·rgb (Lumen's M′, read column-major)
@@ -59,7 +59,7 @@ public static class HsvLutOptimizer
         var prep = Prepare(macbeth);
         var res = CeresLineSearchMinimizer.Minimize(prep.Evaluate, prep.X0, options);
         var p = res.Termination == CeresTermination.Convergence ? res.X : prep.X0;   // keep M₀ unless Ceres reports CONVERGENCE
-        if (res.Termination != CeresTermination.Convergence) log?.Invoke($"colour fit did not converge ({res.Message}); using the linear LSQ matrix");
+        if (res.Termination != CeresTermination.Convergence) log?.Invoke($"color fit did not converge ({res.Message}); using the linear LSQ matrix");
         return Finish(prep, p, res);
     }
 
@@ -257,7 +257,7 @@ public static class HsvLutOptimizer
         return fm;
     }
 
-    // ---------------- colour math ----------------
+    // ---------------- color math ----------------
 
     private static Jet9 LabF(Jet9 t) => t < LabEpsilon ? t * LabKappa + LabOffset : Jet9.Pow(t, 1.0 / 3.0);
 

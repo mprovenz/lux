@@ -70,7 +70,7 @@ public sealed class ChipViewModel : ObservableObject
     public int? MinRating { get; }
     public string BaseLabel => Filter switch
     {
-        SmartFilter.NotAnalysed => "Not analysed",
+        SmartFilter.NotAnalysed => "Not analyzed",
         _ => _label,
     };
     public string Label { get => _label; set => SetProperty(ref _label, value); }
@@ -80,7 +80,7 @@ public sealed class ChipViewModel : ObservableObject
         MinRating is int r ? q with { MinRating = r } : Filter is SmartFilter f ? q.With(f) : q;
 }
 
-/// <summary>Geometry shared by every realised row of a view (a width change updates cells without rebuilding rows).</summary>
+/// <summary>Geometry shared by every realized row of a view (a width change updates cells without rebuilding rows).</summary>
 public sealed class CellMetrics : ObservableObject
 {
     int _columns = 1;
