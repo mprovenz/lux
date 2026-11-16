@@ -11,7 +11,7 @@ Lux has two programs. **Lux** is the desktop app: a photo library, an editor wit
 - libgphoto2 on Linux only if MTP connection to the camera is desired
 
 ## Desktop app
-The app runs on Linux x64 and Windows x64. Get it from the [Releases page](https://github.com/mprovenz/lux/releases); see [Build & run](#build--run) for the downloads.
+The app runs on Linux, Windows and macOS (x64 and ARM64). Get it from the [Releases page](https://github.com/mprovenz/lux/releases); see [Build & run](#build--run) for the downloads.
 
 - **Library:** add folders of captures, browse them as a grid, a timeline or a list, filter, rate, and group them in albums.
 - **Develop:** tone and colour, crop and rotation, the depth effect (aperture and focus), and Lumen's depth-editing tools (refine edge, blend area, match depth, quick select). A photo and its depth map can be shown side by side, and a before / after view compares the edit with the original.
@@ -73,7 +73,7 @@ A photo beside its depth map:
   analysis cache. It carries the SQLite dependency (`Microsoft.Data.Sqlite`), so the engine itself has none.
 
 ## Build & run
-Precompiled builds for Linux x64 and Windows x64 are on the [Releases page](https://github.com/mprovenz/lux/releases).
+Precompiled builds for Linux, Windows and macOS (x64 and ARM64) are on the [Releases page](https://github.com/mprovenz/lux/releases).
 Everything is self-contained, so no .NET install is needed. Pick one:
 
 | Download | What it is |
@@ -85,6 +85,9 @@ Everything is self-contained, so no .NET install is needed. Pick one:
 
 The installed builds check this repository's releases when the app starts, download a newer version in the background and apply
 it only when you choose to restart. The binaries are not code-signed, so Windows shows a SmartScreen warning on first run.
+
+ARM64: the installed builds are `Lux-win-arm64-Setup.exe` and `Lux-linux-arm64.AppImage`; the plain archives have `win-arm64` and
+`linux-arm64` in their names. The Linux and Windows ARM64 builds are not yet tested on ARM64 hardware.
 
 macOS: use the plain archives, `osx-arm64` for Apple silicon and `osx-x64` for Intel. The first archive contains `Lux.app`, with
 `lux-light` in `Lux.app/Contents/MacOS`. The macOS builds do not update themselves. They are not notarised, so macOS blocks a
@@ -104,7 +107,7 @@ Build from source (needs the .NET 10 SDK):
 dotnet build Lux.slnx -c Release
 ./Lux.Cli/bin/Release/net10.0/lux-light convert <file-or-dir> [--out-directory out] [--formats all] [-j threads]
 ```
-The release files are made by `packaging/pack.sh <version> <linux-x64|win-x64>` (it needs only the SDK; the Windows installer can be built on Linux).
+The release files are made by `packaging/pack.sh <version> <platform>` (`linux-x64`, `linux-arm64`, `win-x64`, `win-arm64`, `osx-arm64`, `osx-x64`) (it needs only the SDK; the Windows installer can be built on Linux).
 The [full CLI usage instructions](#full-cli-usage-instructions) are at the bottom of this document.
 
 Note: a full export can take a few minutes and use up to 7G of memory per file. `convert` processes inputs in parallel

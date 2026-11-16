@@ -1,9 +1,10 @@
 # Manual release builder for Lux: the desktop app and lux-light.
 #
-# Per platform (Linux x64, Windows x64) it publishes, through packaging/pack.sh:
+# Per platform (Linux and Windows, x64 and ARM64) it publishes, through packaging/pack.sh:
 #   lux-<version>-<rid>         plain archive with the app and lux-light (no installer, no self-update)
 #   lux-light-<version>-<rid>   the command line tool alone
-#   the installed build         Lux-win-Setup.exe / Lux.AppImage, which update themselves from this repository's releases
+#   the installed build         Lux-win-Setup.exe / Lux.AppImage (x64) and Lux-win-arm64-Setup.exe / Lux-linux-arm64.AppImage
+#                               (ARM64), which update themselves from this repository's releases
 #                               (the *.nupkg and releases.<channel>.json files attached to the release are their update feed)
 # For macOS (Apple silicon and Intel) it publishes the two archives only. The first archive contains Lux.app, signed ad hoc.
 
@@ -73,7 +74,9 @@ jobs:
         run: |
           all='[
             {"family": "linux",   "os": "ubuntu-latest",  "rid": "linux-x64"},
+            {"family": "linux",   "os": "ubuntu-24.04-arm", "rid": "linux-arm64"},
             {"family": "windows", "os": "windows-latest", "rid": "win-x64"},
+            {"family": "windows", "os": "windows-11-arm", "rid": "win-arm64"},
             {"family": "macos",   "os": "macos-latest",   "rid": "osx-arm64"},
             {"family": "macos",   "os": "macos-latest",   "rid": "osx-x64"}
           ]'

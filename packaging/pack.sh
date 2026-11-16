@@ -7,6 +7,7 @@
 #   lux-v<version>-<rid>.tar.gz|.zip          the app and lux-light, plain archive (no installer, no self-update)
 #   lux-light-v<version>-<rid>.tar.gz|.zip    the command line tool alone
 #   the installed build with self-update:     Lux-win-Setup.exe (win-x64)  /  Lux.AppImage (linux-x64),
+#                                             Lux-win-arm64-Setup.exe (win-arm64)  /  Lux-linux-arm64.AppImage (linux-arm64),
 #                                             plus the update feed files (*.nupkg, releases.<channel>.json, …)
 # For macOS (osx-arm64, osx-x64) the first archive contains Lux.app. There is no installed build with self-update for macOS.
 # Runs on Linux for all platforms (the Windows installer is cross-built), in Git Bash on Windows, and on macOS.
@@ -15,7 +16,7 @@
 set -euo pipefail
 
 VERSION="${1:?version, e.g. 2.0.0}"; VERSION="${VERSION#v}"
-RID="${2:?runtime id: linux-x64, win-x64, osx-arm64 or osx-x64}"
+RID="${2:?runtime id: linux-x64, linux-arm64, win-x64, win-arm64, osx-arm64 or osx-x64}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$(mkdir -p "${3:-$ROOT/dist}" && cd "${3:-$ROOT/dist}" && pwd)"
 WORK="$ROOT/artifacts/pack/$RID"
@@ -23,8 +24,11 @@ WORK="$ROOT/artifacts/pack/$RID"
 case "$RID" in
   linux-x64) EXE=""; CHANNEL=linux; DIRECTIVE="[linux]" ;;
   win-x64)   EXE=".exe"; CHANNEL=win; DIRECTIVE="[win]" ;;
+  # Each ARM64 build has its own update channel, so that it gets ARM64 updates only.
+  linux-arm64) EXE=""; CHANNEL=linux-arm64; DIRECTIVE="[linux]" ;;
+  win-arm64)   EXE=".exe"; CHANNEL=win-arm64; DIRECTIVE="[win]" ;;
   osx-arm64|osx-x64) EXE=""; CHANNEL=""; DIRECTIVE="" ;;
-  *) echo "unsupported runtime id '$RID' (linux-x64, win-x64, osx-arm64, osx-x64)" >&2; exit 2 ;;
+  *) echo "unsupported runtime id '$RID' (linux-x64, linux-arm64, win-x64, win-arm64, osx-arm64, osx-x64)" >&2; exit 2 ;;
 esac
 
 rm -rf "$WORK"; mkdir -p "$WORK/app" "$WORK/cli" "$WORK/feed"
@@ -47,7 +51,7 @@ rm -f "$WORK/app"/*.xml "$WORK/cli"/*.xml           # API documentation files ar
 cp "$WORK/cli/lux-light$EXE" "$WORK/app/"
 cp LICENSE README.md "$WORK/app/"
 cp LICENSE README.md "$WORK/cli/"
-if [ "$RID" = linux-x64 ]; then
+if [[ "$RID" == linux-* ]]; then
   cp packaging/lux.desktop "$WORK/app/lux.desktop"
   cp Lux.App/Assets/Icon/lux-256.png "$WORK/app/lux.png"
   cp Lux.App/Assets/Icon/lux.svg "$WORK/app/lux.svg"
@@ -78,7 +82,7 @@ if [[ "$RID" == osx-* ]]; then
 fi
 
 archive() {   # <name> <folder>
-  if [ "$RID" = win-x64 ]; then
+  if [[ "$RID" == win-* ]]; then
     rm -f "$OUT/$1.zip"
     if command -v zip >/dev/null 2>&1; then (cd "$2" && zip -q -r "$OUT/$1.zip" .)
     else powershell -NoProfile -Command "Compress-Archive -Path '$(cygpath -w "$2")\\*' -DestinationPath '$(cygpath -w "$OUT/$1.zip")'"; fi
@@ -97,8 +101,8 @@ fi
 
 echo "== installed build with self-update"
 dotnet tool restore >/dev/null
-ICON=Lux.App/Assets/Icon/lux.ico; [ "$RID" = linux-x64 ] && ICON=Lux.App/Assets/Icon/lux-256.png
-EXTRA=(); [ "$RID" = linux-x64 ] && EXTRA=(--categories "Graphics;Photography")
+ICON=Lux.App/Assets/Icon/lux.ico; [[ "$RID" == linux-* ]] && ICON=Lux.App/Assets/Icon/lux-256.png
+EXTRA=(); [[ "$RID" == linux-* ]] && EXTRA=(--categories "Graphics;Photography")
 dotnet vpk "$DIRECTIVE" pack --packId Lux --packTitle Lux --packAuthors "Lux contributors" \
   --packVersion "$VERSION" --packDir "$WORK/app" --mainExe "lux-app$EXE" --icon "$ICON" \
   --runtime "$RID" --channel "$CHANNEL" --outputDir "$WORK/feed" "${EXTRA[@]}"
