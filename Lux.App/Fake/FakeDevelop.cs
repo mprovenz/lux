@@ -132,7 +132,7 @@ public sealed class FakeDevelopService : IDevelopService
             if ((set.Groups & EditGroups.DepthEffect) != 0)
             {
                 // the saved depth effect of a photo that is not open (mirrored in the library's summary as the real store does)
-                if (DepthRecipes.TryGetValue(id, out var kept)) DepthRecipes[id] = kept with { FNumber = set.DepthFNumber, FocusMm = set.DepthFocusMm ?? kept.FocusMm, FocusDefault = set.DepthFocusMm == null };
+                if (DepthRecipes.TryGetValue(id, out var kept)) DepthRecipes[id] = kept with { FNumber = set.DepthFNumber, FocusMm = set.DepthFocusMm ?? kept.FocusMm, FocusDefault = set.DepthFocusMm == null, LuxRendering = set.DepthLuxRendering };
                 var e = item.Edits;
                 _lib.SetDepthForTesting(id, set.DepthFNumber is double f ? (float)f : null, set.DepthFocusMm is double mm ? (float)mm : null, e.Variant, e.OperationCount, e.Source, e.VariantCount);
             }
@@ -257,7 +257,7 @@ public sealed class FakeDevelopSession : IDevelopSession
         _depth = new FakeDepthSession(this, svc, _tiles, svc.Options.Timings);
         _depth.Changed += () => Changed?.Invoke();
         var depthState = FakeDepthSession.Initial(svc, item, _depth.Map, out _saved);
-        _original = _original with { Depth = depthState with { FNumber = null, FocusDefault = true, FocusCapture = null } };
+        _original = _original with { Depth = depthState with { FNumber = null, FocusDefault = true, FocusCapture = null, LuxRendering = false } };
         _current = _current with { Depth = depthState };
         _unreliable = item.Edits.HistoryUnreliable;
         BuildHistory(depthState, imported: false);
@@ -536,7 +536,7 @@ public sealed class FakeDevelopSession : IDevelopSession
     {
         _cropping = false;
         // Lumen's revert also turns the depth effect off; the depth edits stay (the contract's rule)
-        Push("Revert to original", _original with { Depth = _current.Depth! with { FNumber = null } }, HistoryKind.Mixed);
+        Push("Revert to original", _original with { Depth = _current.Depth! with { FNumber = null, LuxRendering = false } }, HistoryKind.Mixed);
     }
 
     public bool Apply(EditSet set, string label)
@@ -552,6 +552,7 @@ public sealed class FakeDevelopSession : IDevelopSession
             depth = depth with
             {
                 FNumber = set.DepthFNumber, FocusMm = set.DepthFocusMm ?? _depth.EffectRange.DefaultFocusMm, FocusDefault = set.DepthFocusMm == null, FocusCapture = null,
+                LuxRendering = set.DepthLuxRendering,
             };
         Push(label, new State(v, g, _current.TurnSaved || (set.Groups & EditGroups.RotationAndMirror) != 0, depth), (set.Groups & ~EditGroups.DepthEffect) == 0 ? HistoryKind.DepthEffect : HistoryKind.Mixed);
         return cropOk;
@@ -559,7 +560,7 @@ public sealed class FakeDevelopSession : IDevelopSession
 
     public EditSet Snapshot() => new(EditGroups.All, FakeDevelopService.WithoutAsShot(_current.Values, _item), _current.Geometry)
     {
-        DepthFNumber = _depth.FNumber, DepthFocusMm = DepthState.FocusDefault ? null : DepthState.FocusMm,
+        DepthFNumber = _depth.FNumber, DepthFocusMm = DepthState.FocusDefault ? null : DepthState.FocusMm, DepthLuxRendering = DepthState.LuxRendering,
     };
 
     // ---- geometry

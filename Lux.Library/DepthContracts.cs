@@ -90,6 +90,8 @@ public sealed record DepthEffectState(float? FNumber, float? FocusMm, float? Def
 {
     /// <summary>The depth effect is rendered (an f-number below the all-in-focus one).</summary>
     public bool IsOn { get; init; }
+    /// <summary>The renderer of the depth effect: Lumen's (the default) or the Lux rendering.</summary>
+    public Lux.Engine.Pipeline.Dof.DofRendering Rendering { get; init; }
     /// <summary>The focus distance in use: <see cref="FocusMm"/> or the default.</summary>
     public float? EffectiveFocusMm => FocusMm ?? DefaultFocusMm;
 }
@@ -153,6 +155,10 @@ public interface IPhotoDepth
     void BeginFNumberDrag();
     void DragFNumber(float? fNumber);
     void EndFNumberDrag();
+    /// <summary>Set the renderer of the depth effect (one history step, "Lux rendering" or "Lumen rendering"; saved with the f-number and the focus, and carried
+    /// by copy and paste). The Lux rendering makes clipped lights into bright discs, keeps the brightness of small lights, gives the blur
+    /// discs a sharp edge, and adds grain only where the picture is blurred. Default (fakes): nothing.</summary>
+    void SetRendering(Lux.Engine.Pipeline.Dof.DofRendering rendering) { }
     /// <summary>Set the focus distance by number (mm, &gt; 0; one history step "Focus"); null = Lumen's default focus.</summary>
     void SetFocus(float? focusMm);
     /// <summary>A focus slider drag, like the f-number's: <see cref="DragFocus"/> renders at the drag level without a history step,
@@ -485,6 +491,9 @@ public enum DepthVersionKind
     Lux = 1,
     /// <summary>Imported from a Lumen session: Lumen's stored depth and edits (lower fidelity — see <see cref="IDepthEdit.LumenImportWarning"/>).</summary>
     LumenImport = 2,
+    /// <summary>Refined depth: the photo's own depth joined with a depth network's view of the picture (<see cref="IDepthEdit.RefineDepth"/>).
+    /// It can be edited like a Lux version.</summary>
+    Refined = 3,
 }
 
 /// <summary>One depth version of the photo.</summary>
@@ -583,6 +592,12 @@ public interface IDepthEdit
     /// <summary>Import the Lumen session beside the photo as a version (made active), with Lumen's newer tone style or not (a session does not
     /// record which one Lumen used). Importing the same session again only updates the tone-style choice.</summary>
     DepthJob ImportLumenSession(bool newerToneStyle);
+    /// <summary>Make the refined version of the photo's depth and make it active: a depth network looks at the picture, and its outlines,
+    /// thin objects and sky are joined with the photo's own depth. The version is made once from the clean depth and kept; a second call
+    /// switches to it. The job fails when the network's files are not installed (<see cref="ILibrary.DepthModel"/>). It takes several
+    /// seconds and reports through <see cref="Activity"/>. On a photo without other cameras that can check the depth (a telephoto
+    /// capture), only the sky is corrected, and the message of the result says so.</summary>
+    DepthJob RefineDepth() => DepthJob.Completed(new DepthJobResult(DepthJobOutcome.Failed, "Refined depth is not available here."), "Refine depth");
 
     event EventHandler<DepthChangedEventArgs>? Changed;
 }

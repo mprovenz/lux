@@ -56,6 +56,8 @@ public sealed class SavedRenderState
 
     /// <summary>The f-number (`ParamFloat 0`): <see cref="Settings"/>' unless set explicitly (a Lux recipe, which may leave it unset = null).</summary>
     public float? FNumber { get => _fNumberSet ? _fNumber : Settings?[Lux.Engine.Pipeline.Dof.Edit.LumenRendererSettings.FNumberId]; init { _fNumber = value; _fNumberSet = true; } }
+    /// <summary>The renderer of the depth effect. A Lumen session and a recipe saved without this setting give Lumen's renderer.</summary>
+    public Lux.Engine.Pipeline.Dof.DofRendering DepthEffectRendering { get; init; }
     /// <summary>The focus depth (`ParamFloat 1`, ≤ 0 = Lumen's default focus): <see cref="Settings"/>' unless set explicitly.</summary>
     public float? FocusDepth { get => _focusSet ? _focus : Settings?[Lux.Engine.Pipeline.Dof.Edit.LumenRendererSettings.FocusDepthId]; init { _focus = value; _focusSet = true; } }
 

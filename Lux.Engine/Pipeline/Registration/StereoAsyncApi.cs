@@ -49,9 +49,11 @@ public sealed class StereoAsyncApi
         => Run(lri, log, runHigher, runDense, depthOverride, progress, dumpPrefix, threads, default);
 
     /// <summary>The same, cancelable between states (a state, once started, runs to its end).</summary>
-    public static StereoAsyncApi Run(LriFile lri, Action<string>? log, bool runHigher, bool runDense, float[]? depthOverride, ProgressReporter? progress, string? dumpPrefix, int threads, CancellationToken cancel)
+    /// <param name="teleCheck">Run the telephoto alignment check after the telephoto registration (<see cref="TeleCheck"/>). False gives
+    /// Lumen's registration.</param>
+    public static StereoAsyncApi Run(LriFile lri, Action<string>? log, bool runHigher, bool runDense, float[]? depthOverride, ProgressReporter? progress, string? dumpPrefix, int threads, CancellationToken cancel, bool teleCheck = false)
     {
-        var api = new StereoAsyncApi { Lri = lri, Log = log, DumpPrefix = dumpPrefix, Progress = progress ?? ProgressReporter.None, Threads = Math.Max(1, threads) }; api.Cdp.Threads = api.Threads; api.Setup();
+        var api = new StereoAsyncApi { Lri = lri, Log = log, DumpPrefix = dumpPrefix, Progress = progress ?? ProgressReporter.None, Threads = Math.Max(1, threads) }; api.Cdp.Threads = api.Threads; api.Cdp.TeleCheckEnabled = teleCheck; api.Setup();
         int refGroup = api.RefGroupCams().Count(), higher = api.Cdp.Higher.Count;
         // guide + one per reference-group image + sparse wide + dense + upsample + one per higher image + coarse/tele
         api.Progress.Begin("registration", 1 + refGroup + 1 + 2 + higher + 1);

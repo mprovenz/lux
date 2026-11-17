@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Lux.DepthModel — the depth network of the refined depth feature: which files it needs (the manifest), their download into the app's
+    data folder, and the inference itself. The files are not part of Lux: they are downloaded on first use and can be removed again.
+    The inference runtime is called through its C interface, so this project adds no package. Shared by `lux-light` and the desktop app.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Lux.DepthModel</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Lux.App.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Lux.Engine\Lux.Engine.csproj" />
+    <!-- the app's data folder -->
+    <ProjectReference Include="..\Lux.Store\Lux.Store.csproj" />
+  </ItemGroup>
+</Project>

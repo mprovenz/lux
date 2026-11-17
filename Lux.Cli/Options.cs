@@ -45,11 +45,31 @@ public sealed class Options
     public float? FocusDepth { get; private set; }
     /// <summary>convert: the depth effect's focus point, normalized to the exported image (Lumen's click to focus).</summary>
     public (float X, float Y)? FocusPoint { get; private set; }
+    /// <summary>`--dof-rendering lumen|lux`: the renderer of the depth effect; null = not given.</summary>
+    public string? DofRendering { get; private set; }
     /// <summary>convert: ignore the capture's saved depth edits.</summary>
     public bool NoEdits { get; private set; }
     /// <summary>`--upright` (convert, animate): a photo held turned whose crop / rotation was never edited is turned upright with Lumen's own
     /// rotate — as the desktop app exports it by default.</summary>
     public bool Upright { get; private set; }
+    /// <summary>convert: refine the depth with the depth network (`--depth-refine`).</summary>
+    public bool DepthRefine { get; private set; }
+    /// <summary>convert and animate: check the alignment of the telephoto modules after the registration (`--tele-check`).</summary>
+    public bool TeleCheck { get; private set; }
+    /// <summary>`--stereo-source auto|real|depth`: where the two eyes of the stereo formats come from; null = not given.</summary>
+    public string? StereoSource { get; private set; }
+    /// <summary>`--stereo-layout full|half`: the width of each eye in `stereo-sbs`; null = not given.</summary>
+    public string? StereoLayout { get; private set; }
+    /// <summary>`--stereo-size`: the long edge of one eye in pixels.</summary>
+    public int? StereoSize { get; private set; }
+    /// <summary>`--mesh-triangles`: the number of triangles of `mesh-glb`.</summary>
+    public int? MeshTriangles { get; private set; }
+    /// <summary>`--mesh-depth relief|metric`: the depth of `mesh-glb`; null = not given.</summary>
+    public string? MeshDepth { get; private set; }
+    /// <summary>`--pc-step 1|2|4|8`: every n-th pixel becomes a point of `pointcloud-ply`.</summary>
+    public int? PcStep { get; private set; }
+    /// <summary>`--stereo-format gif|webp|apng`: the container of `stereo-wiggle`.</summary>
+    public string? StereoFormat { get; private set; }
     /// <summary>convert: the variant of the saved depth edits to use (default: the active one).</summary>
     public string? Edits { get; private set; }
     /// <summary>edits-info: make this variant the active one ("none" = no variant).</summary>
@@ -173,6 +193,19 @@ public sealed class Options
     public string? AnimGifPalette { get; private set; }
     public bool AnimNoDiff { get; private set; }
     public string? AnimKeepFrames { get; private set; }
+    /// <summary>animate: the target of zoom-through (`--anim-zoom-at`) and of pan-zoom (`--anim-pan-at`), each 0–1 of the picture.</summary>
+    public (double X, double Y)? AnimZoomAt { get; private set; }
+    public (double X, double Y)? AnimPanAt { get; private set; }
+    public int? AnimHold { get; private set; }
+    public string? AnimFog { get; private set; }
+    public double? AnimFogDensity { get; private set; }
+    public string? AnimFogColor { get; private set; }
+    public string? AnimTravel { get; private set; }
+    public bool AnimFlat { get; private set; }
+    public bool AnimNoSmoothing { get; private set; }
+    public string? AnimSlice { get; private set; }
+    public double? AnimSoftness { get; private set; }
+    public double? AnimTilt { get; private set; }
     public (int X, int Y, int W, int H)? ParallaxPivot { get; private set; }
 
     // ---- ISP ------------------------------------------------------------------------------------------------
@@ -268,7 +301,17 @@ public sealed class Options
                         if (q.Length != 2) { o.Errors.Add("--focus-point takes x,y, each between 0 and 1"); break; }
                         o.FocusPoint = (float.Parse(q[0], CultureInfo.InvariantCulture), float.Parse(q[1], CultureInfo.InvariantCulture)); break;
                     }
+                    case "--dof-rendering": o.DofRendering = Need("lumen or lux"); break;
                     case "--no-edits": o.NoEdits = true; break;
+                    case "--depth-refine": o.DepthRefine = true; break;
+                    case "--tele-check": o.TeleCheck = true; break;
+                    case "--stereo-source": o.StereoSource = Need("auto, real or depth"); break;
+                    case "--stereo-layout": o.StereoLayout = Need("full or half"); break;
+                    case "--stereo-size": o.StereoSize = int.Parse(Need("a long edge in px"), CultureInfo.InvariantCulture); break;
+                    case "--stereo-format": o.StereoFormat = Need("gif, webp or apng"); break;
+                    case "--mesh-triangles": o.MeshTriangles = int.Parse(Need("a number of triangles"), CultureInfo.InvariantCulture); break;
+                    case "--mesh-depth": o.MeshDepth = Need("relief or metric"); break;
+                    case "--pc-step": o.PcStep = int.Parse(Need("1, 2, 4 or 8"), CultureInfo.InvariantCulture); break;
                     case "--upright": o.Upright = true; break;
                     case "--edits": o.Edits = Need("a variant name"); break;
                     case "--set-active": o.SetActive = Need("a variant name, or none"); break;
@@ -358,7 +401,7 @@ public sealed class Options
                     case "--parallax-encoder": o.ParallaxEncoder = Need("lux or ffmpeg").ToLowerInvariant(); break;
 
                     // ---- animate
-                    case "--anim-effect": o.AnimEffect = Need("wigglegram, parallax, rack-focus, aperture-sweep or lens-tour").ToLowerInvariant(); break;
+                    case "--anim-effect": o.AnimEffect = Need("an effect").ToLowerInvariant(); break;
                     case "--anim-container": o.AnimContainer = Need("gif, apng, webp, mp4 or webm").ToLowerInvariant(); break;
                     case "--anim-size": o.AnimSize = int.Parse(Need("a long edge in px"), CultureInfo.InvariantCulture); break;
                     case "--anim-frames": o.AnimFrames = int.Parse(Need("a frame count"), CultureInfo.InvariantCulture); break;
@@ -375,6 +418,25 @@ public sealed class Options
                     case "--anim-gif-palette": o.AnimGifPalette = Need("global or frame").ToLowerInvariant(); break;
                     case "--anim-no-diff": o.AnimNoDiff = true; break;
                     case "--anim-keep-frames": o.AnimKeepFrames = Need("a directory"); break;
+                    case "--anim-zoom-at":
+                    case "--anim-pan-at":
+                    {
+                        var q = Need("x,y, each between 0 and 1").Split(',');
+                        if (q.Length != 2) { o.Errors.Add(a + " takes x,y, each between 0 and 1"); break; }
+                        var at = (double.Parse(q[0], CultureInfo.InvariantCulture), double.Parse(q[1], CultureInfo.InvariantCulture));
+                        if (a == "--anim-zoom-at") o.AnimZoomAt = at; else o.AnimPanAt = at;
+                        break;
+                    }
+                    case "--anim-hold": o.AnimHold = int.Parse(Need("milliseconds"), CultureInfo.InvariantCulture); break;
+                    case "--anim-fog": o.AnimFog = Need("bank or rise").ToLowerInvariant(); break;
+                    case "--anim-fog-density": o.AnimFogDensity = double.Parse(Need("a factor"), CultureInfo.InvariantCulture); break;
+                    case "--anim-fog-color": o.AnimFogColor = Need("auto or rrggbb").ToLowerInvariant(); break;
+                    case "--anim-travel": o.AnimTravel = Need("auto or a fraction").ToLowerInvariant(); break;
+                    case "--anim-flat": o.AnimFlat = true; break;
+                    case "--anim-no-smoothing": o.AnimNoSmoothing = true; break;
+                    case "--anim-slice": o.AnimSlice = Need("near-far, far-near or from-focus").ToLowerInvariant(); break;
+                    case "--anim-softness": o.AnimSoftness = double.Parse(Need("a fraction"), CultureInfo.InvariantCulture); break;
+                    case "--anim-tilt": o.AnimTilt = double.Parse(Need("a number"), CultureInfo.InvariantCulture); break;
                     case "--parallax-pivot": { var p = Need("x,y,w,h").Split(',').Select(v => int.Parse(v, CultureInfo.InvariantCulture)).ToArray(); if (p.Length != 4) throw new FormatException("--parallax-pivot needs x,y,w,h"); o.ParallaxPivot = (p[0], p[1], p[2], p[3]); break; }
 
                     // ---- isp / isp-run

@@ -16,15 +16,7 @@ public static class HeldTurn
 
     /// <summary>Applies the same rule to a header. The header can be the merged header or the first block only
     /// (<see cref="LriFile.ReadFirstBlockHeader"/>). The L16 writes the accelerometer into the first block only, so both give the same result.</summary>
-    public static int Degrees(Ltpb.LightHeader header)
-    {
-        var acc = header.ImuData.SelectMany(m => m.Accelerometer).Select(a => a.Data).ToList();
-        if (acc.Count == 0) return -1;
-        double gx = acc.Average(a => a.X), gy = acc.Average(a => a.Y);
-        // gravity along +y = held upright (landscape); along −x the top of the scene is the image's left: turn 90° clockwise to show it upright
-        if (Math.Max(Math.Abs(gx), Math.Abs(gy)) <= 0.4) return -1;
-        return Math.Abs(gy) >= Math.Abs(gx) ? (gy > 0 ? 0 : 180) : (gx < 0 ? 90 : 270);
-    }
+    public static int Degrees(Ltpb.LightHeader header) => CaptureMotion.HeldDegrees(header);
 
     /// <summary>
     /// The transform Lumen's rotate right (90), twice (180) or rotate left (270) makes of an untouched photo of aspect

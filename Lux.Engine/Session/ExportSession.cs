@@ -129,14 +129,14 @@ public sealed class ExportSession
             }
             catch (InvalidOperationException) { }
         }
-        var dof = Lux.Engine.Pipeline.Dof.DofTileCache.ForCapture(Lri, State.Cache, depth, fnum, focus);
+        var dof = Lux.Engine.Pipeline.Dof.DofTileCache.ForCapture(Lri, State.Cache, depth, fnum, focus, Request.DepthEffectRendering);
         dof.EditLayer = State.EditedDepth?.Layer;   // layered edits: the builder's occluded depth + matte
         dof.Progress = Progress;
         DepthEffectFocusMm = dof.State.FocusDepth;
         // Lumen's slider stops at f/2.0: Lumen replaces ParamFloat 14 (4.0) by 2.0
         if (fnum < 2.0f)
             _log?.Invoke(FormattableString.Invariant($"depth effect: f/{fnum:0.##} is wider than the f/2.0 Lumen's slider stops at; rendering it anyway"));
-        _log?.Invoke(FormattableString.Invariant($"depth effect: f/{fnum:0.##} (all in focus at f/{allInFocus:0.##}), focus {dof.State.FocusDepth:0} mm"));
+        _log?.Invoke(FormattableString.Invariant($"depth effect: f/{fnum:0.##} (all in focus at f/{allInFocus:0.##}), focus {dof.State.FocusDepth:0} mm{(dof.Rendering == Lux.Engine.Pipeline.Dof.DofRendering.Lux ? ", Lux rendering" : "")}"));
         return dof;
     }
 

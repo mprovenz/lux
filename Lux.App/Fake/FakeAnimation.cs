@@ -60,6 +60,7 @@ internal sealed class FakeAnimationSource(FakeLibrary lib, CaptureItem item) : I
         int n = o.Effect switch { AnimationEffect.Wigglegram => 4, AnimationEffect.LensTour => Math.Max(1, item.ModuleCount), _ => o.Frames };
         bool ping = o.PingPong ?? AnimationSpec.DefaultPingPong(o.Effect, o.Path);
         int played = ping && n >= 3 ? 2 * n - 2 : n;
+        if (!ping && AnimationSpec.PrefersVideo(o.Effect)) played += (o.HoldMs ?? AnimationSpec.DefaultHoldMs(o.Effect)) / (o.FrameMs > 0 ? o.FrameMs : AnimationSpec.DefaultFrameMs(o.Effect));
         int w = o.LongEdge, h = (int)Math.Round(o.LongEdge * 0.75);
         if (item.DisplayRotation is 90 or 270 && !(o.Unturned ?? lib.Settings.ExportUnturned)) (w, h) = (h, w);   // upright as shown
         double bpp = o.Format switch { AnimationFormat.Gif => 0.45, AnimationFormat.Apng => 1.6, AnimationFormat.WebP => 1.3, AnimationFormat.Mp4 => 0.03, _ => 0.025 };
@@ -129,12 +130,23 @@ internal sealed class FakePreview : IAnimationPreview
                     AnimationEffect.ApertureSweep => k == 0 ? "all in focus" : $"f/{1.0 / ((1 - e) / 15.2 + e / o.FNumber):0.#}",
                     AnimationEffect.Wigglegram => new[] { "A5", "A1", "A3", "A4" }[k],
                     AnimationEffect.LensTour => lenses[k],
+                    AnimationEffect.ZoomThrough => $"zoom {Math.Exp(e * Math.Log(8.0)):0.0}×",
+                    AnimationEffect.Fog => $"fog {100 * e:0} %",
+                    AnimationEffect.PanZoom => $"zoom {1.10 + 0.25 * e:0.00}×",
+                    AnimationEffect.SliceReveal => $"revealed {100 * e:0} %",
+                    AnimationEffect.TiltShift => $"f/0.05 · focus {1.0 / ((1 - e) / z1 + e / z2) / 1000:0.0} m",
                     _ => $"view {k + 1} of {_n}",
                 });
             }
             bool ping = o.PingPong ?? AnimationSpec.DefaultPingPong(o.Effect, o.Path);
             _order = Enumerable.Range(0, _n).ToList();
             if (ping && _n >= 3) for (int i = _n - 2; i >= 1; i--) _order.Add(i);
+            else if (AnimationSpec.PrefersVideo(o.Effect))
+            {
+                // the last frame stays for the hold time, as in the real plan
+                int ms = o.FrameMs > 0 ? o.FrameMs : AnimationSpec.DefaultFrameMs(o.Effect);
+                for (int i = (o.HoldMs ?? AnimationSpec.DefaultHoldMs(o.Effect)) / ms; i > 0; i--) _order.Add(_n - 1);
+            }
             _delays = Enumerable.Repeat(o.FrameMs > 0 ? o.FrameMs : AnimationSpec.DefaultFrameMs(o.Effect), _order.Count).ToList();
             var infos = new List<AnimationFrameInfo>();
             for (int k = 0; k < _n; k++)
@@ -217,6 +229,50 @@ internal sealed class FakePreview : IAnimationPreview
                     double s = Math.Sin(2 * Math.PI * t) * (o.Effect == AnimationEffect.Wigglegram ? 6 : 6 * o.AmplitudeMm / 71.49);
                     Layer(sky, 0, (float)(-s * 0.3)); Layer(ground, 0, (float)s); break;
                 }
+                case AnimationEffect.ZoomThrough:
+                {
+                    // the whole picture, enlarged around the target (the middle when none is picked)
+                    var at = o.Target ?? (0.5, 0.5);
+                    float zoom = (float)Math.Exp(e * Math.Log(8.0));
+                    c.Save();
+                    c.Translate(pw / 2f, ph / 2f); c.Scale(zoom); c.Translate((float)(-pw * (0.5 + (at.X - 0.5) * e)), (float)(-ph * (0.5 + (at.Y - 0.5) * e)));
+                    c.DrawBitmap(scene, 0, 0);
+                    c.Restore();
+                    break;
+                }
+                case AnimationEffect.Fog:
+                {
+                    // fog covers the far sky first, then the near ground
+                    Layer(new SKRect(0, 0, pw, ph), 0, 0);
+                    using var fogPaint = new SKPaint();
+                    fogPaint.Color = new SKColor(225, 228, 232, (byte)(230 * e * o.FogDensity / Math.Max(1, o.FogDensity))); c.DrawRect(sky, fogPaint);
+                    fogPaint.Color = new SKColor(225, 228, 232, (byte)(110 * e * e)); c.DrawRect(ground, fogPaint);
+                    break;
+                }
+                case AnimationEffect.PanZoom:
+                {
+                    float s = o.Flat ? 0 : (float)((e - 0.5) * 16 * (o.Travel ?? 0.02) / 0.02), zoom = (float)(1.10 + 0.25 * e);
+                    Layer(sky, 0, -s * 0.3f, zoom); Layer(ground, 0, s, zoom); break;
+                }
+                case AnimationEffect.SliceReveal:
+                {
+                    // the near ground comes in first, then the far sky; hidden parts are gray and dim
+                    void Part(SKRect clip, double shown)
+                    {
+                        c.Save(); c.ClipRect(clip);
+                        float a = (float)Math.Clamp(shown, 0, 1);
+                        float[] m = { 0.3f + 0.7f * a, 0.3f * (1 - a), 0.25f * (1 - a), 0, 0, 0.17f * (1 - a), 0.33f + 0.67f * a, 0.25f * (1 - a), 0, 0,
+                                      0.17f * (1 - a), 0.3f * (1 - a), 0.08f + 0.92f * a, 0, 0, 0, 0, 0, 1, 0 };
+                        using var p = new SKPaint { ColorFilter = SKColorFilter.CreateColorMatrix(m) };
+                        c.DrawBitmap(scene, 0, 0, p);
+                        c.Restore();
+                    }
+                    bool nearFirst = o.SliceOrder != Lux.Engine.Pipeline.Animate.SliceOrder.FarToNear;
+                    Part(ground, nearFirst ? e * 2 : e * 2 - 1); Part(sky, nearFirst ? e * 2 - 1 : e * 2);
+                    break;
+                }
+                case AnimationEffect.TiltShift:
+                    Layer(sky, (float)(12 * (1 - e)), 0); Layer(ground, (float)(12 * e), 0); break;
                 default:
                     Layer(new SKRect(0, 0, pw, ph), 0, 0, k < 5 ? 1f : k < 10 ? 2.5f : 5f); break;
             }

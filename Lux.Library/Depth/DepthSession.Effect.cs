@@ -31,7 +31,7 @@ internal sealed partial class DepthSession
                 try { var (n, fa) = DofModel.InFocusRange(use, _k.FocalLength, _k.PixelPitch, nsyn, _maxBlur); band = new DepthRange(n, fa); }
                 catch (ArgumentException) { }
             }
-            return new DepthEffectState(on ? f : null, fo, dflt, band, _focusPoint) { IsOn = on };
+            return new DepthEffectState(on ? f : null, fo, dflt, band, _focusPoint) { IsOn = on, Rendering = _s.EditImpl.DepthRendering };
         }
     }
 
@@ -48,6 +48,7 @@ internal sealed partial class DepthSession
     public void BeginFNumberDrag() => _s.EditImpl.BeginDepthDrag();
     public void DragFNumber(float? fNumber) => _s.EditImpl.DragDepth(StoredFNumber(fNumber));
     public void EndFNumberDrag() => _s.EditImpl.EndDepthDrag();
+    public void SetRendering(DofRendering rendering) => _s.EditImpl.SetDepthRendering(rendering);
 
     public void BeginFocusDrag() => _s.EditImpl.BeginDepthDrag();
     public void DragFocus(float focusMm)

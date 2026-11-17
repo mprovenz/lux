@@ -26,6 +26,10 @@ internal static class AnimationJobs
             throw new LibraryException("Focus distances must be greater than 0.");
         if (AnimationOptions.IsVideo(o.Format) && !canWriteVideo)
             throw new LibraryException("Video needs ffmpeg, which is not installed. GIF, APNG and WebP need nothing extra.");
+        if (o.Target is { } t && (t.X < 0 || t.X > 1 || t.Y < 0 || t.Y > 1)) throw new LibraryException("The target must lie inside the picture.");
+        if (!(o.FogDensity > 0)) throw new LibraryException("The fog density must be greater than 0.");
+        if (o.Travel is double tr && (tr < 0 || tr > 0.5)) throw new LibraryException("The camera travel is 0 to 0.5 of the nearest distance.");
+        if (o.MiniatureFNumber is float mf && !(mf > 0)) throw new LibraryException("The f-number must be greater than 0.");
         if (string.IsNullOrWhiteSpace(o.FileNamePattern)) throw new LibraryException("The file name pattern is empty.");
     }
 

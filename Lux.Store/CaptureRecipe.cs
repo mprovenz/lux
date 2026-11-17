@@ -15,7 +15,8 @@ namespace Lux.Store;
 /// <para>JSON with every float as its 32-bit pattern (as the operation log and <see cref="StoredSettings"/> do), so values round-trip bit for
 /// bit: <c>{"version":1, "adjustments":{"exposure":u32, "contrast":u32, "temperature":u32|null, "tint":u32|null, "vibrance":u32,
 /// "saturation":u32, "sharpening":u32, "shadows":u32, "highlights":u32, "clarity":u32} | null, "transform":{"aspect":[x, y], "crop":[u32 ×4],
-/// "matrix":[u32 ×9]} | null, "fnumber":u32|null, "focus":u32|null}</c>. A temperature / tint of null = the photo's own white balance.</para>
+/// "matrix":[u32 ×9]} | null, "fnumber":u32|null, "focus":u32|null}</c>. A temperature / tint of null = the photo's own white balance.
+/// The key <c>"dof_rendering":"lux"</c> is present only when the depth effect uses the Lux rendering.</para>
 /// </summary>
 public sealed class CaptureRecipe
 {
@@ -28,6 +29,9 @@ public sealed class CaptureRecipe
     public float? FNumber { get; init; }
     /// <summary>The depth effect's focus distance (mm; ≤ 0 = Lumen's default focus); null = not set here.</summary>
     public float? FocusDepth { get; init; }
+    /// <summary>The renderer of the depth effect. A recipe without the setting gives Lumen's renderer. JSON key <c>dof_rendering</c>
+    /// ("lux"), written only for the Lux rendering (other recipes keep their bytes).</summary>
+    public Lux.Engine.Pipeline.Dof.DofRendering DepthEffectRendering { get; init; }
 
     /// <summary>The photo's orientation and framing are a decision of its own: set by the first geometry edit (which bakes the held turn
     /// into <see cref="Transform"/>), cleared by "revert to original" / geometry reset. While it is set the display-only "shown as held" turn never
@@ -39,7 +43,8 @@ public sealed class CaptureRecipe
     /// <summary>Nothing is set (nothing to store).</summary>
     public bool IsEmpty => !HasRenderParts && GeometryDecided is null;
     /// <summary>A part that changes renders or exports is set (the marker alone changes none).</summary>
-    public bool HasRenderParts => Adjustments is not null || Transform is not null || FNumber is not null || FocusDepth is not null;
+    public bool HasRenderParts => Adjustments is not null || Transform is not null || FNumber is not null || FocusDepth is not null
+                                  || DepthEffectRendering != Lux.Engine.Pipeline.Dof.DofRendering.Lumen;
 
     static uint B(float v) => BitConverter.SingleToUInt32Bits(v);
     static float F(JsonNode? n) => BitConverter.UInt32BitsToSingle(n!.GetValue<uint>());
@@ -74,6 +79,7 @@ public sealed class CaptureRecipe
             : null;
         o["fnumber"] = Opt(FNumber);
         o["focus"] = Opt(FocusDepth);
+        if (DepthEffectRendering == Lux.Engine.Pipeline.Dof.DofRendering.Lux) o["dof_rendering"] = "lux";
         if (GeometryDecided is bool gd) o["geometry_decided"] = gd ? 1 : 0;
         return o.ToJsonString();
     }
@@ -103,7 +109,9 @@ public sealed class CaptureRecipe
                 Matrix = m.Select(F).ToArray(),
             };
         }
-        return new CaptureRecipe { Adjustments = adj, Transform = tr, FNumber = OptF(o["fnumber"]), FocusDepth = OptF(o["focus"]),
+        var rendering = o["dof_rendering"] is JsonValue dr && dr.TryGetValue<string>(out var drs) && drs == "lux"
+            ? Lux.Engine.Pipeline.Dof.DofRendering.Lux : Lux.Engine.Pipeline.Dof.DofRendering.Lumen;
+        return new CaptureRecipe { Adjustments = adj, Transform = tr, FNumber = OptF(o["fnumber"]), FocusDepth = OptF(o["focus"]), DepthEffectRendering = rendering,
                                    GeometryDecided = o["geometry_decided"] is JsonValue gd ? gd.GetValue<int>() != 0 : null };
     }
 
@@ -127,6 +135,7 @@ public sealed class CaptureRecipe
             SessionGeometry = v?.SessionGeometry,
             FNumber = recipe.FNumber ?? v?.FNumber,
             FocusDepth = recipe.FocusDepth ?? v?.FocusDepth,
+            DepthEffectRendering = recipe.DepthEffectRendering,
             Adjustments = recipe.Adjustments ?? v?.Adjustments,
         };
     }
@@ -149,6 +158,7 @@ public sealed class CaptureRecipe
         var inv = CultureInfo.InvariantCulture; var p = new List<string>();
         if (FNumber is float f) p.Add(string.Format(inv, "f/{0:0.##}", f));
         if (FocusDepth is float fd) p.Add(fd > 0f ? string.Format(inv, "focus {0:0} mm", fd) : "default focus");
+        if (DepthEffectRendering == Lux.Engine.Pipeline.Dof.DofRendering.Lux) p.Add("Lux rendering");
         if (Adjustments is { } a) p.Add("tone " + a);
         if (Transform is { } t && !(t.CropX0 == 0f && t.CropY0 == 0f && t.CropX1 == 1f && t.CropY1 == 1f && t.Matrix.SequenceEqual(new[] { 1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f })))
             p.Add("crop / rotation");

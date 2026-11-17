@@ -85,22 +85,31 @@ public static class Exporter
     {
         bool v = req.Verbose;
         Action<string>? eng = log is null ? null : (v ? s => log("  " + s) : log);
+        // the stereo formats: the source is decided first, because the pair from the depth map needs the registration state
+        LriFile? loaded = null;
+        if (req.Stereo is { Formats.Count: > 0 } && req.StereoPrepared is null)
+        {
+            loaded = LriFile.Load(lriPath);
+            req = WithStereo(loaded, req, eng);
+        }
         if (!req.NeedsState)
         {
-            // lens-frames and/or parallax-wiggle alone: module renders only, no registration, no PipelineCache
-            var lri = LriFile.Load(lriPath);
+            // lens-frames, parallax-wiggle and the stereo formats from the real lens pair: module renders only, no registration, no PipelineCache
+            var lri = loaded ?? LriFile.Load(lriPath);
             if (req.OutDirectory is null || req.Stem is null) throw new ExportRequestException("the module formats need OutDirectory + Stem");
             Directory.CreateDirectory(req.OutDirectory);
-            var outputs = new List<Output>(); var refusals = new List<string>();
-            LuxFormatsOf(req)(lri, req, null, req.OutDirectory, req.Stem, outputs, refusals, log);
-            return new Result(0, 0, outputs, refusals);
+            var outputs = new List<Output>(); var refusals = new List<string>(); var stereoNotes = new List<string>();
+            if (req.LensFrames is not null || (req.Parallax?.Formats.Count ?? 0) > 0)
+                LuxFormatsOf(req)(lri, req, null, req.OutDirectory, req.Stem, outputs, refusals, log);
+            if (req.StereoPrepared is { } prepared) StereoExport.Write(prepared, lri, req, null, req.OutDirectory, req.Stem, outputs, refusals, stereoNotes, log);
+            return new Result(0, 0, outputs, refusals) { Notes = stereoNotes };
         }
         // the depth effect reads the depth cache, which only the level-0 registration state fills — but only when the requested
         // f-number is below the capture's all-in-focus value; otherwise the image is the ordinary one and nothing extra is built
         req.Cancel.ThrowIfCancellationRequested();
         var pr = new ProgressReporter(req.Progress);
         pr.Begin("loading", 1);
-        var lriFile = LriFile.Load(lriPath);
+        var lriFile = loaded ?? LriFile.Load(lriPath);
         pr.End();
         var notes = new List<string>();
         // the render settings saved with the capture's edits (an imported Lumen session): what the request does not set explicitly
@@ -125,21 +134,27 @@ public static class Exporter
         try
         {
             cache = ctx?.OpenCache(AnalysisCache.EngineCacheVersion, create: false);
-            bool geoKept = buildLevel == 0 && cache?.CompleteDescriptor(AnalysisCache.GeometryTier) is not null;
-            CaptureGeometry? geo = buildLevel == 0 && cache is not null ? AnalysisCache.LoadGeometry(cache, log) : null;
+            // The telephoto check changes the geometry and the level-0 tiles. Its geometry has a tier of its own, and it reads no kept
+            // tiles. A session render takes its geometry from the session, so the check does not apply to it.
+            bool teleCheck = req.TeleCheck && !session;
+            if (req.TeleCheck && session) notes.Add("telephoto check: not applied, this render uses the geometry of the Lumen session");
+            bool geoKept = buildLevel == 0 && cache?.CompleteDescriptor(AnalysisCache.GeometryTierOf(teleCheck)) is not null;
+            CaptureGeometry? geo = buildLevel == 0 && cache is not null ? AnalysisCache.LoadGeometry(cache, log, teleCheck) : null;
             if (geoKept && geo is null) notes.Add("analysis cache: the kept geometry + depth was damaged; it was discarded and computed again");
             bool geoFromCache = geo is not null;
             if (session && buildLevel == 0) geo = saved!.SessionGeometry!(lriFile);
             // The noise controls change the image tiles. The kept tiles are Lumen's, so such an export does not read them. The geometry
             // and the depth do not depend on the module ISP: they are read and kept as usual.
             var noise = req.Noise is { IsLumen: false } nc ? nc.Validate() : null;
-            var tiles = cache is null || noise is not null ? null : AnalysisCache.TileSource(cache, buildLevel, log);
+            var tiles = cache is null || noise is not null || teleCheck ? null : AnalysisCache.TileSource(cache, buildLevel, log);
             var st = ExportBuild.Build(lriFile, lriPath, buildLevel, eng, req.RenderThreads, pr,
-                                       new BuildOptions { Geometry = geo, StoredTiles = tiles, KeepRegistration = false, Cancel = req.Cancel, SessionRender = session, Noise = noise });
+                                       new BuildOptions { Geometry = geo, StoredTiles = tiles, KeepRegistration = false, Cancel = req.Cancel, SessionRender = session, Noise = noise, TeleCheck = teleCheck });
             // saved depth edits: only a run that reads the depth looks for them, and only a capture with a context database has any
             string? editsNote = req.NeedsDepth && req.UseSavedEdits ? req.Context?.ApplySavedEdits(st, req.EditsVariant, log) : null;
             if (editsNote is not null) notes.Add(editsNote);
+            if (req.NeedsDepth && req.DepthRefine is { } network) notes.Add(Lux.Engine.Pipeline.DepthRefine.DepthRefiner.ApplyForExport(st, network, req, pr, log));
             var res = Run(st, req, log);
+            if (teleCheck) notes.Add(TeleCheckNote(st));
 
             // what the cache contributed, and what this run adds to it
             var used = new List<string>();
@@ -161,9 +176,23 @@ public static class Exporter
                     notes.Add("analysis cache: kept this capture's geometry + depth in its LuxImageContext, so a later export skips the registration (`--no-cache` turns this off)");
                 }
             }
-            return notes.Count == 0 ? res : res with { Notes = notes };
+            return notes.Count == 0 ? res : res with { Notes = notes.Concat(res.Notes).ToList() };
         }
         finally { cache?.Dispose(); }
+    }
+
+    /// <summary>The request with the stereo source decided for this capture (<see cref="StereoExport.Prepare"/>). A request without
+    /// stereo formats, or with the decision already made, comes back unchanged.</summary>
+    public static ExportRequest WithStereo(LriFile lri, ExportRequest req, Action<string>? log) =>
+        req.Stereo is { Formats.Count: > 0 } s && req.StereoPrepared is null ? req with { StereoPrepared = StereoExport.Prepare(lri, s, log) } : req;
+
+    /// <summary>One line that says what the telephoto check did for an export.</summary>
+    public static string TeleCheckNote(ExportState st)
+    {
+        if (!st.HasGeometry || st.Geometry is not { } g)
+            return "telephoto check: not needed, this export does not use the telephoto modules (only full-size exports and outputs that read the registration do)";
+        if (g.TeleCheckReport is not { Count: > 0 } lines) return "telephoto check: this capture has no telephoto modules to check";
+        return "telephoto check: " + string.Join("; ", lines);
     }
 
     /// <summary>The same export against a state the caller has already built — one <see cref="ExportState"/> can
@@ -174,9 +203,15 @@ public static class Exporter
         var want = (req.Formats ?? Array.Empty<ExportImageFormat>()).Distinct().ToArray();
         bool wantGDepth = want.Contains(ExportImageFormat.JpegGDepth) || req.DepthMap;
         bool extras = req.LensFrames is not null || (req.Parallax?.Formats.Count ?? 0) > 0;
+        bool stereo = req.Stereo is { Formats.Count: > 0 };
+        if (stereo && req.StereoPrepared is null) req = WithStereo(st.Lri, req, log);
+        if (req.StereoPrepared is { UseDepth: true } && st.FullDepth is null)
+            throw new ExportRequestException("stereo: the two eyes from the depth map need the depth of the capture, and the registration produced none");
         // An empty format list is legal only when something else is written (`--formats depth`, or the Lux formats).
         var stills = req.Stills.Distinct().ToArray();
-        if (want.Length == 0 && !req.DepthMap && !extras && stills.Length == 0) throw new ExportRequestException("no output format requested");
+        bool scene = req.Scene is { Formats.Count: > 0 };
+        if (want.Length == 0 && !req.DepthMap && !extras && stills.Length == 0 && !stereo && !scene) throw new ExportRequestException("no output format requested");
+        if (scene && st.FullDepth is null) throw new ExportRequestException("the 3D formats need the depth of the capture, and the registration produced none");
         bool v = req.Verbose;
 
         if (req.OutFile is null)
@@ -385,8 +420,16 @@ public static class Exporter
         if (extras)
             LuxFormatsOf(req)(lri, req, s, req.OutDirectory ?? Path.GetDirectoryName(req.OutFile!) ?? ".", req.Stem ?? Path.GetFileNameWithoutExtension(req.OutFile!),
                               outputs, refusals, log);
+        var stereoNotes = new List<string>();
+        if (req.StereoPrepared is { } prepared)
+            StereoExport.Write(prepared, lri, req, s, req.OutDirectory ?? Path.GetDirectoryName(req.OutFile!) ?? ".", req.Stem ?? Path.GetFileNameWithoutExtension(req.OutFile!),
+                               outputs, refusals, stereoNotes, log);
+        if (scene)
+            SceneExport.Write(req, s, req.OutDirectory ?? Path.GetDirectoryName(req.OutFile!) ?? ".", req.Stem ?? Path.GetFileNameWithoutExtension(req.OutFile!), outputs, stereoNotes, log);
 
-        return new Result(size.W, size.H, outputs, refusals);
+        // an export of stereo or 3D files alone renders no picture of the export size: it reports no size
+        bool picture = want.Length > 0 || stills.Length > 0 || req.DepthMap || extras;
+        return new Result(picture ? size.W : 0, picture ? size.H : 0, outputs, refusals) { Notes = stereoNotes };
     }
 
     /// <summary>The request with the saved render settings filled in wherever it does not set them itself (<see cref="ExportRequest.OverriddenSettings"/>):
@@ -398,6 +441,7 @@ public static class Exporter
         var o = req.OverriddenSettings; var r = req;
         if (s.ToneV2 && !o.Contains("tone-v2")) r = r with { JpegV2 = true, ToneMappingType = r.ToneMappingType ?? "light_v2" };
         if (s.Transform is { } t0 && !o.Contains("transform") && req.Rotate == 0 && req.Transform is null) r = r with { Transform = t0 };
+        if (!o.Contains("dof-rendering")) r = r with { DepthEffectRendering = s.DepthEffectRendering };
         if (!s.HasRenderSettings)
         {
             if (r.FocusPoint is not null && r.Transform is not null)
@@ -436,6 +480,7 @@ public static class Exporter
         if (s.Settings is not null || s.FNumber is not null)
         {
             if (s.FNumber is not null) parts.Add(string.Format(inv, "f/{0:0.##}{1}", s.FNumber, Sv("f-number")));
+            if (s.DepthEffectRendering == Lux.Engine.Pipeline.Dof.DofRendering.Lux) parts.Add("Lux rendering of the depth effect" + Sv("dof-rendering"));
             parts.Add(s.FocusDepth > 0f ? string.Format(inv, "focus {0:0} mm{1}", s.FocusDepth, Sv("focus")) : "default focus" + Sv("focus"));
         }
         if (s.Transform is { } t && !(t.CropX0 == 0f && t.CropY0 == 0f && t.CropX1 == 1f && t.CropY1 == 1f && t.Matrix.SequenceEqual(new[] { 1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f })))

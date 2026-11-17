@@ -169,12 +169,18 @@ internal sealed class AnimationSourceImpl : IAnimationSource
         var inv = CultureInfo.InvariantCulture;
         string F(float? v) => v is float f ? f.ToString("R", inv) : "-";
         string u = o.Unturned is bool b ? (b ? "|u1" : "|u0") : "";
+        string P((double X, double Y)? p) => p is { } q ? q.X.ToString("R", inv) + "," + q.Y.ToString("R", inv) : "-";
         return o.Effect switch
         {
             AnimationEffect.RackFocus => $"rack|{o.Frames}|{F(o.FNumber)}|{F(o.FocusFromMm)}|{F(o.FocusToMm)}|{o.UseSavedEdits}|{o.EditsVariant}{u}",
             AnimationEffect.ApertureSweep => $"aperture|{o.Frames}|{F(o.FNumber)}|{F(o.FNumberFrom)}|{F(o.FocusMm)}|{o.UseSavedEdits}|{o.EditsVariant}{u}",
             AnimationEffect.ParallaxSweep => $"parallax|{o.Frames}|{o.Path}|{o.AmplitudeMm.ToString("R", inv)}|{o.UseSavedEdits}|{o.EditsVariant}{u}",
             AnimationEffect.Wigglegram => "wiggle" + u,
+            AnimationEffect.ZoomThrough => $"zoom|{o.Frames}|{o.LongEdge}|{P(o.Target)}|{o.UseSavedEdits}|{o.EditsVariant}{u}",
+            AnimationEffect.Fog => $"fog|{o.Frames}|{o.FogMode}|{o.FogDensity.ToString("R", inv)}|{o.UseSavedEdits}|{o.EditsVariant}{u}",
+            AnimationEffect.PanZoom => $"pan|{o.Frames}|{P(o.Target)}|{(o.Travel is double tr ? tr.ToString("R", inv) : "-")}|{o.Flat}|{o.UseSavedEdits}|{o.EditsVariant}{u}",
+            AnimationEffect.SliceReveal => $"slice|{o.Frames}|{o.SliceOrder}|{o.SliceSoftness.ToString("R", inv)}|{o.UseSavedEdits}|{o.EditsVariant}{u}",
+            AnimationEffect.TiltShift => $"tilt|{o.Frames}|{F(o.MiniatureFNumber)}|{o.Tilt.ToString("R", inv)}|{o.UseSavedEdits}|{o.EditsVariant}{u}",
             _ => "lenses" + u,
         };
     }
@@ -197,7 +203,7 @@ internal sealed class AnimationSourceImpl : IAnimationSource
     /// pictures cost seconds each), a quicker lens render 520 px wide for the lens effects.</summary>
     internal static AnimationSpec PreviewSpec(AnimationOptions o) => o.Effect is AnimationEffect.Wigglegram or AnimationEffect.LensTour
         ? o.ToSpec(level: null, longEdge: 520, lensIspLevel: 2)
-        : o.ToSpec(level: 4, longEdge: 0) with { SingleView = true };
+        : o.ToSpec(level: 4, longEdge: 0) with { SingleView = true, ZoomEndEdge = o.LongEdge };
 
     /// <summary>The sharper pass of a preview: the frames at the size the file will have, from export level 3 at most, which replace the quick
     /// level-4 ones; null when the quick frames already have the file's detail, and for the lens effects. A level-3 depth-effect frame is ~4×
@@ -205,9 +211,14 @@ internal sealed class AnimationSourceImpl : IAnimationSource
     /// fraction of a second a frame; like the quick frames, it is made from the main view (the other lenses' pictures would add seconds). The
     /// lens effects are not sharpened: their pictures at the file's resolution take seconds each.</summary>
     internal static AnimationSpec? SharpSpec(AnimationOptions o) =>
-        o.Effect is AnimationEffect.RackFocus or AnimationEffect.ApertureSweep or AnimationEffect.ParallaxSweep && o.LongEdge > 600
+        o.Effect == AnimationEffect.ZoomThrough ? o.ToSpec(level: null, longEdge: Math.Min(o.LongEdge, ZoomPreviewEdge)) with { ZoomEndEdge = o.LongEdge }
+        : o.Effect is AnimationEffect.RackFocus or AnimationEffect.ApertureSweep or AnimationEffect.ParallaxSweep && o.LongEdge > 600
             ? o.ToSpec(level: 3, longEdge: o.LongEdge) with { SingleView = true }
             : null;
+
+    /// <summary>The long edge of the zoom-through's second pass. That pass makes the full-size picture, as the file does: the target is
+    /// chosen on it, and the last frames show its detail. The frames stay small, because a zoom has many of them.</summary>
+    internal const int ZoomPreviewEdge = 720;
 
     internal static string SharpKey(AnimationOptions o) => $"{FrameKey(o)}|{o.LongEdge}";
 
@@ -239,11 +250,13 @@ internal sealed class AnimationSourceImpl : IAnimationSource
         int n = o.Effect is AnimationEffect.Wigglegram ? Math.Max(2, item.IsTelephoto ? 0 : 4) : o.Effect is AnimationEffect.LensTour ? Math.Max(1, item.ModuleCount) : o.Frames;
         bool ping = o.PingPong ?? AnimationSpec.DefaultPingPong(o.Effect, o.Path);
         int played = ping && n >= 3 ? 2 * n - 2 : n;
+        bool look = AnimationSpec.PrefersVideo(o.Effect);
+        if (look && !ping) played += Math.Clamp(o.HoldMs ?? AnimationSpec.DefaultHoldMs(o.Effect), 0, 10000) / Math.Max(10, o.FrameMs > 0 ? o.FrameMs : AnimationSpec.DefaultFrameMs(o.Effect));
         var full = item.Width > 0 ? (item.Width, item.Height) : item.LevelSizes.Count > 0 ? (item.LevelSizes[0].Width, item.LevelSizes[0].Height) : (4160, 3120);
         if (o.Effect is AnimationEffect.Wigglegram or AnimationEffect.LensTour) full = (4160, 3120);
         // the orientation the frames carry: the held turn, or for the lens / parallax frames a saved quarter turn
         var oriented = Oriented(new AnimationSpec { Effect = o.Effect }, o);
-        bool lensOrParallax = o.Effect is AnimationEffect.Wigglegram or AnimationEffect.LensTour or AnimationEffect.ParallaxSweep;
+        bool lensOrParallax = o.Effect is AnimationEffect.Wigglegram or AnimationEffect.LensTour or AnimationEffect.ParallaxSweep or AnimationEffect.PanZoom;
         if (oriented.OutputTurn is 90 or 270 && (lensOrParallax || oriented.Transform is not null)) full = (full.Item2, full.Item1);
         double k = Math.Min(1.0, (double)o.LongEdge / Math.Max(full.Item1, full.Item2));
         int w = Math.Max(1, (int)Math.Round(full.Item1 * k)), h = Math.Max(1, (int)Math.Round(full.Item2 * k));
@@ -259,6 +272,12 @@ internal sealed class AnimationSourceImpl : IAnimationSource
             AnimationEffect.RackFocus or AnimationEffect.ApertureSweep => n * (0.15 + 0.45 * mp),
             AnimationEffect.ParallaxSweep => 8 + n * (0.15 + 0.4 * mp),
             AnimationEffect.Wigglegram => 10,
+            // measured: the full-size picture about 60 s, then 0.1 s per megapixel of frame; a look 5 s of set-up; the pan-and-zoom two
+            // warps per frame at 1.8 × the frame's pixels; the tilt-shift ten depth-effect renders
+            AnimationEffect.ZoomThrough => 60 + n * 0.1 * mp,
+            AnimationEffect.Fog or AnimationEffect.SliceReveal => 5 + n * 0.05 * mp,
+            AnimationEffect.PanZoom => 8 + n * (0.1 + 0.9 * mp),
+            AnimationEffect.TiltShift => 10 * (0.5 + 1.5 * mp) + n * 0.03 * mp,
             _ => Math.Ceiling(n / 2.0) * 5,
         };
         secs += AnimationOptions.IsVideo(o.Format) ? 1 : o.Format == AnimationFormat.Gif ? 0.05 * played : 0.03 * played;
@@ -266,7 +285,7 @@ internal sealed class AnimationSourceImpl : IAnimationSource
         long bytes; string basis;
         var store = _current is { } cur && FrameKey(cur.Options) == FrameKey(o) ? cur.Store : null;
         var ready = store?.All().OrderBy(f => f.Index).ToList();
-        if (ready is { Count: >= 2 } && !AnimationOptions.IsVideo(o.Format))
+        if (ready is { Count: >= 2 } && !AnimationOptions.IsVideo(o.Format) && !look)
         {
             var byIndex = ready.ToDictionary(f => f.Index);
             var seq = new List<Rgba>();
@@ -298,7 +317,7 @@ internal sealed class AnimationSourceImpl : IAnimationSource
             AnimationFormat.Gif => lens ? 0.75 : o.Effect == AnimationEffect.ParallaxSweep ? 0.25 : 0.15,
             AnimationFormat.Apng => lens ? 1.5 : 1.15,
             AnimationFormat.WebP => lens ? 1.2 : 0.75,
-            AnimationFormat.Mp4 => lens ? 0.05 : 0.02,
+            AnimationFormat.Mp4 => lens ? 0.05 : look ? 0.012 : 0.02,
             _ => lens ? 0.04 : 0.015,
         };
         bytes = (long)(bpp * w * h * played);
@@ -513,6 +532,8 @@ internal sealed class PreviewImpl : IAnimationPreview
                     string key = AnimationSourceImpl.SharpKey(Options);
                     _status = $"{order.Count} frames ready · sharpening {order.Count(i => Store.HasSharp(i, key))} of {order.Count}"; Raise();
                     var r2 = _src.WithSession(s => AnimationRenderer.CreateAsync(s, sharp, null, ct).GetAwaiter().GetResult());
+                    // the second pass of the zoom-through checks the photo on its full-size picture: its notes replace the quick look's
+                    if (Options.Effect == AnimationEffect.ZoomThrough) { _notes = r2.Plan.Notes.ToList(); Raise(); }
                     if (r2.Plan.Frames.Count == r.Plan.Frames.Count)
                     {
                         int sharpDone = order.Count(i => Store.HasSharp(i, key));

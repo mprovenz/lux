@@ -1,6 +1,7 @@
 using System.Globalization;
 using Lux.Engine.Lri;
 using Lux.Engine.Pipeline;
+using Lux.Engine.Pipeline.Animate;
 using Lux.Engine.Pipeline.Color;
 using Lux.Engine.Pipeline.Export;
 using Lux.Engine.Pipeline.Isp;
@@ -22,6 +23,16 @@ public enum AnimationEffect
     ApertureSweep,
     /// <summary>Every lens of the capture in turn (wide, 70 mm and 150 mm views).</summary>
     LensTour,
+    /// <summary>A zoom from the whole picture onto detail that the telephoto lenses recorded, resampled from the full-size picture.</summary>
+    ZoomThrough,
+    /// <summary>Depth fog in scene light: a bank of fog that comes forward, or fog that thickens and thins.</summary>
+    Fog,
+    /// <summary>A push-in towards a target with a camera that slides and moves forward, drawn from the photo and its depth map.</summary>
+    PanZoom,
+    /// <summary>The picture's colors come in slice by slice of distance, with a soft edge.</summary>
+    SliceReveal,
+    /// <summary>A miniature look: Lumen's depth effect at a very wide aperture with the focus swept through the scene.</summary>
+    TiltShift,
 }
 
 /// <summary>Paths of the parallax sweep.</summary>
@@ -73,17 +84,64 @@ public sealed record AnimationSpec
     /// <summary>Degrees clockwise (0, 90, 180, 270) the parallax, wigglegram and lens-tour frames are turned after they are made (a pixel
     /// permutation; those effects never read the saved transform): the photo's orientation as shown.</summary>
     public int OutputTurn { get; init; }
+    /// <summary>Zoom-through and pan-and-zoom: the target as a fraction of the picture as shown (0,0 = top left); null = chosen for the
+    /// photo (zoom-through: where the telephoto lenses add the most detail; pan-and-zoom: where the camera focused).</summary>
+    public (double X, double Y)? Target { get; init; }
+    /// <summary>Zoom-through: the long edge of the frames whose own pixels the zoom ends on; null = <see cref="LongEdge"/>. A preview with
+    /// smaller frames gives the file's long edge here, so that it shows the file's zoom.</summary>
+    public int? ZoomEndEdge { get; init; }
+    /// <summary>Time the last frame stays, ms; null = the effect's default (<see cref="DefaultHoldMs"/>).</summary>
+    public int? HoldMs { get; init; }
+    public FogMode FogMode { get; init; } = FogMode.Bank;
+    /// <summary>Fog: a factor on the density (1 = the standard fog).</summary>
+    public double FogDensity { get; init; } = 1.0;
+    /// <summary>Fog: its color (sRGB); null = from the far part of the scene.</summary>
+    public (byte R, byte G, byte B)? FogColor { get; init; }
+    /// <summary>Pan-and-zoom: the sideways camera travel as a fraction of the nearest distance; null = as far as the preflight allows, up to
+    /// about 5 % of the frame width of parallax.</summary>
+    public double? Travel { get; init; }
+    /// <summary>Pan-and-zoom: a flat move (nothing slides).</summary>
+    public bool Flat { get; init; }
+    /// <summary>Pan-and-zoom, fog and slice reveal: smooth the depth along the picture first (<see cref="DepthSmoother"/>). False = the
+    /// depth as it is.</summary>
+    public bool SmoothDepth { get; init; } = true;
+    public SliceOrder SliceOrder { get; init; } = SliceOrder.NearToFar;
+    /// <summary>Slice reveal: half the width of the soft edge, as a share of the scene's range of inverse distance.</summary>
+    public double SliceSoftness { get; init; } = SliceLook.DefaultSoftness;
+    /// <summary>Tilt-shift: the f-number; null = set from the scene's depth range (about f/0.03 for a street, f/0.1 for a subject at 3 m).</summary>
+    public float? MiniatureFNumber { get; init; }
+    /// <summary>Tilt-shift: the tilt of the focal plane (0 = square to the lens; 0.8 = the standard miniature tilt, focus farther towards
+    /// the bottom of the picture).</summary>
+    public double Tilt { get; init; } = 0.8;
+    /// <summary>The depth in use was refined for this run (the notes then do not recommend refined depth).</summary>
+    public bool DepthRefined { get; init; }
     int Turn => ((OutputTurn % 360) + 360) % 360;
     internal bool Turned => Turn is 90 or 270;
     internal int TurnDegrees => Turn;
 
     public static int DefaultFrameMs(AnimationEffect e) => e switch
     {
-        AnimationEffect.Wigglegram => 100, AnimationEffect.ParallaxSweep => 60, AnimationEffect.LensTour => 500, _ => 70,
+        AnimationEffect.Wigglegram => 100, AnimationEffect.ParallaxSweep => 60, AnimationEffect.LensTour => 500,
+        AnimationEffect.ZoomThrough or AnimationEffect.Fog or AnimationEffect.PanZoom or AnimationEffect.SliceReveal or AnimationEffect.TiltShift => 40,
+        _ => 70,
     };
+    /// <summary>The number of distinct frames an effect has unless asked otherwise.</summary>
+    public static int DefaultFrames(AnimationEffect e) => e switch
+    {
+        AnimationEffect.PanZoom => 125,
+        AnimationEffect.ZoomThrough or AnimationEffect.Fog or AnimationEffect.SliceReveal or AnimationEffect.TiltShift => 100,
+        _ => 24,
+    };
+    /// <summary>The time the last frame stays unless asked otherwise, ms.</summary>
+    public static int DefaultHoldMs(AnimationEffect e) => e is AnimationEffect.ZoomThrough or AnimationEffect.SliceReveal ? 1000 : 0;
+    /// <summary>The effects that are long clips of small changes: video suits them, and the lossless containers get very large.</summary>
+    public static bool PrefersVideo(AnimationEffect e) =>
+        e is AnimationEffect.ZoomThrough or AnimationEffect.Fog or AnimationEffect.PanZoom or AnimationEffect.SliceReveal or AnimationEffect.TiltShift;
     public static bool DefaultPingPong(AnimationEffect e, AnimationPath p) => e switch
     {
-        AnimationEffect.LensTour => false, AnimationEffect.ParallaxSweep => p != AnimationPath.Orbit, _ => true,
+        AnimationEffect.LensTour => false, AnimationEffect.ParallaxSweep => p != AnimationPath.Orbit,
+        AnimationEffect.ZoomThrough or AnimationEffect.Fog or AnimationEffect.PanZoom or AnimationEffect.SliceReveal => false,
+        _ => true,
     };
     public int EffectiveFrameMs => FrameMs > 0 ? FrameMs : DefaultFrameMs(Effect);
     public bool EffectivePingPong => PingPong ?? DefaultPingPong(Effect, Path);
@@ -126,7 +184,7 @@ public sealed record AnimationPlan
 /// Frames are rendered one at a time (each one in parallel inside); cancellation is checked between frames and inside the renders.
 /// What frames have in common (the parallax source, the lens pictures) is made once per renderer.
 /// </summary>
-public sealed class AnimationRenderer
+public sealed partial class AnimationRenderer
 {
     public CaptureSession Session { get; }
     public AnimationSpec Spec { get; }
@@ -158,6 +216,11 @@ public sealed class AnimationRenderer
             new AnimationEffectCheck(AnimationEffect.RackFocus, true, null, "Uses the depth effect exactly as an export does."),
             new AnimationEffectCheck(AnimationEffect.ApertureSweep, true, null, "Uses the depth effect exactly as an export does."),
             new AnimationEffectCheck(AnimationEffect.LensTour, true, null, $"{lri.Modules.Count} lenses"),
+            CheckZoomThrough(lri),
+            new AnimationEffectCheck(AnimationEffect.Fog, true, null, "Uses the depth map, smoothed along the picture."),
+            new AnimationEffectCheck(AnimationEffect.PanZoom, true, null, "Drawn from the photo and its depth map, smoothed along the picture. The camera travel is checked first."),
+            new AnimationEffectCheck(AnimationEffect.SliceReveal, true, null, "Uses the depth map, smoothed along the picture."),
+            new AnimationEffectCheck(AnimationEffect.TiltShift, true, null, "Uses the depth effect at a very wide aperture."),
         };
     }
 
@@ -170,6 +233,7 @@ public sealed class AnimationRenderer
     {
         var check = Check(s).First(c => c.Effect == spec.Effect);
         if (!check.Available) throw new ExportRequestException(check.Reason ?? "this capture cannot make this animation");
+        if (IsLook(spec.Effect)) return await CreateLookAsync(s, spec, log, cancel).ConfigureAwait(false);
         int n = Math.Clamp(spec.Frames, 2, 240);
         var notes = new List<string>();
         var inv = CultureInfo.InvariantCulture;
@@ -360,6 +424,7 @@ public sealed class AnimationRenderer
     public Rgba Render(int k, CancellationToken cancel = default)
     {
         cancel.ThrowIfCancellationRequested();
+        if (_look is not null) return _look.Render(k, Plan.Frames.Count, cancel);
         var f = Plan.Frames[k];
         switch (Spec.Effect)
         {

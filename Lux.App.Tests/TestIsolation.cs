@@ -15,5 +15,8 @@ static class TestIsolation
         if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("LUX_APP_DATA")))
             Environment.SetEnvironmentVariable("LUX_APP_DATA", Paths.AppData("default"));
         Environment.SetEnvironmentVariable("LUX_FORBID_DEFAULT_APP_DATA", "1");
+        // no test downloads the depth model: a download that a test did not give its own source reads from a folder that does not exist
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(Lux.DepthModel.DepthModelManifest.SourceVariable)))
+            Environment.SetEnvironmentVariable(Lux.DepthModel.DepthModelManifest.SourceVariable, Paths.AppData("no-depth-model-source"));
     }
 }

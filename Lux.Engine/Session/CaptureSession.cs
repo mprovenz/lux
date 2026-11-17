@@ -30,6 +30,13 @@ public sealed record SessionOptions
     /// one render: open a new session to change them. A session with other values than Lumen's reads the geometry and the depth from the
     /// analysis cache, but no image tiles, and it cannot raise the cache above the geometry level.</summary>
     public NoiseControls? Noise { get; init; }
+    /// <summary>Check the alignment of each telephoto module after the registration, and correct a module that is clearly off
+    /// (<see cref="Lux.Engine.Pipeline.Registration.TeleCheck"/>). It changes the geometry of the capture, so it belongs to the
+    /// session: open a new session to change it. Such a session keeps its geometry in a cache tier of its own
+    /// (<see cref="AnalysisCache.TeleCheckGeometryTier"/>), reads no image tiles from the analysis cache, and cannot raise the cache
+    /// above the geometry level. A render from the geometry of a Lumen session is not checked. False (the default) gives Lumen's
+    /// registration.</summary>
+    public bool TeleCheck { get; init; }
 }
 
 /// <summary>What a render returns.</summary>
@@ -54,6 +61,8 @@ public sealed record RenderSettings
     public float? DepthEffectFNumber { get; init; }
     /// <summary>The depth effect's focus distance, mm (null = Lumen's default focus depth).</summary>
     public float? FocusDepthMm { get; init; }
+    /// <summary>The renderer of the depth effect (Lumen's by default).</summary>
+    public Lux.Engine.Pipeline.Dof.DofRendering DepthEffectRendering { get; init; }
     /// <summary>The display render's sharpening property (Lumen's export value by default). Ignored when <see cref="Adjustments"/> is set
     /// (its own <see cref="Pipeline.Adjustments.Sharpening"/> applies).</summary>
     public float Sharpening { get; init; } = DisplayIspTuning.GuiSharpeningProperty;
@@ -167,7 +176,7 @@ public sealed class CaptureSession : IDisposable
         if (c is null) return;
         lock (_lock)
         {
-            if (_noise is not null) return;
+            if (_noise is not null || Options.TeleCheck) return;
             if (_tiles0 is not null) _tiles0.Refresh();
             else if (_state0 is not null) { _tiles0 = AnalysisCache.TileSource(c, 0, Options.Log); _state0.Cache.Stored = _tiles0; }
             if (_tiles1 is not null) _tiles1.Refresh();
@@ -184,11 +193,11 @@ public sealed class CaptureSession : IDisposable
             ref ExportState? slot = ref buildLevel == 0 ? ref _state0 : ref _state1;
             if (slot is not null) return slot;
             var cache = Options.UseCache ? Cache(create: false) : null;
-            var geo = buildLevel == 0 && cache is not null ? AnalysisCache.LoadGeometry(cache, Options.Log) : null;
-            var tiles = cache is null || _noise is not null ? null : AnalysisCache.TileSource(cache, buildLevel, Options.Log);
+            var geo = buildLevel == 0 && cache is not null ? AnalysisCache.LoadGeometry(cache, Options.Log, Options.TeleCheck) : null;
+            var tiles = cache is null || _noise is not null || Options.TeleCheck ? null : AnalysisCache.TileSource(cache, buildLevel, Options.Log);
             if (buildLevel == 0) _tiles0 = tiles; else _tiles1 = tiles;
             slot = ExportBuild.Build(Lri, Path, buildLevel, Options.Log, Options.Threads, _progress,
-                                     new BuildOptions { Geometry = geo, StoredTiles = tiles, KeepRegistration = false, Noise = _noise });
+                                     new BuildOptions { Geometry = geo, StoredTiles = tiles, KeepRegistration = false, Noise = _noise, TeleCheck = Options.TeleCheck });
             if (buildLevel == 0 && Options.Context is { } ctx && _appliedEdits is { } ae && ae.Applied) ae.Note = ctx.ApplySavedEdits(slot, ae.Variant, Options.Log);
             return slot;
         }
@@ -210,7 +219,14 @@ public sealed class CaptureSession : IDisposable
     // ------------------------------------------------------------------------------------------------ analysis
 
     /// <summary>Whether the registration geometry and depth are available without computing anything.</summary>
-    public bool IsAnalysed => State(0).HasGeometry || (Options.UseCache && Cache(false) is { } c && c.CompleteDescriptor(AnalysisCache.GeometryTier) is not null);
+    public bool IsAnalysed => State(0).HasGeometry || (Options.UseCache && Cache(false) is { } c && c.CompleteDescriptor(GeometryTier) is not null);
+
+    /// <summary>Whether the analysis cache holds this session's geometry. For a session with the telephoto check that is the checked
+    /// geometry, which <see cref="CacheLevel"/> does not count.</summary>
+    public bool HasKeptGeometry { get { lock (_cacheLock) return Cache(false)?.CompleteDescriptor(GeometryTier) is not null; } }
+
+    /// <summary>The cache tier of this session's geometry: the telephoto check has a tier of its own.</summary>
+    string GeometryTier => AnalysisCache.GeometryTierOf(Options.TeleCheck);
 
     /// <summary>Run the registration chain (or load its result from the analysis cache): the depth, the focus queries and level 0 then need
     /// nothing more. Keeps the result in the cache when <see cref="SessionOptions.KeepGeometry"/> is set.
@@ -224,7 +240,7 @@ public sealed class CaptureSession : IDisposable
             bool fromCache = st.HasGeometry;
             var g = st.Geometry ?? throw new InvalidOperationException("this capture has no registration geometry");
             if (!fromCache && Options.KeepGeometry && Options.Context is not null)
-                lock (_cacheLock) if (Cache(create: true) is { } c && c.CompleteDescriptor(AnalysisCache.GeometryTier) is null) AnalysisCache.SaveGeometry(c, g);
+                lock (_cacheLock) if (Cache(create: true) is { } c && c.CompleteDescriptor(GeometryTier) is null) AnalysisCache.SaveGeometry(c, g);
         });
         await work.WaitAsync(cancel).ConfigureAwait(false);
     }
@@ -259,6 +275,7 @@ public sealed class CaptureSession : IDisposable
         {
             Formats = Array.Empty<ExportImageFormat>(), Level = level, RenderThreads = Options.Threads, Cancel = cancel,
             DepthEffectFNumber = settings.DepthEffectFNumber, FocusDepthMm = settings.FocusDepthMm, DepthEffectNeedsDepth = dof,
+            DepthEffectRendering = settings.DepthEffectRendering,
             JpegSharpening = settings.Sharpening, JpegV2 = settings.ToneV2, UseSavedEdits = settings.UseSavedEdits,
         };
         long depthGen = 0;
@@ -276,6 +293,7 @@ public sealed class CaptureSession : IDisposable
     //      changed is fetched again.
     sealed record DofEntry(ExportState State, float FNumber, float? Focus, float FocusUsed, Lux.Engine.Pipeline.Dof.DofTileCache Cache)
     {
+        public Lux.Engine.Pipeline.Dof.DofRendering Rendering => Cache.Rendering;
         public bool Transient { get; set; }
     }
     readonly List<DofEntry> _dofCaches = new();
@@ -285,10 +303,10 @@ public sealed class CaptureSession : IDisposable
 
     (Lux.Engine.Pipeline.Dof.DofTileCache Cache, long Gen) DepthEffectCacheFor(ExportState st, ExportRequest req, bool transient = false)
     {
-        float fnum = req.DepthEffectFNumber!.Value; float? focus = req.FocusDepthMm;
+        float fnum = req.DepthEffectFNumber!.Value; float? focus = req.FocusDepthMm; var rendering = req.DepthEffectRendering;
         lock (_dofCaches)
         {
-            int i = _dofCaches.FindIndex(e => ReferenceEquals(e.State, st) && e.FNumber.Equals(fnum) && Nullable.Equals(e.Focus, focus));
+            int i = _dofCaches.FindIndex(e => ReferenceEquals(e.State, st) && e.FNumber.Equals(fnum) && Nullable.Equals(e.Focus, focus) && e.Rendering == rendering);
             if (i >= 0)
             {
                 var hit = _dofCaches[i]; _dofCaches.RemoveAt(i); _dofCaches.Add(hit);
@@ -300,7 +318,7 @@ public sealed class CaptureSession : IDisposable
         using (Diagnostics.PhaseLog.Time("dof.make-cache")) made = new ExportSession(st, req, Options.Log).DepthEffect() ?? throw new InvalidOperationException("no depth effect at this f-number");
         lock (_dofCaches)
         {
-            int i = _dofCaches.FindIndex(e => ReferenceEquals(e.State, st) && e.FNumber.Equals(fnum) && Nullable.Equals(e.Focus, focus));
+            int i = _dofCaches.FindIndex(e => ReferenceEquals(e.State, st) && e.FNumber.Equals(fnum) && Nullable.Equals(e.Focus, focus) && e.Rendering == rendering);
             if (i >= 0) return (_dofCaches[i].Cache, _depthGen);   // made concurrently by another render: use the first
             _dofCaches.Add(new DofEntry(st, fnum, focus, made.State.FocusDepth, made) { Transient = transient });
             TrimDofCaches();
@@ -428,7 +446,8 @@ public sealed class CaptureSession : IDisposable
             else
             {
                 var e = memory.Get(new DisplayTileMemory.Key(st, level, t.Tx, t.Ty, dof ? settings.DepthEffectFNumber : null, dof ? settings.FocusDepthMm : null,
-                                                             dof && settings.UseSavedEdits, settings.ToneV2, dof ? depthGen : 0));
+                                                             dof && settings.UseSavedEdits, settings.ToneV2, dof ? depthGen : 0,
+                                                             dof ? settings.DepthEffectRendering : Lux.Engine.Pipeline.Dof.DofRendering.Lumen));
                 lock (e.Gate)
                 {
                     if (e.Linear is null) { using (Diagnostics.PhaseLog.Time(() => $"display.fetch L{level}")) e.Linear = Fetch(out e.Geometry); e.Stages.Clear(); }
@@ -571,7 +590,8 @@ public sealed class CaptureSession : IDisposable
         if (s is null) return new RenderSettings();
         var r = new RenderSettings { ToneV2 = s.ToneV2 };
         if (s.HasRenderSettings)
-            r = r with { DepthEffectFNumber = s.FNumber, FocusDepthMm = s.FocusDepth is float fd && fd > 0f ? fd : null, Adjustments = s.Adjustments };
+            r = r with { DepthEffectFNumber = s.FNumber, FocusDepthMm = s.FocusDepth is float fd && fd > 0f ? fd : null, Adjustments = s.Adjustments,
+                         DepthEffectRendering = s.DepthEffectRendering };
         return r;
     }
 
@@ -628,6 +648,9 @@ public sealed class CaptureSession : IDisposable
         var (st, r, notes) = PrepareExport(req, cancel);
         if (st is null) return Exporter.Run(Path, r with { Context = Options.Context, CacheUse = CacheUse.None, UseSavedEdits = false, Noise = _noise }, Options.Log);
         var res = Exporter.Run(st, r, Options.Log);
+        if (Options.TeleCheck)
+            notes.Add(ReferenceEquals(st, _session0) || ReferenceEquals(st, _session1)
+                ? "telephoto check: not applied, this render uses the geometry of the Lumen session" : Exporter.TeleCheckNote(st));
         return notes.Count == 0 ? res : res with { Notes = notes.Concat(res.Notes).ToList() };
     }, cancel);
 
@@ -668,6 +691,7 @@ public sealed class CaptureSession : IDisposable
         }
         if (req.DepthEffectFNumber is float dfn && !req.DepthEffectNeedsDepth && !(Info.AllInFocusFNumber <= dfn)) req = req with { DepthEffectNeedsDepth = true };
         req = req with { Cancel = cancel, RenderThreads = req.RenderThreads <= 1 ? Options.Threads : req.RenderThreads };
+        req = Exporter.WithStereo(Lri, req, Options.Log);
         if (!req.NeedsState) return (null, req, notes);
         int buildLevel = Exporter.BuildLevelFor(req);
         ExportState st;
@@ -704,7 +728,7 @@ public sealed class CaptureSession : IDisposable
         IAnalysisCache c;
         lock (_cacheLock) c = Cache(create: true) ?? throw new IOException("the analysis cache cannot be created next to this capture");
         // geometry + depth
-        if (c.CompleteDescriptor(AnalysisCache.GeometryTier) is null)
+        if (c.CompleteDescriptor(GeometryTier) is null)
         {
             var st0 = State(0);
             cancel.ThrowIfCancellationRequested();
@@ -713,6 +737,8 @@ public sealed class CaptureSession : IDisposable
         }
         if (level >= CacheLevel.Linear13 && _noise is not null)
             throw new InvalidOperationException("a session with noise controls cannot keep image tiles in the analysis cache: its tiles are not Lumen's");
+        if (level >= CacheLevel.Linear13 && Options.TeleCheck)
+            throw new InvalidOperationException("a session with the telephoto check cannot keep image tiles in the analysis cache: the kept tiles are those of the default geometry");
         if (level >= CacheLevel.Linear13 && c.CompleteDescriptor(AnalysisCache.LinearTier) is null)
         {
             var st1 = _state0 is not null ? State(0) : State(1);   // either state's levels 1–4 are the same tiles
@@ -762,6 +788,7 @@ public sealed class CaptureSession : IDisposable
         {
             if (Cache(false) is not { } c) return;
             for (var l = CacheLevel.Full; l >= level; l--) c.Drop(AnalysisCache.TierName(l));
+            if (level <= CacheLevel.Geometry) c.Drop(AnalysisCache.TeleCheckGeometryTier);
         }
     }
 

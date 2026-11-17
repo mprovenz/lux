@@ -53,6 +53,15 @@ public sealed record ExportRequest
     /// Required when either is requested.</summary>
     public LuxFormatsWriter? LuxFormats { get; init; }
 
+    /// <summary>The stereo formats (`stereo-sbs`, `stereo-anaglyph`, `stereo-wiggle`, `stereo-mpo`); null = none. The engine writes them
+    /// itself (<see cref="StereoExport"/>).</summary>
+    public StereoRequest? Stereo { get; init; }
+    /// <summary>The 3D formats (`mesh-glb`, `pointcloud-ply`); null = none. The engine writes them itself (<see cref="SceneExport"/>)
+    /// from the picture and the depth of the capture.</summary>
+    public SceneRequest? Scene { get; init; }
+    /// <summary>The source decision of <see cref="Stereo"/> for this capture. The export sets it before it decides what to build.</summary>
+    internal StereoExport.Prepared? StereoPrepared { get; init; }
+
     /// <summary>The capture's persistent data (saved depth edits, the analysis cache) — the <c>LuxImageContext</c> folder next to the
     /// capture, implemented outside the engine. Null = none: no saved edits are applied and no cache is read or written.</summary>
     public ICaptureContext? Context { get; init; }
@@ -102,6 +111,10 @@ public sealed record ExportRequest
     /// <summary>Focus on the scene depth at this point, normalized to the export window — Lumen's click to focus
     /// (`getDepthAtPoint`, then the focus setting).</summary>
     public (float X, float Y)? FocusPoint { get; init; }
+    /// <summary>The renderer of the depth effect. <see cref="Lux.Engine.Pipeline.Dof.DofRendering.Lumen"/> (the default) is Lumen's renderer,
+    /// bit for bit. <see cref="Lux.Engine.Pipeline.Dof.DofRendering.Lux"/> is the Lux rendering
+    /// (<see cref="Lux.Engine.Pipeline.Dof.LuxRendering"/>). It has no effect without a depth effect.</summary>
+    public Lux.Engine.Pipeline.Dof.DofRendering DepthEffectRendering { get; init; }
     /// <summary>Exif ISO override; null = 100·image_gain truncated, from the capture.</summary>
     public int? Iso { get; init; }
     /// <summary>Exif FocalLength override, mm; null = the header's `ImageFocalLength`.</summary>
@@ -192,7 +205,9 @@ public sealed record ExportRequest
     /// parallax formats) — and therefore needs the level-0 registration state.</summary>
     public bool NeedsDepth =>
         (Formats?.Contains(ExportImageFormat.JpegGDepth) ?? false) || DepthMap || DepthEffectNeedsDepth
-        || (Parallax?.Any(ParallaxRequest.NeedsDepthFormat) ?? false);
+        || (Parallax?.Any(ParallaxRequest.NeedsDepthFormat) ?? false)
+        || (Stereo is { Formats.Count: > 0 } && (StereoPrepared?.UseDepth ?? Stereo.Source == StereoSource.Depth))
+        || Scene is { Formats.Count: > 0 };
 
     /// <summary>Saved depth edits (the capture's `LuxImageContext` database): false = ignore them and use the freshly computed
     /// depth. They only matter to outputs that read the depth.</summary>
@@ -200,8 +215,22 @@ public sealed record ExportRequest
     /// <summary>The variant of the saved edits to use; null = the database's active variant.</summary>
     public string? EditsVariant { get; init; }
 
+    /// <summary>Refined depth: the depth network that refines the capture's depth for the outputs that read it
+    /// (<see cref="Lux.Engine.Pipeline.DepthRefine.DepthRefiner"/>); null = off. It applies to an export that builds its own state
+    /// (<see cref="Exporter.Run(string, ExportRequest, Action{string}?)"/>), and only when no saved depth edits are in use.</summary>
+    public Lux.Engine.Pipeline.DepthRefine.IDepthNetwork? DepthRefine { get; init; }
+
+    /// <summary>Check the alignment of each telephoto module against the reference picture after the registration, and correct a module
+    /// that is clearly off (<see cref="Lux.Engine.Pipeline.Registration.TeleCheck"/>). The full-size picture can change where a
+    /// telephoto module was misaligned. False (the default) gives Lumen's registration and Lumen's picture. It applies to an export
+    /// that builds its own state (<see cref="Exporter.Run(string, ExportRequest, Action{string}?)"/>); a session has the same
+    /// choice in <see cref="SessionOptions.TeleCheck"/>. The analysis cache keeps the checked geometry apart from the default one,
+    /// and an export with the check reads no kept image tiles.</summary>
+    public bool TeleCheck { get; init; }
+
     /// <summary>The settings this request sets explicitly, which the capture's saved render settings (<see cref="ICaptureContext.LoadSavedState"/>,
-    /// e.g. an imported Lumen session) then do not replace: "f-number" (<see cref="DepthEffectFNumber"/>), "focus" (<see cref="FocusDepthMm"/> /
+    /// e.g. an imported Lumen session) then do not replace: "f-number" (<see cref="DepthEffectFNumber"/>), "dof-rendering"
+    /// (<see cref="DepthEffectRendering"/>), "focus" (<see cref="FocusDepthMm"/> /
     /// <see cref="FocusPoint"/>), "transform" (<see cref="Rotate"/> / <see cref="Transform"/>), and the `ParamFloat` id ("2" … "13") of each tone
     /// or color setting of <see cref="Adjustments"/> ("13" also stands for <see cref="JpegSharpening"/>). Everything else comes from the saved
     /// state when one applies; with <see cref="UseSavedEdits"/> false none does.</summary>

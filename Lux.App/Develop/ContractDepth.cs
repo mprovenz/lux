@@ -188,6 +188,13 @@ public sealed class ContractDepthSession : IDepthSession, IDisposable
         if (Math.Abs(focusMm - FocusMm) > 0.5) _depth.SetFocus((float)focusMm);
     }
 
+    public bool LuxRendering => _snap.Current.Rendering == Lux.Engine.Pipeline.Dof.DofRendering.Lux;
+    public void SetLuxRendering(bool on)
+    {
+        if (on == LuxRendering) return;
+        _depth.SetRendering(on ? Lux.Engine.Pipeline.Dof.DofRendering.Lux : Lux.Engine.Pipeline.Dof.DofRendering.Lumen);
+    }
+
     public async Task<PointResult> FocusAtAsync(NormPoint picture, CancellationToken cancel = default)
     {
         var d = _depth;
@@ -386,16 +393,18 @@ public sealed class ContractDepthSession : IDepthSession, IDisposable
     {
         DepthVersionKind.Clean => "Clean",
         DepthVersionKind.LumenImport => "From Lumen",
+        DepthVersionKind.Refined => v.Name,
         _ => v.Id.StartsWith("lux-", StringComparison.Ordinal) && int.TryParse(v.Id[4..], out int n) ? $"Lux edits {n}" : v.Id == "lux" ? "Lux edits" : v.Name,
     };
 
     public IReadOnlyList<DepthVersionInfo> Versions => _snap.Versions.Select(v => new DepthVersionInfo(v.Id,
-        v.Kind switch { DepthVersionKind.Clean => AppVersionKind.Clean, DepthVersionKind.LumenImport => AppVersionKind.Lumen, _ => AppVersionKind.Lux },
+        v.Kind switch { DepthVersionKind.Clean => AppVersionKind.Clean, DepthVersionKind.LumenImport => AppVersionKind.Lumen, DepthVersionKind.Refined => AppVersionKind.Refined, _ => AppVersionKind.Lux },
         NameOf(v), v.EditCount, v.Active,
         v.Kind switch
         {
             DepthVersionKind.Clean => "Lux's own depth, with no depth edits",
             DepthVersionKind.LumenImport => (v.EditCount == 1 ? "1 depth edit" : $"{v.EditCount} depth edits") + " · imported from Lumen" + (v.NewerToneStyle ? " · Lumen's newer tone style" : ""),
+            DepthVersionKind.Refined => RefinedNote + (v.EditCount == 0 ? "" : v.EditCount == 1 ? " · 1 depth edit" : $" · {v.EditCount} depth edits"),
             _ => v.EditCount == 0 ? "No depth edits yet" : v.EditCount == 1 ? "1 depth edit" : $"{v.EditCount} depth edits",
         }, v.HistoryUnreliable)).ToList();
 
@@ -404,6 +413,15 @@ public sealed class ContractDepthSession : IDepthSession, IDisposable
     public bool CanImportLumen => _snap.LumenPath != null && _snap.Versions.All(v => v.Kind != DepthVersionKind.LumenImport);
     public string LumenImportWarning => _edit.LumenImportWarning;
     public Task<ToolOutcome> ImportLumenAsync(bool newerToneStyle) => Run(_edit.ImportLumenSession(newerToneStyle));
+    /// <summary>The tooltip of a refined version.</summary>
+    internal const string RefinedNote = "Lux's own depth, with outlines, thin objects and the sky corrected by a depth network";
+    public async Task<ToolOutcome> RefineDepthAsync()
+    {
+        // a refinement that worked can carry a note (only the sky was corrected): the page shows it
+        var job = _edit.RefineDepth();
+        var r = await Run(job).ConfigureAwait(true);
+        return r.Changed && job.Completion.Result.Message is { } note ? r with { Message = note } : r;
+    }
 
     public void Dispose()
     {

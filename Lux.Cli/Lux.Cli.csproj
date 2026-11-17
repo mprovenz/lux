@@ -19,6 +19,8 @@
     <ProjectReference Include="..\Lux.Engine\Lux.Engine.csproj" />
     <!-- the per-capture store (LuxImageContext): saved depth edits; carries the SQLite dependency -->
     <ProjectReference Include="..\Lux.Store\Lux.Store.csproj" />
+    <!-- refined depth: the depth network's files and its inference -->
+    <ProjectReference Include="..\Lux.DepthModel\Lux.DepthModel.csproj" />
   </ItemGroup>
 
 </Project>

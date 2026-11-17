@@ -36,6 +36,9 @@ public sealed record LibraryOpenOptions
     public double? MemoryBudgetGb { get; init; }
     /// <inheritdoc cref="WorkerCount"/>
     public int? RenderThreads { get; init; }
+    /// <summary>The folder of the refined depth files (the depth network and its runtime); null = <c>models/depth</c> in the app's data
+    /// folder (<see cref="LibraryPaths.DefaultDataFolder"/>).</summary>
+    public string? DepthModelFolder { get; init; }
 }
 
 /// <summary>The library's per-user locations.</summary>
@@ -63,6 +66,9 @@ public interface ILibrary : IDisposable, IAsyncDisposable
     ILibrarySettings Settings { get; }
     /// <summary>The one queue of background work (the app's "Queue" tab).</summary>
     IJobQueue Jobs { get; }
+    /// <summary>The files of the refined depth feature (the depth network and its runtime): their state, download and removal. They are
+    /// not part of Lux; they are downloaded on first use.</summary>
+    Lux.DepthModel.IDepthModelService DepthModel => Lux.DepthModel.UnavailableDepthModel.Instance;
 
     // ---------------------------------------------------------------------------------------------------------- folders
 
@@ -882,7 +888,8 @@ public enum ExistingFilePolicy
 public sealed record ExportOptions
 {
     /// <summary>Formats, as <c>lux-light convert --formats</c> spells them: <c>dng</c>, <c>jpg</c>, <c>jpg+depth</c>, <c>hdr</c>, <c>ppm</c>,
-    /// <c>tiff16</c>, <c>tiff-linear</c>, <c>jpg-hdr</c>, <c>depth</c>.</summary>
+    /// <c>tiff16</c>, <c>tiff-linear</c>, <c>jpg-hdr</c>, <c>depth</c>, <c>stereo-sbs</c>, <c>stereo-anaglyph</c>, <c>stereo-wiggle</c>,
+    /// <c>stereo-mpo</c>, <c>mesh-glb</c>, <c>pointcloud-ply</c>.</summary>
     public IReadOnlyList<string> Formats { get; init; } = new[] { "dng", "jpg" };
     /// <summary>Export level: 0 = full size (Lumen's own export window) … 4; 1 = 13 MP.</summary>
     public int Level { get; init; }
@@ -930,6 +937,10 @@ public sealed record ExportOptions
     /// value and BaselineExposure is one stop higher, so that a raw developer does not clip them. Some raw developers then open the
     /// picture one stop darker. The default is off, and the default DNG is Lumen's.</summary>
     public bool DngKeepHighlights { get; init; }
+    /// <summary>Checks the alignment of each telephoto module after the registration and corrects a module that is clearly off, as
+    /// <c>convert --tele-check</c> does. The merged picture can change slightly, and the export takes a little longer. The default
+    /// is off, and the default picture is Lumen's.</summary>
+    public bool TeleCheck { get; init; }
 }
 
 /// <summary>A Lumen session beside a capture.</summary>

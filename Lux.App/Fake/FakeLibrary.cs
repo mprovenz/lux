@@ -45,6 +45,9 @@ public sealed class FakeLibrary : ILibrary
     public string DatabasePath { get; }
     public ILibrarySettings Settings => FakeSettings;
     public IJobQueue Jobs => FakeJobs;
+    /// <summary>The fake refined depth files: not installed at start, and nothing is ever downloaded.</summary>
+    public FakeDepthModel FakeDepthModel { get; } = new();
+    public Lux.DepthModel.IDepthModelService DepthModel => FakeDepthModel;
     internal DateTime Now => _o.NowUtc;
 
     public event EventHandler<CapturesChangedEventArgs>? CapturesChanged;

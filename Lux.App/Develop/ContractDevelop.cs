@@ -181,7 +181,7 @@ internal static class Convert
         if (a.Tint is float u) d[AdjustmentKeys.Tint] = u;
         else if (edit != null) d[AdjustmentKeys.Tint] = edit.GetValue(AdjustmentKey.Tint);
         var tr = v.Transform;
-        var set = new EditSet(v.Groups, d, new GeometryState(tr.TurnDegrees, tr.Mirrored, tr.Crop), v) { DepthFNumber = v.FNumber, DepthFocusMm = v.FocusMm };
+        var set = new EditSet(v.Groups, d, new GeometryState(tr.TurnDegrees, tr.Mirrored, tr.Crop), v) { DepthFNumber = v.FNumber, DepthFocusMm = v.FocusMm, DepthLuxRendering = v.DepthRendering == Lux.Engine.Pipeline.Dof.DofRendering.Lux };
         return v.Sliders == null ? set : set.OnlySliders(v.Sliders.Select(AdjustmentKeys.FromContract).ToHashSet());
     }
 
@@ -206,6 +206,7 @@ internal static class Convert
             Sliders = sliders,
             FNumber = s.DepthFNumber is double f ? (float)f : null,
             FocusMm = s.DepthFocusMm is double mm ? (float)mm : null,
+            DepthRendering = s.DepthLuxRendering ? Lux.Engine.Pipeline.Dof.DofRendering.Lux : Lux.Engine.Pipeline.Dof.DofRendering.Lumen,
         };
     }
 

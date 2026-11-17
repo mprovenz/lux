@@ -72,6 +72,12 @@ public sealed partial class ExportPanelViewModel : ObservableObject
             new("hdr", "HDR", "Radiance, linear, for HDR tools", On("hdr", false), true, Recalc),
             new("ppm", "PPM", "8-bit image before tone and color, uncompressed", On("ppm", false), true, Recalc),
             new("depth", "Depth map", "Separate depth image (millimeters + preview)", On("depth", false), true, Recalc),
+            new("stereo-sbs", "Stereo side by side", "Left and right eye from the two wide lenses", On("stereo-sbs", false), true, Recalc),
+            new("stereo-anaglyph", "Stereo anaglyph", "One picture for red-cyan glasses", On("stereo-anaglyph", false), true, Recalc),
+            new("stereo-wiggle", "Stereo wiggle", "Animation of the two eyes in turn", On("stereo-wiggle", false), true, Recalc),
+            new("stereo-mpo", "Stereo MPO", "For 3D cameras, televisions and viewers", On("stereo-mpo", false), true, Recalc),
+            new("mesh-glb", "3D photo (GLB)", "Relief for 3D viewers and the web", On("mesh-glb", false), true, Recalc),
+            new("pointcloud-ply", "Point cloud (PLY)", "Colored points from the depth map", On("pointcloud-ply", false), true, Recalc),
         };
         Sizes = SizeChoices(items);
         _defaultFolder = s.Library.Settings.DefaultExportFolder;
@@ -88,6 +94,7 @@ public sealed partial class ExportPanelViewModel : ObservableObject
         _tiffColorSpace = TiffColorChoices[last?.TiffColorSpace switch { "p3" => 1, "adobergb" => 2, _ => 0 }];
         _keepDngHighlights = last?.DngKeepHighlights ?? false;
         _jpegQuality = last?.JpegQuality ?? LumenJpegQuality;
+        _teleCheck = last?.TeleCheck ?? false;
         _loading = false;
         Recalc();
     }
@@ -241,6 +248,8 @@ public sealed partial class ExportPanelViewModel : ObservableObject
             string stem = FileName.Replace("{name}", first.Name).Replace("{date}", first.CaptureTime?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) ?? "nodate")
                                   .Replace("{time}", first.CaptureTime?.ToString("HHmmss", System.Globalization.CultureInfo.InvariantCulture) ?? "000000");
             string ext = on.FirstOrDefault() switch { "dng" => ".dng", "hdr" => ".hdr", "ppm" => ".ppm", "jpg+depth" => "_gdepth.jpg", "depth" => "_depth.f32", "jpg-hdr" => "_hdr.jpg", "tiff16" => ".tif", "tiff-linear" => "_linear.tif", _ => ".jpg" };
+            if (on.Count == 0)   // only formats without a size estimate are ticked
+                ext = Formats.FirstOrDefault(f => f.IsOn)?.Key switch { "stereo-sbs" => "_stereo-sbs.jpg", "stereo-anaglyph" => "_stereo-anaglyph.jpg", "stereo-wiggle" => "_stereo-wiggle.gif", "stereo-mpo" => "_stereo.mpo", "mesh-glb" => "_3d.glb", "pointcloud-ply" => "_cloud.ply", _ => ext };
             FileNamePreview = string.IsNullOrWhiteSpace(stem) ? "" : $"e.g. {stem}{ext}";
         }
         OnPropertyChanged(nameof(CanAdd)); OnPropertyChanged(nameof(JpgChosen)); OnPropertyChanged(nameof(Tiff16Chosen));
@@ -272,6 +281,7 @@ public sealed partial class ExportPanelViewModel : ObservableObject
         if (Tiff16Chosen && TiffColorSpace.Value != 0) parts.Add($"TIFF in {TiffColorSpace.Label}");
         if (KeepDngHighlights && DngChosen) parts.Add("DNG keeps highlights");
         if (JpegFormatChosen && JpegQualityValue != LumenJpegQuality) parts.Add($"JPEG quality {JpegQualityText}");
+        if (TeleCheck) parts.Add("telephoto check");
         if (ToneStyle.Value == 1) parts.Add("newer tone style");
         else if (ToneStyle.Value == 2) parts.Add("standard tone style");
         return string.Join(" · ", parts);
@@ -292,7 +302,13 @@ public sealed partial class ExportPanelViewModel : ObservableObject
         TiffColorSpace = Tiff16Chosen ? TiffColorSpace.Value switch { 1 => "p3", 2 => "adobergb", _ => "srgb" } : null,
         DngKeepHighlights = KeepDngHighlights && DngChosen,
         JpegQuality = JpegFormatChosen && JpegQualityValue != LumenJpegQuality ? JpegQualityValue : null,
+        TeleCheck = TeleCheck,
     };
+
+    /// <summary>Checks the alignment of the telephoto lenses and corrects a lens that is clearly off. The default is off. The panel
+    /// remembers the last choice.</summary>
+    [ObservableProperty] bool _teleCheck;
+    public static string TeleCheckNote => "Changes the merged picture slightly and takes about a second.";
 
     /// <summary>Keeps the highlights of the DNG above white. The default is off. The panel remembers the last choice.</summary>
     [ObservableProperty] bool _keepDngHighlights;

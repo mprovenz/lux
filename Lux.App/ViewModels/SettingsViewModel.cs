@@ -145,6 +145,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _addFolder = addFolder;
         SetAside = new SetAsideCopiesViewModel(s, shell);   // Storage → copies set aside
         Updates = new UpdatesViewModel(s.Updates, shell.RestartToUpdate);
+        DepthModel = new DepthModelViewModel(s.Library.DepthModel);
         _set.PropertyChanged += OnSettingChanged;
         _queue.PropertyChanged += (_, _) => FollowMoveJob();
         Load();
@@ -397,6 +398,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     public SetAsideCopiesViewModel SetAside { get; }
     /// <summary>The Updates section.</summary>
     public UpdatesViewModel Updates { get; }
+    /// <summary>The Refined depth section.</summary>
+    public DepthModelViewModel DepthModel { get; }
 
     public bool HasFolders => Folders.Count > 0;
 

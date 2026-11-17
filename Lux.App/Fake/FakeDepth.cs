@@ -21,6 +21,8 @@ internal sealed record FakeDepthState(double? FNumber, double FocusMm, bool Focu
     public ImmutableList<FakeDepthOp> CurrentOps => Ops.TryGetValue(Version, out var l) ? l : ImmutableList<FakeDepthOp>.Empty;
     public FakeVersion CurrentVersion => Versions.FirstOrDefault(v => v.Id == Version) ?? Versions[0];
     public FakeDepthState WithOps(ImmutableList<FakeDepthOp> ops) => this with { Ops = Ops.SetItem(Version, ops) };
+    /// <summary>The depth effect uses the Lux rendering (false = Lumen's renderer).</summary>
+    public bool LuxRendering { get; init; }
 }
 
 /// <summary>
@@ -191,6 +193,16 @@ public sealed class FakeDepthSession : IDepthSession, IDisposable
         if (focusChanged) _s.PushDepth($"Focus {DepthText.Distance(focus)}", HistoryKind.DepthEffect, st with { FocusMm = focus, FocusDefault = false, FocusCapture = null });
     }
 
+    public bool LuxRendering => _s.DepthState.LuxRendering;
+
+    public void SetLuxRendering(bool on)
+    {
+        if (!Status.IsReady) return;
+        var st = _s.DepthState;
+        if (st.LuxRendering == on) return;
+        _s.PushDepth(on ? "Lux rendering" : "Lumen rendering", HistoryKind.DepthEffect, st with { LuxRendering = on });
+    }
+
     public bool CanFocusAt(NormPoint picture) => DepthAt(picture) is double d && FocusableRange is { } r && d >= r.NearMm && d <= r.FarMm;
 
     public async Task<PointResult> FocusAtAsync(NormPoint picture, CancellationToken cancel = default)
@@ -217,8 +229,8 @@ public sealed class FakeDepthSession : IDepthSession, IDisposable
     {
         if (!Status.IsReady) return;
         var st = _s.DepthState;
-        if (st.FNumber == null && st.FocusDefault) return;
-        _s.PushDepth("Reset depth effect", HistoryKind.DepthEffect, st with { FNumber = null, FocusMm = EffectRange.DefaultFocusMm, FocusDefault = true, FocusCapture = null });
+        if (st.FNumber == null && st.FocusDefault && !st.LuxRendering) return;
+        _s.PushDepth("Reset depth effect", HistoryKind.DepthEffect, st with { FNumber = null, FocusMm = EffectRange.DefaultFocusMm, FocusDefault = true, FocusCapture = null, LuxRendering = false });
     }
 
     /// <summary>The fake tiles' effect follows the state shown (and the drag).</summary>
@@ -580,6 +592,7 @@ public sealed class FakeDepthSession : IDepthSession, IDisposable
                 {
                     VersionKind.Clean => "Lux's own depth, with no depth edits",
                     VersionKind.Lumen => n == 1 ? "1 depth edit imported from Lumen" : $"{n} depth edits imported from Lumen",
+                    VersionKind.Refined => Lux.App.Develop.ContractDepthSession.RefinedNote + (n == 0 ? "" : n == 1 ? " · 1 depth edit" : $" · {n} depth edits"),
                     _ => n == 0 ? "No depth edits yet" : n == 1 ? "1 depth edit" : $"{n} depth edits",
                 };
                 return new DepthVersionInfo(v.Id, v.Kind, v.Name, n, v.Id == st.Version, note, v.Id == st.Version && _s.DepthHistoryStatus.State == HistoryState.Unreliable);
@@ -627,6 +640,22 @@ public sealed class FakeDepthSession : IDepthSession, IDisposable
         _s.RestartHistory(st with { Versions = st.Versions.Add(v), Version = v.Id, Ops = st.Ops.SetItem(v.Id, ops) }, imported: true);
         return ToolOutcome.Applied;
     }
+
+    /// <summary>The refined version of the fake: a version of its own with no edits, made after a few seconds of "network" work.</summary>
+    public async Task<ToolOutcome> RefineDepthAsync()
+    {
+        var st = _s.DepthState;
+        if (st.Versions.FirstOrDefault(v => v.Kind == VersionKind.Refined) is { } have) return await SwitchVersionAsync(have.Id).ConfigureAwait(true);
+        if (_map == null) return new ToolOutcome(ToolResult.Failed, "The depth map is not ready yet.");
+        DropSelection();
+        var (r, _) = await RunAsync("Refining the depth", RefineMs, _ => 0).ConfigureAwait(true);
+        if (r.Result != ToolResult.Applied) return r;
+        var v = new FakeVersion("refined", VersionKind.Refined, "Refined");
+        _s.RestartHistory(st with { Versions = st.Versions.Add(v), Version = v.Id, Ops = st.Ops.SetItem(v.Id, ImmutableList<FakeDepthOp>.Empty) });
+        return ToolOutcome.Applied;
+    }
+    /// <summary>The simulated time of the refinement, in ms (scaled like every fake tool time).</summary>
+    const int RefineMs = 2500;
 
     public event Action? Changed;
 

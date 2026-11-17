@@ -81,6 +81,7 @@ public static class CompositionRoot
                 Captures = o.FakeCaptures, Empty = o.FakeEmpty,
                 SettingsFile = Path.Combine(appData, "fake-settings.json"),
             });
+            fake.FakeDepthModel.Folder = Path.Combine(appData, "models", "depth");
             if (o.StartPaused) fake.Jobs.PauseAll();
             // a fake camera with 38 new captures (real sizes; the copies of an import go where the panel says)
             var fakeCamera = new CameraService(fake, new FakeMtpBackend(new FakeCamera(new FakeCameraOptions { FileListMs = 1500, DetailsMs = 4, BytesPerSecond = 60_000_000 }, fake)),
@@ -99,7 +100,7 @@ public static class CompositionRoot
         var config = AppConfig.Load(Path.Combine(appData, "lux-app.json"));
         string db = o.LibraryFile ?? config.LibraryFile ?? Path.Combine(appData, "library.luxlib");
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(db))!);
-        var lib = LuxLibrary.Open(new LibraryOpenOptions { DatabasePath = db, StartWorkers = !o.StartPaused, Log = log });
+        var lib = LuxLibrary.Open(new LibraryOpenOptions { DatabasePath = db, StartWorkers = !o.StartPaused, Log = log, DepthModelFolder = Path.Combine(appData, "models", "depth") });
         // the camera over libgphoto2 (read-only: lists, reads previews, copies); thumbnails of its previews are kept in the app's data folder
         ICameraService camera;
         try

@@ -33,6 +33,7 @@ namespace Lux.Cli
 
             // the device and version commands take no input files
             if (command == "version") return VersionCmd.Run(opts);
+            if (command == "depth-model") return DepthModelCmd.Run(positionals);
             if (command == "devices") return RunDevices();
             if (command == "pull") return RunPull(opts);
             if (command == "import-lumen-edits")
@@ -52,6 +53,7 @@ namespace Lux.Cli
 
             List<string> files = CliInput.CollectLri(positionals);
             if (files.Count == 0) { Console.Error.WriteLine("error: no .lri files found."); return 1; }
+            if (opts.TeleCheck && command is not ("convert" or "animate")) { Console.Error.WriteLine("error: --tele-check is an option of convert and animate."); return 2; }
 
             return command switch
             {
@@ -171,6 +173,19 @@ namespace Lux.Cli
             var plan = ConvertCmd.TryPlan(o, total, out string? planError);
             if (plan is null) { Console.Error.WriteLine($"error: {planError}"); return 2; }
             var request = plan.Request;
+            var planNotes = plan.Notes.ToList();
+            if (o.DepthRefine)
+            {
+                // refined depth: the depth network must be installed already; this command never downloads it
+                if (!request.NeedsDepth && request.DepthEffectFNumber is null) planNotes.Add("--depth-refine: none of the requested outputs reads the depth, so it changes nothing");
+                else
+                {
+                    var network = DepthModelCmd.OpenForConvert(out string? modelError);
+                    if (network is null) { Console.Error.WriteLine($"error: {modelError}"); return 2; }
+                    request = request with { DepthRefine = network };
+                    planNotes.Add("--depth-refine: the depth is refined with a depth network for the outputs that read it; captures with saved depth edits keep those");
+                }
+            }
             // Threads inside each conversion: the whole machine for one input at a time, shared out when several run at once.
             int renderThreads = o.RenderThreads ?? Math.Max(1, Environment.ProcessorCount / Math.Max(1, Math.Min(o.Threads, total)));
             Lux.Engine.Pipeline.BayerFusion.BlockFlow.Threads = renderThreads;   // the block-flow searches of the fusion set-up (process-wide)
@@ -178,7 +193,7 @@ namespace Lux.Cli
                               + (o.Level != 0 ? $", level {o.Level}" : "") + (o.Size is { } s ? $", size {s.W}x{s.H}" : "")
                               + $", formats {plan.FormatsLabel}"
                               + $" -> {o.OutFile ?? o.OutDirectory ?? "<beside input>"}");
-            foreach (var note in plan.Notes) Console.WriteLine($"  {note}");
+            foreach (var note in planNotes) Console.WriteLine($"  {note}");
             var swAll = Stopwatch.StartNew();
             int done = 0, failed = 0, refused = 0;
             var po = new ParallelOptions { MaxDegreeOfParallelism = o.Threads };
@@ -202,6 +217,7 @@ namespace Lux.Cli
                         : request with { OutDirectory = outDir, Stem = stem, RenderThreads = renderThreads, Progress = onProgress };
                     var sctx = new Lux.Store.StoreCaptureContext(path);
                     req = req with { Context = sctx };
+                    if (req.Stereo is { } stereo) req = req with { Stereo = stereo with { HeldTurn = ConvertCmd.HeldTurnOf(path) } };
                     string? uprightNote = null;
                     if (o.Upright) (req, uprightNote) = ConvertCmd.Upright(path, req, sctx);
                     var res = Exporter.Run(path, req, flog);
@@ -400,6 +416,12 @@ namespace Lux.Cli
                                                 wigglegram: the pictures of the wide lenses.
                                                 parallax: a small camera move made from the photo and its depth.
                                                 lens-tour: each lens in turn.
+                                                zoom-through: a zoom from the whole picture onto telephoto detail.
+                                                fog: depth fog that moves through the scene.
+                                                pan-zoom: a push-in with a moving camera, made from the photo and its
+                                                depth.
+                                                slice-reveal: the colors come in slice by slice of distance.
+                                                tilt-shift: a miniature look with the focus swept through the scene.
                                               Lux writes GIF, APNG and WebP itself. MP4 and WebM need ffmpeg
                   cache <input...> [--level none|geometry|13mp|full]
                                               Show the analysis cache of a capture, or change it to a level:
@@ -410,11 +432,15 @@ namespace Lux.Cli
                                                 output stage.
                                               The cache is in LuxImageContext/cache/ next to the capture. Exports from
                                               the cache are byte-identical to exports computed from scratch
+                  depth-model status|install|remove
+                                              Show, download or delete the files that refined depth needs
+                                              (convert --depth-refine): the depth network and the runtime that runs it.
+                                              They are not part of Lux
 
                 INPUT:
                   convert, animate, inspect, mod-info, profile, isp, isp-run, edits-info and cache take one or more .lri
                   files, directories, or both. Directories are scanned for *.lri. import-lumen-edits takes .lris files,
-                  directories, or both. devices, pull and version take no input files.
+                  directories, or both. devices, pull, version and depth-model take no input files.
 
                 REQUIREMENTS:
                   - The .NET 10 runtime, for a build from source only. The release builds contain it.
@@ -440,7 +466,8 @@ namespace Lux.Cli
                                                 Lux formats: tiff16, tiff-linear, jpg-hdr, depth, lens-frames,
                                                 parallax-wiggle, parallax-wiggle-interp, parallax-orbit, parallax-single,
                                                 parallax-rack, parallax-dolly, parallax-dof, parallax-anaglyph,
-                                                parallax-crosseye, parallax-sbs, parallax-still
+                                                parallax-crosseye, parallax-sbs, parallax-still, stereo-sbs,
+                                                stereo-anaglyph, stereo-wiggle, stereo-mpo, mesh-glb, pointcloud-ply
                                                 all: every format above except hdr, ppm, tiff16, tiff-linear and jpg-hdr
                                               `depth` is the stereo depth pair in metric millimeters (<stem>_depth.f32 +
                                               <stem>_depth.jpg) on the exported grid. The Lux formats are named
@@ -486,6 +513,10 @@ namespace Lux.Cli
                     * --focus-point <x,y>     Focus on the object at this point of the picture, as a click with Lumen's
                                               focus tool does. x and y go from 0 to 1, and 0,0 is the top left. Needs
                                               --f-number. Not combinable with --focus-depth or --rotate
+                    * --dof-rendering <r>     Renderer of the depth effect: lumen or lux (default lumen). lumen is
+                                              Lumen's renderer, bit for bit. lux is the Lux rendering: clipped lights
+                                              become bright discs, small lights keep their brightness, the blur discs
+                                              have a sharp edge, and grain is added only where the picture is blurred
 
                   TONE & COLOR ADJUSTMENTS (the controls of Lumen's editor; jpg and jpg+depth only)
                     These options change how the picture is rendered, like the sliders in Lumen's editor. They affect
@@ -553,6 +584,38 @@ namespace Lux.Cli
                     * --no-edits              Ignore saved depth edits and saved settings: use the depth computed from
                                               the capture
                     * --edits <variant>       Use this variant instead of the active one (`edits-info` lists them)
+
+                  REFINED DEPTH (needs the depth model; see the depth-model command)
+                    The camera's depth map has real distances, but its steps sit beside the outlines of objects, it
+                    loses thin objects, it fills the gaps between bars and it scatters the sky. A depth network sees
+                    these things in the picture, but it gives no real distances. Refined depth joins the two: it keeps
+                    the camera's depth, except in the sky and where the shape of the camera's depth contradicts the
+                    network. The other cameras with the same view check the camera's depth first: depth that they
+                    confirm is kept. A telephoto capture has no such cameras, and gets only its sky corrected. The
+                    outputs that read the depth then use the refined depth: --f-number, jpg+depth, depth and the
+                    depth-based parallax formats. The picture itself is not changed. Without this option nothing
+                    changes.
+                    * --depth-refine          Refine the depth map with the depth network. This adds about 20 to 50
+                                              seconds per capture. A capture with saved depth edits keeps those: add
+                                              --no-edits to refine the camera's depth instead. The result can differ in
+                                              the last digits between computers, because the network runs on each
+                                              computer's own processor. convert stops when the depth model is not
+                                              installed: it never downloads it by itself
+
+                  TELEPHOTO CHECK
+                    Lux registers each telephoto module to the wide picture as Lumen does. In some captures, mostly
+                    near, dark or stacked scenes, a module stays several pixels off. The merged picture then has no
+                    telephoto detail in the area of that module. The telephoto check measures each module against the
+                    reference picture after the registration. It corrects a module with a small rotation, but only
+                    when the measurement is clear. The full-size picture changes where a module was off. It can also
+                    change slightly where the check moves a module that was almost aligned. Without this option
+                    nothing changes.
+                    * --tele-check            Check the alignment of the telephoto modules and correct each module
+                                              that is off by 4 pixels or more. This adds 1 to 3 seconds per capture.
+                                              The run says what it did for each module. The check does not help when
+                                              the depth of a near scene is wrong, or when a module shows too little
+                                              texture. The analysis cache keeps the checked geometry apart from the
+                                              default one, and convert does not read kept image tiles for this run
 
                   ANALYSIS CACHE (LuxImageContext/cache next to the captures; see the cache command)
                     convert uses what a capture's analysis cache holds and skips the work that would produce it. The
@@ -645,6 +708,54 @@ namespace Lux.Cli
                       --lens-modules <list>   Comma-separated module filter, e.g. A1,B4
                       --lens-stack <all|n>    Frame of a stacked capture to write (default 0)
 
+                  STEREO
+                      A stereo pair from the two wide lenses A5 and A1. They sit 44 mm apart, close to the distance
+                      between two eyes, so each eye gets the picture of a real lens: no depth map is involved. The two
+                      pictures are aligned with the capture's calibration, matched in color, shifted so that the scene
+                      sits behind the screen, and cropped to their common area. About 10 % of the frame is lost. The
+                      lens pair needs a wide capture, held level, whose depth spans at most 3 % of the picture width:
+                      with a far background, a subject that is not nearer than about 1.2 m. For every other capture,
+                      convert makes the two eyes from the merged picture and the depth map, as parallax-sbs does, and
+                      says so in its output. The files are named <stem>_stereo-sbs.jpg, <stem>_stereo-anaglyph.jpg,
+                      <stem>_stereo-wiggle.<ext> and <stem>_stereo.mpo.
+
+                      stereo-sbs              The two eyes side by side, the left eye on the left, JPG
+                      stereo-anaglyph         One picture for red-cyan glasses (Dubois), JPG
+                      stereo-wiggle           An animation of two frames that switches between the eyes
+                      stereo-mpo              MPO file: the two JPG pictures with a multi-picture index, for 3D cameras,
+                                              televisions and viewers. Other programs show the left eye
+                      --stereo-source <s>     Where the two eyes come from: auto (default) | real | depth. real writes
+                                              the lens pair only: also for a scene that is deeper than is comfortable,
+                                              and no file when the capture has no lens pair. depth always uses the depth
+                                              map
+                      --stereo-layout <l>     Width of each eye in stereo-sbs: full (default) | half. half squeezes each
+                                              eye to half its width, for 3D televisions
+                      --stereo-size <px>      Long edge of one eye in pixels (default: the size of the pair; 1040 for
+                                              stereo-wiggle)
+                      --stereo-format <c>     Container of stereo-wiggle: gif (default) | webp | apng
+
+                  3D   (one capture gives a relief)
+                      3D files from the picture and the depth map of one capture. One capture sees the scene from one
+                      place, so the result is a relief, not a full 3D scene: it looks right inside a small viewing
+                      angle, about 0.5 to 3 degrees, and shows holes and stretched edges outside it. Both formats use
+                      the depth as exported, on the 13 MP picture or on a smaller --level. --depth-refine is
+                      recommended: the refined depth gives cleaner outlines and fewer terraces. The files are named
+                      <stem>_3d.glb and <stem>_cloud.ply. Positions are in meters.
+
+                      mesh-glb                A 3D photo: a textured mesh in a binary glTF file, for 3D viewers, game
+                                              engines and the web. One vertex for each 4 pixels, no triangle across a
+                                              step in the depth, then simplified. The texture is the picture
+                      pointcloud-ply          A colored point cloud in a binary PLY file (position, normal, color), with
+                                              x to the right, y down and z forward from the camera. Points at depth
+                                              steps, beyond 30 m and in the sky are left out
+                      --mesh-triangles <n>    Number of triangles of mesh-glb after the simplification (default 250000)
+                      --mesh-depth <d>        Depth of mesh-glb: relief (default) | metric. relief caps the depth at 4
+                                              times the distance of the subject, so that a far background stays close
+                                              behind the subject. metric keeps the real distances and leaves out content
+                                              beyond 60 m
+                      --pc-step <n>           Every n-th pixel becomes a point of pointcloud-ply: 1 | 2 | 4 (default) |
+                                              8
+
                   PARALLAX   (experimental)
                       The base imagery is the pipeline's module-ISP frames, or this run's JPEG render and its metric
                       depth. Only the 28 mm A array is a multi-view rig. A telephoto capture has no A modules, so
@@ -734,24 +845,30 @@ namespace Lux.Cli
                                               Integer shift only, no resampling. Native sensor pixels
 
                 ANIMATE OPTIONS:
-                      --anim-effect <e>       Effect: rack-focus | aperture-sweep | wigglegram | parallax | lens-tour
-                                              (required)
+                      --anim-effect <e>       Effect: rack-focus | aperture-sweep | wigglegram | parallax | lens-tour |
+                                              zoom-through | fog | pan-zoom | slice-reveal | tilt-shift (required)
                       --anim-container <c>    Container: gif (default) | apng | webp (lossless) | mp4 | webm. mp4 and
-                                              webm need ffmpeg
+                                              webm need ffmpeg. zoom-through, fog, pan-zoom, slice-reveal and tilt-shift
+                                              are long clips: their default is mp4 when ffmpeg is installed
                   -o, --out-directory <dir>   Write <stem>_<effect>.<ext> (default: a lux_animate/ folder beside the
                                               .lri)
                       --anim-size <px>        Long edge of the frames (default 1040). The frames come from the smallest
                                               export level that is at least that size
                       --level <n>             Render from this export level instead
-                      --anim-frames <n>       Number of distinct frames (default 24). The wigglegram and the lens tour
-                                              have one frame per lens
+                      --anim-frames <n>       Number of distinct frames (default 24; zoom-through, fog, slice-reveal and
+                                              tilt-shift 100; pan-zoom 125). The wigglegram and the lens tour have one
+                                              frame per lens
                       --anim-ms <n>           Time per frame in ms (default 70; wigglegram 100, parallax 60, lens tour
-                                              500)
-                      --anim-loop <k>         Loop mode: pingpong (default) | forward. The default for the lens tour and
-                                              the orbit is forward
+                                              500; zoom-through, fog, pan-zoom, slice-reveal and tilt-shift 40)
+                      --anim-loop <k>         Loop mode: pingpong (default) | forward. The default for the lens tour,
+                                              the orbit, zoom-through, fog, pan-zoom and slice-reveal is forward
+                      --anim-hold <ms>        Time the last frame stays in the forward loop mode (default 1000 for zoom-
+                                              through and slice-reveal, else 0)
                       --anim-repeat <n>       Number of times the animation plays (default 0 = forever)
                       --f-number <N>          Aperture of rack-focus, or the widest aperture of aperture-sweep (default
-                                              2, the widest that Lumen's slider offers)
+                                              2, the widest that Lumen's slider offers). Aperture of tilt-shift
+                                              (default: from the depth range of the scene, about 0.03 for a street and
+                                              0.1 for a subject at 3 m)
                       --anim-f-from <N>       Start aperture of aperture-sweep (default: all in focus)
                       --anim-focus <m1,m2>    Pull the focus of rack-focus from m1 to m2 meters (default: the 10th to
                                               the 90th percentile of the scene's depth)
@@ -760,6 +877,36 @@ namespace Lux.Cli
                       --anim-baseline <mm>    Travel of the virtual camera for parallax (default 71.49)
                       --anim-converge <k>     Distance that stays still in parallax: auto (median depth) | meters
                       --anim-single-view      Make parallax from the main view only (gaps are painted in)
+                      --anim-zoom-at <x,y>    Point that zoom-through ends on, each from 0 to 1 of the picture (default:
+                                              where the telephoto lenses add the most detail). zoom-through stops with a
+                                              reason when the photo has no such place: low light, a subject nearer than
+                                              1 m, or no telephoto detail. With a point given it zooms anyway, and ends
+                                              at half the full size
+                      --anim-fog <k>          Movement of fog: bank (default, a bank of fog comes forward from the far
+                                              part of the scene) | rise (fog thickens and thins again)
+                      --anim-fog-density <k>  Factor on the fog density (default 1)
+                      --anim-fog-color <c>    Fog color: auto (default, from the far part of the scene) | rrggbb
+                      --anim-pan-at <x,y>     Point that pan-zoom pushes in on, each from 0 to 1 of the picture
+                                              (default: where the camera focused)
+                      --anim-travel <k>       Camera travel of pan-zoom, as a fraction of the nearest distance of the
+                                              scene: auto (default) | a fraction. pan-zoom first checks how far the
+                                              camera can travel before the picture tears, and reports that limit. auto
+                                              stays inside it. When even the smallest travel fails, auto makes a flat
+                                              move
+                      --anim-flat             Make pan-zoom a flat move: nothing in the scene slides
+                      --anim-no-smoothing     Make pan-zoom, fog and slice-reveal from the depth map as it is. By
+                                              default they smooth the depth along the picture first: far surfaces then
+                                              stay in one piece when the camera moves, and fog lies evenly on them
+                      --anim-slice <k>        Order of slice-reveal: near-far (default) | far-near | from-focus
+                      --anim-softness <k>     Softness of the slice edge of slice-reveal, as a share of the depth range
+                                              of the scene (default 0.08; 0 = a hard edge)
+                      --anim-tilt <k>         Tilt of the focal plane of tilt-shift (default 0.8: the focus lies farther
+                                              away towards the bottom of the picture; 0 = no tilt)
+                      --depth-refine          As for convert: refine the depth map with the depth network before the
+                                              frames are made. The effects that read the depth then use the refined
+                                              depth
+                      --tele-check            As for convert: check the alignment of the telephoto modules before the
+                                              frames are made
                       --anim-gif-dither <k>   GIF dithering: ordered (default) | diffusion | none
                       --anim-gif-palette <k>  GIF palette: global (default: one palette, no flicker) | frame
                       --anim-no-diff          Store every frame whole (by default only the changes are stored)
@@ -806,6 +953,22 @@ namespace Lux.Cli
                   Exit status: 0 up to date (or no release published yet), 1 a newer release is available, 2 the check
                   could not be made (no network, GitHub error). The release page is
                   https://github.com/mprovenz/lux/releases
+
+                DEPTH-MODEL:
+                  lux-light depth-model status|install|remove manages the files of refined depth. install downloads
+                  them once (about 110 MB; about 180 MB on Windows) into the folder models/depth of the app's data
+                  folder, and checks each file against a fixed SHA-256. remove deletes them. The desktop app uses the
+                  same files (Settings, Refined depth).
+                  - The depth network is Depth Anything V2 Small (Apache-2.0), as an ONNX file from the
+                    onnx-community/depth-anything-v2-small repository on Hugging Face.
+                  - The runtime is ONNX Runtime 1.23.2 (MIT), from its GitHub releases. There are builds for Linux,
+                    Windows and macOS on x64 and arm64 processors. On another computer the command says that refined
+                    depth is not available.
+                  - A download sends the file's address and a generic client name, nothing else.
+                  - LUX_DEPTH_MODEL_SOURCE=<folder or URL> makes install read the files from there instead, under the
+                    names onnxruntime-<platform>-1.23.2.tgz (.zip on Windows) and depth-anything-v2-small.onnx. The
+                    files must be the same: the SHA-256 check stays.
+                  Exit status: 0 done (status: installed), 1 status: not installed, 2 an error.
 
                 GLOBAL OPTIONS:
                   -h, --help                  Show this help

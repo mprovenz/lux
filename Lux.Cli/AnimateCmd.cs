@@ -18,28 +18,55 @@ internal static class AnimateCmd
     {
         ("wigglegram", AnimationEffect.Wigglegram), ("parallax", AnimationEffect.ParallaxSweep), ("rack-focus", AnimationEffect.RackFocus),
         ("aperture-sweep", AnimationEffect.ApertureSweep), ("lens-tour", AnimationEffect.LensTour),
+        ("zoom-through", AnimationEffect.ZoomThrough), ("fog", AnimationEffect.Fog), ("pan-zoom", AnimationEffect.PanZoom),
+        ("slice-reveal", AnimationEffect.SliceReveal), ("tilt-shift", AnimationEffect.TiltShift),
     };
 
     public static string NameOf(AnimationEffect e) => Effects.First(x => x.Effect == e).Name;
 
     public static int Run(List<string> files, Options o)
     {
-        if (o.AnimEffect is null) { Console.Error.WriteLine("error: animate needs --anim-effect (wigglegram, parallax, rack-focus, aperture-sweep or lens-tour)"); return 2; }
+        if (o.AnimEffect is null) { Console.Error.WriteLine($"error: animate needs --anim-effect ({string.Join(", ", Effects.Select(x => x.Name))})"); return 2; }
         var hit = Effects.FirstOrDefault(x => x.Name == o.AnimEffect);
         if (hit.Name is null) { Console.Error.WriteLine($"error: --anim-effect must be one of {string.Join(", ", Effects.Select(x => x.Name))}"); return 2; }
-        string container = o.AnimContainer ?? "gif";
+        // the long clips (the zoom-through, the pan-and-zoom and the depth looks) are written as MP4 unless a container is given
+        bool prefersVideo = o.AnimContainer is null && AnimationSpec.PrefersVideo(hit.Effect);
+        string? ffmpeg = prefersVideo || o.AnimContainer is "mp4" or "webm" ? VideoEncoder.FindFfmpeg() : null;
+        string container = o.AnimContainer ?? (prefersVideo && ffmpeg is not null ? "mp4" : "gif");
         bool video = container is "mp4" or "webm";
         if (!video && !AnimationEncoder.TryParse(container, out _)) { Console.Error.WriteLine("error: --anim-container must be gif, apng, webp, mp4 or webm"); return 2; }
-        string? ffmpeg = video ? VideoEncoder.FindFfmpeg() : null;
         if (video && ffmpeg is null) { Console.Error.WriteLine("error: MP4 and WebM are written by ffmpeg, which is not installed (GIF, APNG and WebP need nothing extra). Nothing has been written."); return 2; }
         if (o.AnimLoop is not null and not ("pingpong" or "forward")) { Console.Error.WriteLine("error: --anim-loop must be pingpong or forward"); return 2; }
         if (o.AnimPath is not null and not ("sweep" or "arc" or "line" or "orbit")) { Console.Error.WriteLine("error: --anim-path must be sweep, arc, line or orbit"); return 2; }
         if (o.AnimGifDither is not null and not ("ordered" or "diffusion" or "none")) { Console.Error.WriteLine("error: --anim-gif-dither must be ordered, diffusion or none"); return 2; }
         if (o.AnimGifPalette is not null and not ("global" or "frame")) { Console.Error.WriteLine("error: --anim-gif-palette must be global or frame"); return 2; }
         if (o.OutFile is not null) { Console.Error.WriteLine("error: animate names its files <stem>_<effect>.<ext>; use -o <dir>"); return 2; }
+        if (o.AnimFog is not null and not ("bank" or "rise")) { Console.Error.WriteLine("error: --anim-fog must be bank or rise"); return 2; }
+        if (o.AnimSlice is not null and not ("near-far" or "far-near" or "from-focus")) { Console.Error.WriteLine("error: --anim-slice must be near-far, far-near or from-focus"); return 2; }
+        (byte, byte, byte)? fogColor = null;
+        if (o.AnimFogColor is { } fc && fc != "auto")
+        {
+            if (fc.Length != 6 || !uint.TryParse(fc, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint rgb)) { Console.Error.WriteLine("error: --anim-fog-color must be auto or a color as rrggbb"); return 2; }
+            fogColor = ((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+        }
+        double? travel = null;
+        if (o.AnimTravel is { } tv && tv != "auto")
+        {
+            if (!double.TryParse(tv, NumberStyles.Float, CultureInfo.InvariantCulture, out double fraction) || fraction < 0 || fraction > 0.5) { Console.Error.WriteLine("error: --anim-travel must be auto or a fraction from 0 to 0.5"); return 2; }
+            travel = fraction;
+        }
+        foreach (var point in new[] { o.AnimZoomAt, o.AnimPanAt })
+            if (point is { } pt && (pt.X < 0 || pt.X > 1 || pt.Y < 0 || pt.Y > 1)) { Console.Error.WriteLine("error: --anim-zoom-at and --anim-pan-at take x,y, each between 0 and 1"); return 2; }
+        // refined depth: the depth network must be installed already; this command never downloads it
+        Lux.Engine.Pipeline.DepthRefine.IDepthNetwork? network = null;
+        if (o.DepthRefine)
+        {
+            network = DepthModelCmd.OpenForConvert(out string? modelError);
+            if (network is null) { Console.Error.WriteLine($"error: {modelError}"); return 2; }
+        }
         var spec = new AnimationSpec
         {
-            Effect = hit.Effect, Frames = o.AnimFrames ?? 24, FrameMs = o.AnimMs ?? 0, PingPong = o.AnimLoop is null ? null : o.AnimLoop == "pingpong",
+            Effect = hit.Effect, Frames = o.AnimFrames ?? AnimationSpec.DefaultFrames(hit.Effect), FrameMs = o.AnimMs ?? 0, PingPong = o.AnimLoop is null ? null : o.AnimLoop == "pingpong",
             LongEdge = o.AnimSize ?? 1040, Level = o.Given.Contains("--level") ? o.Level : null,
             FNumber = o.DepthFNumber ?? 2.0f, FNumberFrom = o.AnimFFrom,
             FocusFromMm = o.AnimFocus is { } af ? (float)(af.M1 * 1000) : null, FocusToMm = o.AnimFocus is { } at ? (float)(at.M2 * 1000) : null,
@@ -47,6 +74,12 @@ internal static class AnimateCmd
             Path = o.AnimPath switch { "arc" => AnimationPath.Arc, "line" => AnimationPath.Line, "orbit" => AnimationPath.Orbit, _ => AnimationPath.Sweep },
             BaselineMm = o.AnimBaseline ?? 71.49, Converge = o.AnimConverge ?? "auto", SingleView = o.AnimSingleView,
             UseSavedEdits = !o.NoEdits, EditsVariant = o.Edits,
+            Target = hit.Effect == AnimationEffect.PanZoom ? o.AnimPanAt : o.AnimZoomAt, HoldMs = o.AnimHold,
+            FogMode = o.AnimFog == "rise" ? Lux.Engine.Pipeline.Animate.FogMode.Rise : Lux.Engine.Pipeline.Animate.FogMode.Bank,
+            FogDensity = o.AnimFogDensity ?? 1.0, FogColor = fogColor, Travel = travel, Flat = o.AnimFlat, SmoothDepth = !o.AnimNoSmoothing,
+            SliceOrder = o.AnimSlice switch { "far-near" => Lux.Engine.Pipeline.Animate.SliceOrder.FarToNear, "from-focus" => Lux.Engine.Pipeline.Animate.SliceOrder.FromFocus, _ => Lux.Engine.Pipeline.Animate.SliceOrder.NearToFar },
+            SliceSoftness = o.AnimSoftness ?? Lux.Engine.Pipeline.Animate.SliceLook.DefaultSoftness,
+            MiniatureFNumber = hit.Effect == AnimationEffect.TiltShift ? o.DepthFNumber : null, Tilt = o.AnimTilt ?? 0.8,
         };
         var enc = new AnimationEncodeOptions
         {
@@ -57,6 +90,7 @@ internal static class AnimateCmd
         int threads = o.RenderThreads ?? Environment.ProcessorCount;
         Lux.Engine.Pipeline.BayerFusion.BlockFlow.Threads = threads;
         Console.WriteLine($"lux-light animate: {files.Count} file(s), {hit.Name}, {container} -> {o.OutDirectory ?? "<beside input>/lux_animate"}");
+        if (prefersVideo && ffmpeg is null) Console.WriteLine("  ffmpeg is not installed: the clip is written as a GIF, which is large for this effect. MP4 needs ffmpeg.");
         int failed = 0;
         foreach (var path in files)
         {
@@ -68,7 +102,7 @@ internal static class AnimateCmd
                 Action<string>? log = Environment.GetEnvironmentVariable("LUX_VERBOSE") == "1" ? m => Console.Error.WriteLine($"  [{stem}] {m}") : null;
                 using var s = CaptureSession.Open(path, new SessionOptions
                 {
-                    Context = new Lux.Store.StoreCaptureContext(path), Threads = threads, KeepGeometry = false, UseCache = !o.NoCache, DisplayCacheBytes = 0, Log = log,
+                    Context = new Lux.Store.StoreCaptureContext(path), Threads = threads, KeepGeometry = false, UseCache = !o.NoCache, DisplayCacheBytes = 0, Log = log, TeleCheck = o.TeleCheck,
                 });
                 var fileSpec = spec;
                 if (o.Upright)
@@ -81,6 +115,16 @@ internal static class AnimateCmd
                     if (ur.Transform is { } ut) fileSpec = spec with { Transform = ut, OutputTurn = Lux.Store.HeldTurn.Degrees(s.Lri) };
                     else if (spec.UseSavedEdits && Lux.Store.SavedDepthEdits.LoadParts(ctx.Context) is var (v, rc) && Lux.Store.CaptureRecipe.Merge(v, rc)?.Transform is { } st)
                         fileSpec = spec with { OutputTurn = ConvertCmd.TurnOf(st.Matrix) };
+                }
+                if (network is not null)
+                {
+                    // as `convert --depth-refine`: the capture's depth is refined for every frame that reads it, unless saved depth edits are in use
+                    if (spec.UseSavedEdits) s.AttachSavedEdits(spec.EditsVariant);
+                    var st = s.DepthState();
+                    string note = Lux.Engine.Pipeline.DepthRefine.DepthRefiner.ApplyForExport(st, network,
+                        new ExportRequest { Formats = Array.Empty<Lux.Engine.Pipeline.Export.ExportImageFormat>(), RenderThreads = threads }, Lux.Engine.Pipeline.ProgressReporter.None, log);
+                    Console.WriteLine($"    {note}");
+                    fileSpec = fileSpec with { DepthRefined = st.EditedDepth is null };
                 }
                 var r = AnimationRenderer.CreateAsync(s, fileSpec, log).GetAwaiter().GetResult();
                 var plan = r.Plan;

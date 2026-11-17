@@ -44,7 +44,7 @@ public sealed partial class DevelopViewModel : ObservableObject, IAsyncDisposabl
         _queue = queue;
         Quality = new QualitySelectorViewModel(library.QualityChanges);
         Interaction = new InteractionHint(s.Library.Jobs);
-        Depth = new DepthViewModel(shell, () => { CloseSidePanels(); if (IsCropping) ApplyCrop(); return Session != null; });
+        Depth = new DepthViewModel(shell, () => { CloseSidePanels(); if (IsCropping) ApplyCrop(); return Session != null; }) { Model = s.Library.DepthModel };
         Depth.Changed += () => { RefreshHistory(); SyncTools(); RaiseStatusPointer(); OnPropertyChanged(nameof(ShowDepthCard)); OnPropertyChanged(nameof(ShowDepthNotReady)); };
         Depth.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(DepthViewModel.PointerText)) RaiseStatusPointer(); };
         Tools = new ObservableCollection<ToolViewModel>

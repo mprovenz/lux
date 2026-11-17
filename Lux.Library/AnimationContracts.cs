@@ -62,6 +62,24 @@ public sealed record AnimationOptions
     public ExistingFilePolicy IfExists { get; init; } = ExistingFilePolicy.Rename;
     /// <summary>As <see cref="ExportOptions.Unturned"/>: false = upright as shown, true = as the camera recorded it, null = the setting.</summary>
     public bool? Unturned { get; init; }
+    /// <summary>Zoom-through and pan-and-zoom: the target as a fraction of the picture as shown (0,0 = top left); null = chosen for the photo.</summary>
+    public (double X, double Y)? Target { get; init; }
+    /// <summary>Time the last frame stays, ms; null = the effect's default.</summary>
+    public int? HoldMs { get; init; }
+    public Lux.Engine.Pipeline.Animate.FogMode FogMode { get; init; }
+    /// <summary>Fog: a factor on the density (1 = the standard fog).</summary>
+    public double FogDensity { get; init; } = 1.0;
+    /// <summary>Pan-and-zoom: the camera travel as a fraction of the nearest distance; null = as far as the scene allows.</summary>
+    public double? Travel { get; init; }
+    /// <summary>Pan-and-zoom: a flat move (nothing slides).</summary>
+    public bool Flat { get; init; }
+    public Lux.Engine.Pipeline.Animate.SliceOrder SliceOrder { get; init; }
+    /// <summary>Slice reveal: the softness of the slice edge (0 = hard).</summary>
+    public double SliceSoftness { get; init; } = Lux.Engine.Pipeline.Animate.SliceLook.DefaultSoftness;
+    /// <summary>Tilt-shift: the f-number; null = set from the scene's depth range.</summary>
+    public float? MiniatureFNumber { get; init; }
+    /// <summary>Tilt-shift: the tilt of the focal plane (0 = none).</summary>
+    public double Tilt { get; init; } = 0.8;
 
     /// <summary>The engine's description of the same animation.</summary>
     public AnimationSpec ToSpec(int? level = null, int? longEdge = null, int lensIspLevel = 0) => new()
@@ -70,6 +88,8 @@ public sealed record AnimationOptions
         FNumber = FNumber, FNumberFrom = FNumberFrom, FocusFromMm = FocusFromMm, FocusToMm = FocusToMm, FocusMm = FocusMm,
         Path = Path, BaselineMm = AmplitudeMm, SingleView = SingleView, UseSavedEdits = UseSavedEdits, EditsVariant = EditsVariant,
         LensIspLevel = lensIspLevel,
+        Target = Target, HoldMs = HoldMs, FogMode = FogMode, FogDensity = FogDensity, Travel = Travel, Flat = Flat,
+        SliceOrder = SliceOrder, SliceSoftness = SliceSoftness, MiniatureFNumber = MiniatureFNumber, Tilt = Tilt,
     };
 
     public static string Extension(AnimationFormat f) => f switch
@@ -91,13 +111,20 @@ public static class AnimationEffects
         AnimationEffect.ParallaxSweep => "Parallax",
         AnimationEffect.RackFocus => "Rack focus",
         AnimationEffect.ApertureSweep => "Aperture sweep",
+        AnimationEffect.ZoomThrough => "Zoom-through",
+        AnimationEffect.Fog => "Fog",
+        AnimationEffect.PanZoom => "Pan and zoom",
+        AnimationEffect.SliceReveal => "Slice reveal",
+        AnimationEffect.TiltShift => "Tilt-shift",
         _ => "Lens tour",
     };
 
     public static string Key(AnimationEffect e) => e switch
     {
         AnimationEffect.Wigglegram => "wigglegram", AnimationEffect.ParallaxSweep => "parallax", AnimationEffect.RackFocus => "rack-focus",
-        AnimationEffect.ApertureSweep => "aperture-sweep", _ => "lens-tour",
+        AnimationEffect.ApertureSweep => "aperture-sweep", AnimationEffect.ZoomThrough => "zoom-through", AnimationEffect.Fog => "fog",
+        AnimationEffect.PanZoom => "pan-zoom", AnimationEffect.SliceReveal => "slice-reveal", AnimationEffect.TiltShift => "tilt-shift",
+        _ => "lens-tour",
     };
 
     public static string DescriptionOf(AnimationEffect e) => e switch
@@ -106,11 +133,21 @@ public static class AnimationEffects
         AnimationEffect.ParallaxSweep => "A small camera move drawn from the photo and its depth map.",
         AnimationEffect.RackFocus => "The focus moves from one distance to another, with the depth effect.",
         AnimationEffect.ApertureSweep => "The background melts away as the aperture opens from all in focus.",
+        AnimationEffect.ZoomThrough => "A zoom from the whole picture onto detail that the telephoto lenses recorded.",
+        AnimationEffect.Fog => "Fog moves through the scene, following its depth.",
+        AnimationEffect.PanZoom => "A push-in with a camera that slides and moves forward: near and far parts slide against each other.",
+        AnimationEffect.SliceReveal => "The picture's colors come in slice by slice, from near to far.",
+        AnimationEffect.TiltShift => "A miniature look: a thin band of focus sweeps through the scene.",
         _ => "Every lens of the photo in turn: wide, 70 mm and 150 mm views.",
     };
 
     public static readonly AnimationEffect[] All =
-        { AnimationEffect.RackFocus, AnimationEffect.ApertureSweep, AnimationEffect.Wigglegram, AnimationEffect.ParallaxSweep, AnimationEffect.LensTour };
+        { AnimationEffect.RackFocus, AnimationEffect.ApertureSweep, AnimationEffect.Wigglegram, AnimationEffect.ParallaxSweep, AnimationEffect.LensTour,
+          AnimationEffect.ZoomThrough, AnimationEffect.Fog, AnimationEffect.PanZoom, AnimationEffect.SliceReveal, AnimationEffect.TiltShift };
+
+    /// <summary>The file type an effect suits best when video can be written: MP4 for the long clips, else null (no preference).</summary>
+    public static AnimationFormat? PreferredFormat(AnimationEffect e, bool canWriteVideo) =>
+        canWriteVideo && AnimationSpec.PrefersVideo(e) ? AnimationFormat.Mp4 : null;
 
     /// <summary>What a capture can make, from its library facts.</summary>
     public static IReadOnlyList<AnimationEffectInfo> For(CaptureItem item)
@@ -137,6 +174,19 @@ public static class AnimationEffects
                 case AnimationEffect.ParallaxSweep:
                     reason = noDepth;
                     note = (item.IsTelephoto ? "Telephoto photo: drawn from one view, so keep the movement small. " : "") + firstAnalysis;
+                    break;
+                case AnimationEffect.ZoomThrough:
+                    reason = noDepth;
+                    note = ("Made from the full-size picture, which takes a minute or two. Works best in daylight on subjects farther than a few meters. " + firstAnalysis).Trim();
+                    break;
+                case AnimationEffect.PanZoom:
+                    reason = noDepth;
+                    note = ("The camera travel is checked against the depth map first, and stays inside what the scene allows. " + firstAnalysis).Trim();
+                    break;
+                case AnimationEffect.Fog:
+                case AnimationEffect.SliceReveal:
+                    reason = noDepth;
+                    note = ("Follows the depth map, smoothed along the picture. " + firstAnalysis).Trim();
                     break;
                 default:
                     reason = noDepth;

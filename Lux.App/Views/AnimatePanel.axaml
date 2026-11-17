@@ -95,10 +95,56 @@
                 <TextBlock Grid.Column="1" Classes="mono" Text="{Binding AmplitudeText}" VerticalAlignment="Center" Margin="12,0,0,0" MinWidth="56" />
               </Grid>
             </Grid>
+            <!-- the zoom-through and the pan-and-zoom: the target, picked on the first frame of the preview -->
+            <Grid ColumnDefinitions="110,*,Auto,Auto" ColumnSpacing="12" IsVisible="{Binding HasTargetPick}">
+              <TextBlock Text="{Binding TargetLabel}" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1" Classes="small wrap" Text="{Binding TargetText}" VerticalAlignment="Center" AutomationProperties.Name="Target" />
+              <Button Grid.Column="2" Content="Pick" Classes.primary="{Binding IsPickingTarget}" Command="{Binding PickTargetPointCommand}" Padding="14,0"
+                      ToolTip.Tip="Click the photo in the preview" AutomationProperties.Name="Pick the target on the photo" />
+              <Button Grid.Column="3" Content="Auto" Command="{Binding ClearTargetCommand}" IsVisible="{Binding HasTarget}" Padding="10,0"
+                      ToolTip.Tip="Let Lux choose the target" AutomationProperties.Name="Choose the target automatically" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12" IsVisible="{Binding IsPan}">
+              <TextBlock Text="Camera travel" VerticalAlignment="Center" />
+              <ComboBox Grid.Column="1" ItemsSource="{Binding Travels}" SelectedItem="{Binding Travel}" HorizontalAlignment="Stretch" AutomationProperties.Name="Camera travel" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12" IsVisible="{Binding IsFog}">
+              <TextBlock Text="Movement" VerticalAlignment="Center" />
+              <ComboBox Grid.Column="1" ItemsSource="{Binding FogModes}" SelectedItem="{Binding FogMode}" HorizontalAlignment="Stretch" AutomationProperties.Name="Fog movement" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12" IsVisible="{Binding IsFog}">
+              <TextBlock Text="Density" VerticalAlignment="Center" />
+              <Grid Grid.Column="1" ColumnDefinitions="*,Auto">
+                <Slider Minimum="0.25" Maximum="3" SmallChange="0.05" LargeChange="0.25" Value="{Binding FogDensity}" AutomationProperties.Name="Fog density" />
+                <TextBlock Grid.Column="1" Classes="mono" Text="{Binding FogDensityText}" VerticalAlignment="Center" Margin="12,0,0,0" MinWidth="56" />
+              </Grid>
+            </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12" IsVisible="{Binding IsSlice}">
+              <TextBlock Text="Order" VerticalAlignment="Center" />
+              <ComboBox Grid.Column="1" ItemsSource="{Binding SliceOrders}" SelectedItem="{Binding SliceOrder}" HorizontalAlignment="Stretch" AutomationProperties.Name="Slice order" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12" IsVisible="{Binding IsSlice}">
+              <TextBlock Text="Soft edge" VerticalAlignment="Center" />
+              <Grid Grid.Column="1" ColumnDefinitions="*,Auto">
+                <Slider Minimum="0" Maximum="0.25" SmallChange="0.01" LargeChange="0.05" Value="{Binding Softness}" AutomationProperties.Name="Soft edge" />
+                <TextBlock Grid.Column="1" Classes="mono" Text="{Binding SoftnessText}" VerticalAlignment="Center" Margin="12,0,0,0" MinWidth="56" />
+              </Grid>
+            </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12" IsVisible="{Binding IsTilt}">
+              <TextBlock Text="Aperture" VerticalAlignment="Center" />
+              <ComboBox Grid.Column="1" ItemsSource="{Binding Miniatures}" SelectedItem="{Binding Miniature}" HorizontalAlignment="Stretch" AutomationProperties.Name="Miniature aperture" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12" IsVisible="{Binding IsTilt}">
+              <TextBlock Text="Tilt" VerticalAlignment="Center" />
+              <Grid Grid.Column="1" ColumnDefinitions="*,Auto">
+                <Slider Minimum="0" Maximum="1.5" SmallChange="0.1" LargeChange="0.3" Value="{Binding Tilt}" AutomationProperties.Name="Tilt" />
+                <TextBlock Grid.Column="1" Classes="mono" Text="{Binding TiltText}" VerticalAlignment="Center" Margin="12,0,0,0" MinWidth="56" />
+              </Grid>
+            </Grid>
             <Grid ColumnDefinitions="110,*" ColumnSpacing="12" IsVisible="{Binding HasFrameCount}">
               <TextBlock Text="Frames" VerticalAlignment="Center" />
               <Grid Grid.Column="1" ColumnDefinitions="*,Auto">
-                <Slider Minimum="6" Maximum="48" SmallChange="1" LargeChange="6" Value="{Binding Frames}" IsSnapToTickEnabled="True" TickFrequency="1" AutomationProperties.Name="Frames" />
+                <Slider Minimum="{Binding FramesMin}" Maximum="{Binding FramesMax}" SmallChange="1" LargeChange="6" Value="{Binding Frames}" IsSnapToTickEnabled="True" TickFrequency="1" AutomationProperties.Name="Frames" />
                 <TextBlock Grid.Column="1" Classes="mono" Text="{Binding FramesText}" VerticalAlignment="Center" Margin="12,0,0,0" MinWidth="76" />
               </Grid>
             </Grid>

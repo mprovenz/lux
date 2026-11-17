@@ -54,7 +54,7 @@ internal sealed class EditClipboard : IEditClipboard
         return (new EditValues
         {
             Groups = EditGroups.All, Adjustments = merged?.Adjustments ?? Adjustments.Default, Transform = PhotoEditImpl.Describe(t),
-            FNumber = merged?.FNumber, FocusMm = merged?.FocusDepth,
+            FNumber = merged?.FNumber, FocusMm = merged?.FocusDepth, DepthRendering = merged?.DepthEffectRendering ?? default,
         }, recipe, variant);
     }
 
@@ -171,6 +171,7 @@ internal sealed class EditClipboard : IEditClipboard
             if (recipe.Transform is { } rt) s.Geo = new LumenGeometryEdits(LumenTransform.FromExport(rt));
             if (recipe.FNumber is float f) s.FNumber = f;
             if (recipe.FocusDepth is float fd) s.Focus = fd;
+            s.Rendering = recipe.DepthEffectRendering;
         }
         return s;
     }
@@ -190,7 +191,7 @@ internal sealed class EditClipboard : IEditClipboard
             var frame = LumenGeometryEdits.RectFromCrop(s.Geo.T);
             s.Geo.T.Reset(0); LumenGeometryEdits.SetCropFromRect(s.Geo.T, frame); s.Geo.InitTransform(s.Geo.T);
         }
-        if (g.HasFlag(EditGroups.DepthEffect)) { s.FNumber = bstate.FNumber; s.Focus = bstate.Focus; }
+        if (g.HasFlag(EditGroups.DepthEffect)) { s.FNumber = bstate.FNumber; s.Focus = bstate.Focus; s.Rendering = bstate.Rendering; }
         return s;
     }
 
@@ -202,6 +203,7 @@ internal sealed class EditClipboard : IEditClipboard
             Transform = st.Geo.T.SameAs(bstate.Geo.T) ? null : st.Geo.T.ToExport(),
             FNumber = st.FNumber == bstate.FNumber ? null : st.FNumber,
             FocusDepth = st.Focus == bstate.Focus ? null : st.Focus,
+            DepthEffectRendering = st.Rendering,
             GeometryDecided = st.Decided == bstate.Decided ? null : st.Decided,
         };
         return r.IsEmpty ? null : r;
@@ -330,6 +332,7 @@ internal static class EditValuesCodec
         var ao = o["adjustments"]!.AsObject();
         if (a.HighlightRecovery != 0f) ao["highlight_recovery"] = B(a.HighlightRecovery);
         if (a.GamutCompress) ao["gamut_compress"] = 1;
+        if (v.DepthRendering == Lux.Engine.Pipeline.Dof.DofRendering.Lux) o["dof_rendering"] = "lux";
         return o.ToJsonString();
     }
 
@@ -353,6 +356,7 @@ internal static class EditValuesCodec
             },
             Transform = PhotoEditImpl.Describe(lt),
             FNumber = o["fnumber"] is { } fn ? F(fn) : null, FocusMm = o["focus"] is { } fo ? F(fo) : null,
+            DepthRendering = o["dof_rendering"] is JsonValue dr && dr.TryGetValue<string>(out var drs) && drs == "lux" ? Lux.Engine.Pipeline.Dof.DofRendering.Lux : Lux.Engine.Pipeline.Dof.DofRendering.Lumen,
             Sliders = o["sliders"] is JsonArray sl ? sl.Select(x => (AdjustmentKey)x!.GetValue<int>()).ToHashSet() : null,
         };
     }

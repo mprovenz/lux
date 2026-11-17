@@ -40,7 +40,8 @@ public static class EditsCmd
                     var sz = store.Sizes(v);
                     var kinds = new Dictionary<string, int>();
                     try { foreach (var e in store.ReadLog(v.Id)) kinds[e.Kind] = kinds.GetValueOrDefault(e.Kind) + 1; } catch (DepthEditStoreException) { }
-                    string what = v.Kind == DepthEditStore.KindLumenImport ? "imported from Lumen (uses Lumen's stored depth map and camera geometry)" : "made in Lux";
+                    string what = v.Kind == DepthEditStore.KindLumenImport ? "imported from Lumen (uses Lumen's stored depth map and camera geometry)"
+                                : v.Kind == DepthEditStore.KindRefined ? "refined depth (the camera's depth joined with a depth network's view of the picture)" : "made in Lux";
                     Console.WriteLine($"  {(v.Name == active ? "*" : " ")} {v.Name}: {what}, created {v.CreatedUtc}");
                     Console.WriteLine($"      operations   {sz.LogEntries}" + (kinds.Count > 0 ? " (" + string.Join(", ", kinds.OrderBy(k => k.Key).Select(k => $"{k.Value} {k.Key}")) + ")" : "") + $", undo position {v.Cursor}");
                     Console.WriteLine($"      edited tiles {sz.Tiles} of {v.Geometry.TileW}x{v.Geometry.TileH} px ({sz.LayeredTiles} with a foreground/background layer), {Mb(sz.TileBlobBytes)} stored for {Mb(sz.TileRawBytes)} of data");

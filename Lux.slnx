@@ -2,6 +2,7 @@
   <Project Path="Lux.Cli/Lux.Cli.csproj" />
   <Project Path="Lux.Engine/Lux.Engine.csproj" />
   <Project Path="Lux.Store/Lux.Store.csproj" />
+  <Project Path="Lux.DepthModel/Lux.DepthModel.csproj" />
   <Project Path="Lux.Library/Lux.Library.csproj" />
   <Project Path="Lux.App/Lux.App.csproj" />
   <Project Path="Lux.App.Tests/Lux.App.Tests.csproj" />

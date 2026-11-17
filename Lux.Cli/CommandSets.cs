@@ -8,11 +8,11 @@ public static class CommandSets
 {
     public const string ProductionExe = "lux-light";
 
-    /// <summary>The 13 commands. `convert` is the still-picture verb (every still output is one of its `--formats`); `animate` makes the
+    /// <summary>The 14 commands. `convert` is the still-picture verb (every still output is one of its `--formats`); `animate` makes the
     /// animated effects the desktop app makes.</summary>
     public static readonly string[] Production =
     {
-        "convert", "inspect", "profile", "isp", "isp-run", "mod-info", "devices", "pull", "version", "edits-info", "import-lumen-edits", "cache", "animate",
+        "convert", "inspect", "profile", "isp", "isp-run", "mod-info", "devices", "pull", "version", "edits-info", "import-lumen-edits", "cache", "animate", "depth-model",
     };
 
     public static bool IsProduction(string command) => Array.IndexOf(Production, command) >= 0;

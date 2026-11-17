@@ -25,6 +25,10 @@ internal sealed partial class LibraryCore : ILibrary
     public string DatabasePath => Db.Path;
     public ILibrarySettings Settings => SettingsImpl;
     public IJobQueue Jobs => Queue;
+    readonly Lazy<Lux.DepthModel.DepthModelManager> _depthModel;
+    public Lux.DepthModel.IDepthModelService DepthModel => _depthModel.Value;
+    /// <summary>The refined depth files of this library (the manager behind <see cref="DepthModel"/>).</summary>
+    internal Lux.DepthModel.DepthModelManager DepthModelManager => _depthModel.Value;
 
     public event EventHandler<CapturesChangedEventArgs>? CapturesChanged;
     public event EventHandler? FoldersChanged;
@@ -33,6 +37,8 @@ internal sealed partial class LibraryCore : ILibrary
     LibraryCore(LibraryOpenOptions o)
     {
         Options = o; Log = o.Log;
+        _depthModel = new(() => new Lux.DepthModel.DepthModelManager(o.DepthModelFolder ?? Lux.DepthModel.DepthModelManager.DefaultFolder,
+                                                                     Lux.DepthModel.DepthModelManifest.Default, Lux.DepthModel.DepthModelManifest.CurrentRid, null));
         Db = new LibraryDb(o.DatabasePath ?? LibraryPaths.DefaultDatabasePath);
         Hashes = new HashCache(Db);
         SettingsImpl = new LibrarySettings(Db, o);

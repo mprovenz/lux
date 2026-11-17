@@ -31,3 +31,20 @@ The published app also contains these libraries, each under its own licence:
 | Microsoft.Data.Sqlite with SQLitePCLRaw and SQLite | MIT / Apache 2.0 / public domain |
 | Google.Protobuf | BSD 3-Clause |
 | Velopack (installer and updates of the installed builds) | MIT |
+
+The mesh simplification of the 3D photo export follows the method of Fast Quadric Mesh Simplification by Sven Forstmann
+(https://github.com/sp4cerat/Fast-Quadric-Mesh-Simplification, MIT license), written anew in C#.
+
+## Refined depth: files that are downloaded, not bundled
+
+The refined depth feature uses two files that are not part of the app. The app downloads them when you first use the feature
+(or from Settings, Refined depth), into `models/depth` in the app's data folder, and you can remove them there. Each keeps its
+own license:
+
+| File | Source | Copyright | License |
+|---|---|---|---|
+| Depth Anything V2 Small (the depth network), converted to the ONNX format | The `onnx-community/depth-anything-v2-small` repository on Hugging Face (https://huggingface.co/onnx-community/depth-anything-v2-small); the model is from https://github.com/DepthAnything/Depth-Anything-V2 | The Depth Anything V2 authors | Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0) |
+| ONNX Runtime 1.23.2 (the library that runs the network) | The release archives at https://github.com/microsoft/onnxruntime/releases | Copyright (c) Microsoft Corporation | MIT |
+
+The ONNX file is a converted form of the original model weights (a modified form in the sense of the Apache License). Lux uses
+both files unchanged, as downloaded.

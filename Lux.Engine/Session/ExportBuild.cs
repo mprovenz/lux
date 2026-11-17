@@ -33,6 +33,12 @@ public sealed class BuildOptions
     /// option here that changes pixels: a build with other values than Lumen's must not read kept tiles (<see cref="StoredTiles"/>) and
     /// its tiles must not go into the analysis cache.</summary>
     public NoiseControls? Noise { get; init; }
+    /// <summary>Run the telephoto alignment check after the registration
+    /// (<see cref="Lux.Engine.Pipeline.Registration.TeleCheck"/>). It can change the pose of a telephoto module, and with it the
+    /// full-size picture. A build with the check must not get a <see cref="Geometry"/> that was made without it, must not read kept
+    /// tiles (<see cref="StoredTiles"/>), and its tiles must not go into the analysis cache. False (the default) gives Lumen's
+    /// registration.</summary>
+    public bool TeleCheck { get; init; }
 }
 
 public static class ExportBuild
@@ -61,6 +67,9 @@ public static class ExportBuild
         options ??= new BuildOptions();
         var noise = options.Noise is { IsLumen: false } nc ? nc.Validate() : null;
         if (noise is not null && options.StoredTiles is not null) throw new ArgumentException("a build with noise controls must not read kept tiles", nameof(options));
+        if (options.TeleCheck && options.StoredTiles is not null) throw new ArgumentException("a build with the telephoto check must not read kept tiles", nameof(options));
+        if (options.TeleCheck != (options.Geometry?.TeleCheckReport is not null) && options.Geometry is not null && !options.SessionRender)
+            throw new ArgumentException("the geometry of a build must be made with the same telephoto check choice as the build", nameof(options));
         int refId = (int)lri.Modules[lri.ReferenceModule].Module.Id;
 
         // ---- the registration state, on first use. Level 0 needs the whole chain (tele pairs/poses + the dense depth); levels >= 1 need only
@@ -89,7 +98,7 @@ public static class ExportBuild
                     Console.Error.WriteLine($"[diagnostic] LUX_DENSE_OVERRIDE: dense L5 depth injected from {dov} ({dw}x{dh})");
                 }
                 string? densePrefix = Environment.GetEnvironmentVariable("LUX_DENSE_DUMP") is string ddp ? ddp + "_" + Path.GetFileNameWithoutExtension(lriPath) : null;
-                var api = Lux.Engine.Pipeline.Registration.StereoAsyncApi.Run(lri, log, runHigher: true, runDense: true, depthOverride, pr, densePrefix, threads, options.Cancel);
+                var api = Lux.Engine.Pipeline.Registration.StereoAsyncApi.Run(lri, log, runHigher: true, runDense: true, depthOverride, pr, densePrefix, threads, options.Cancel, options.TeleCheck);
                 log?.Invoke($"export: registration state ready in {swReg.Elapsed.TotalSeconds:F1}s");
                 if (densePrefix is not null)   // the telephoto pairs (Pairs[id].view/.module) as 0xa8-byte CalibData records (K at 0, t at 0x24, R at 0x30), dumped as tdrv<i>_calib{Ref,Cam}
                     foreach (var kv in api.Pairs)

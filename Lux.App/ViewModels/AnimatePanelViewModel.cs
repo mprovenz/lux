@@ -28,7 +28,7 @@ public sealed partial class EffectChoiceViewModel(AnimationEffectInfo info, Acti
 }
 
 /// <summary>What a click on the picture picks.</summary>
-public enum PickTarget { None, FocusFrom, FocusTo, Focus }
+public enum PickTarget { None, FocusFrom, FocusTo, Focus, Target }
 
 /// <summary>
 /// The "Animate…" side panel (library selection, details or Develop): effect, its parameters, size and file type with the expected size and
@@ -77,6 +77,15 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
         Formats = formats;
         Repeats = new ChoiceOption[] { new("Forever", 0), new("Once", 1), new("3 times", 3) };
         Paths = new ChoiceOption[] { new("Sweep along the lenses", (int)AnimationPath.Sweep), new("Arc", (int)AnimationPath.Arc), new("Straight line", (int)AnimationPath.Line), new("Circle (orbit)", (int)AnimationPath.Orbit) };
+        FogModes = new ChoiceOption[] { new("A fog bank comes forward", (int)Lux.Engine.Pipeline.Animate.FogMode.Bank), new("Fog thickens and thins", (int)Lux.Engine.Pipeline.Animate.FogMode.Rise) };
+        SliceOrders = new ChoiceOption[] { new("Near to far", (int)Lux.Engine.Pipeline.Animate.SliceOrder.NearToFar), new("Far to near", (int)Lux.Engine.Pipeline.Animate.SliceOrder.FarToNear),
+                                           new("Outward from the focus", (int)Lux.Engine.Pipeline.Animate.SliceOrder.FromFocus) };
+        // the camera travel of the pan-and-zoom, in thousandths of the nearest distance: -1 = as far as the scene allows, 0 = a flat move
+        Travels = new ChoiceOption[] { new("Automatic (as far as the scene allows)", -1), new("None (a flat move)", 0), new("1 % of the nearest distance", 10),
+                                       new("2 %", 20), new("4 %", 40), new("6 %", 60), new("8 %", 80) };
+        // the tilt-shift aperture, in thousandths: 0 = set from the scene
+        Miniatures = new ChoiceOption[] { new("Automatic (from the scene)", 0), new("f/0.03 · strongest", 30), new("f/0.05", 50), new("f/0.1", 100), new("f/0.2", 200), new("f/0.5 · mildest", 500) };
+        _fogMode = FogModes[0]; _sliceOrder = SliceOrders[0]; _travel = Travels[0]; _miniature = Miniatures[0];
         Dithers = new ChoiceOption[] { new("Fine pattern (steady)", (int)GifDither.Ordered), new("Diffusion (smoothest still)", (int)GifDither.Diffusion), new("None (smallest)", (int)GifDither.None) };
         // ---- the last settings of this run, else defaults
         var m = s.PanelMemory.Animation;
@@ -86,12 +95,25 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
         _path = Paths.FirstOrDefault(x => x.Value == (int)(m?.Path ?? AnimationPath.Sweep)) ?? Paths[0];
         _dither = Dithers.FirstOrDefault(x => x.Value == (int)(m?.GifDither ?? GifDither.Ordered)) ?? Dithers[0];
         _fNumber = m?.FNumber ?? 2.0;
-        _frames = m?.Frames ?? 24;
+        _frames = m?.Frames ?? AnimationSpec.DefaultFrames(m?.Effect ?? AnimationEffect.RackFocus);
+        if (m is not null)
+        {
+            _fogMode = FogModes.FirstOrDefault(x => x.Value == (int)m.FogMode) ?? FogModes[0];
+            _sliceOrder = SliceOrders.FirstOrDefault(x => x.Value == (int)m.SliceOrder) ?? SliceOrders[0];
+            _fogDensity = m.FogDensity; _softness = m.SliceSoftness; _tilt = m.Tilt;
+            _travel = Travels.FirstOrDefault(x => x.Value == (m.Flat ? 0 : m.Travel is double tr ? (int)Math.Round(tr * 1000) : -1)) ?? Travels[0];
+            _miniature = Miniatures.FirstOrDefault(x => x.Value == (m.MiniatureFNumber is float mf ? (int)Math.Round(mf * 1000) : 0)) ?? Miniatures[0];
+        }
         _amplitude = m?.AmplitudeMm ?? 71.49;
         _folder = m?.OutputFolder ?? s.PanelMemory.Export?.OutputFolder ?? s.Library.Settings.DefaultExportFolder ?? ExportPanelViewModel.DefaultFolderDisplay;
         var start = Effects.FirstOrDefault(x => x.Effect == (m?.Effect ?? AnimationEffect.RackFocus) && x.IsAvailable) ?? Effects.FirstOrDefault(x => x.IsAvailable) ?? Effects[0];
         _selected = start;
         start.IsSelected = true;
+        if (AnimationSpec.PrefersVideo(start.Effect))
+        {
+            _pingPong = m?.PingPong ?? AnimationSpec.DefaultPingPong(start.Effect, AnimationPath.Sweep);
+            if (m is null) PreferFormat(start.Effect);
+        }
         _loading = false;
         // the frames carry the photo's orientation (exports follow the view shown as held): no turn when drawing them;
         // only the thumbnail standing in before the first frame is turned as the library shows it
@@ -117,6 +139,10 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
     public IReadOnlyList<ChoiceOption> Repeats { get; }
     public IReadOnlyList<ChoiceOption> Paths { get; }
     public IReadOnlyList<ChoiceOption> Dithers { get; }
+    public IReadOnlyList<ChoiceOption> FogModes { get; }
+    public IReadOnlyList<ChoiceOption> SliceOrders { get; }
+    public IReadOnlyList<ChoiceOption> Travels { get; }
+    public IReadOnlyList<ChoiceOption> Miniatures { get; }
 
     public string Title => _items.Count == 1 ? $"Animate {_items[0].Name}" : $"Animate {Text.Number(_items.Count)} photos";
     public string NamesLine => _items.Count == 1 ? Text.LongDateTime(_items[0].Item.CaptureTime)
@@ -135,6 +161,16 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
     [ObservableProperty] double _amplitude;
     [ObservableProperty] bool _singleView;
     [ObservableProperty] bool _pingPong = true;
+    [ObservableProperty] ChoiceOption _fogMode;
+    [ObservableProperty] double _fogDensity = 1.0;
+    [ObservableProperty] ChoiceOption _sliceOrder;
+    [ObservableProperty] double _softness = Lux.Engine.Pipeline.Animate.SliceLook.DefaultSoftness;
+    [ObservableProperty] ChoiceOption _travel;
+    [ObservableProperty] ChoiceOption _miniature;
+    [ObservableProperty] double _tilt = 0.8;
+    /// <summary>The point picked on the photo for the zoom-through or the pan-and-zoom (a fraction of the picture as shown); null = chosen
+    /// for the photo.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(TargetText), nameof(HasTarget))] (double X, double Y)? _target;
     /// <summary>Rack focus start / end and the aperture sweep's focus, meters as typed ("" = the photo's default).</summary>
     [ObservableProperty] string _focusFromText = "";
     [ObservableProperty] string _focusToText = "";
@@ -169,7 +205,26 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
     public bool IsAperture => Selected.Effect == AnimationEffect.ApertureSweep;
     public bool IsDepthEffect => IsRack || IsAperture;
     public bool IsParallax => Selected.Effect == AnimationEffect.ParallaxSweep;
-    public bool HasFrameCount => IsDepthEffect || IsParallax;
+    public bool IsZoom => Selected.Effect == AnimationEffect.ZoomThrough;
+    public bool IsFog => Selected.Effect == AnimationEffect.Fog;
+    public bool IsPan => Selected.Effect == AnimationEffect.PanZoom;
+    public bool IsSlice => Selected.Effect == AnimationEffect.SliceReveal;
+    public bool IsTilt => Selected.Effect == AnimationEffect.TiltShift;
+    /// <summary>The effects with a target picked on the photo.</summary>
+    public bool HasTargetPick => IsZoom || IsPan;
+    /// <summary>The long clips: the zoom-through, the pan-and-zoom and the depth looks.</summary>
+    public bool IsLongClip => AnimationSpec.PrefersVideo(Selected.Effect);
+    public bool HasFrameCount => IsDepthEffect || IsParallax || IsLongClip;
+    public int FramesMax => IsLongClip ? 240 : 48;
+    public int FramesMin => IsLongClip ? 25 : 6;
+    public bool HasTarget => Target is not null;
+    public string TargetLabel => IsZoom ? "Zoom onto" : "Push in on";
+    public string TargetText => Target is { } t ? $"{t.X * 100:0} % from the left, {t.Y * 100:0} % from the top"
+                              : IsZoom ? "Automatic: the most telephoto detail" : "Automatic: where the camera focused";
+    public string FogDensityText => $"{FogDensity * 100:0} %";
+    public string SoftnessText => Softness < 0.005 ? "hard" : $"{Softness * 100:0} %";
+    public string TiltText => Tilt < 0.005 ? "none" : $"{Tilt:0.0}";
+    public bool IsPickingTarget => Pick == PickTarget.Target;
     public bool IsGif => Format.Value == (int)AnimationFormat.Gif;
     public string FNumberText => Text.FNumber((float)FNumber);
     public string FramesText => $"{Frames} frames";
@@ -181,6 +236,7 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
         PickTarget.FocusFrom => "Click the photo where the focus starts",
         PickTarget.FocusTo => "Click the photo where the focus ends",
         PickTarget.Focus => "Click the photo where it stays sharp",
+        PickTarget.Target => IsZoom ? "Click the photo where the zoom ends" : "Click the photo where the push-in ends",
         _ => "",
     };
     public bool CanAdd => Selected.IsAvailable && !_disposed;
@@ -224,7 +280,43 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
         Selected = e;
     }
 
-    partial void OnSelectedChanged(EffectChoiceViewModel value) { if (_loading) return; Pick = PickTarget.None; RaiseEffect(); Changed(); }
+    AnimationEffect _previous = AnimationEffect.RackFocus;
+    AnimationFormat? _formatBeforeVideo;
+
+    partial void OnSelectedChanged(EffectChoiceViewModel value)
+    {
+        if (_loading) return;
+        Pick = PickTarget.None;
+        // each kind of effect has its own frame count, play direction and file type: set them when the kind changes
+        bool was = AnimationSpec.PrefersVideo(_previous), now = AnimationSpec.PrefersVideo(value.Effect);
+        _loading = true;
+        OnPropertyChanged(nameof(FramesMax)); OnPropertyChanged(nameof(FramesMin));   // the slider's range before its value
+        if (was != now || now) { Frames = AnimationSpec.DefaultFrames(value.Effect); PingPong = now ? AnimationSpec.DefaultPingPong(value.Effect, AnimationPath.Sweep) : true; }
+        if (now && !was) PreferFormat(value.Effect);
+        else if (!now && was && _formatBeforeVideo is { } back) { Format = Formats.FirstOrDefault(x => x.Value == (int)back) ?? Format; _formatBeforeVideo = null; }
+        if (_previous != value.Effect) Target = null;
+        _loading = false;
+        _previous = value.Effect;
+        RaiseEffect(); Changed();
+    }
+
+    /// <summary>The long clips are written as MP4 when video can be written (the lossless file types get very large for them). The file
+    /// type chosen before comes back with the other effects.</summary>
+    void PreferFormat(AnimationEffect e)
+    {
+        if (AnimationEffects.PreferredFormat(e, _s.Library.CanWriteVideo) is not { } f || Format.Value == (int)f || AnimationOptions.IsVideo((AnimationFormat)Format.Value)) return;
+        _formatBeforeVideo = (AnimationFormat)Format.Value;
+        Format = Formats.FirstOrDefault(x => x.Value == (int)f) ?? Format;
+    }
+
+    partial void OnFogModeChanged(ChoiceOption value) => Changed();
+    partial void OnFogDensityChanged(double value) { OnPropertyChanged(nameof(FogDensityText)); Changed(); }
+    partial void OnSliceOrderChanged(ChoiceOption value) => Changed();
+    partial void OnSoftnessChanged(double value) { OnPropertyChanged(nameof(SoftnessText)); Changed(); }
+    partial void OnTravelChanged(ChoiceOption value) => Changed();
+    partial void OnMiniatureChanged(ChoiceOption value) => Changed();
+    partial void OnTiltChanged(double value) { OnPropertyChanged(nameof(TiltText)); Changed(); }
+    partial void OnTargetChanged((double X, double Y)? value) => Changed();
     partial void OnSizeChanged(ChoiceOption value) => Changed(previewToo: false);
     partial void OnFormatChanged(ChoiceOption value) { OnPropertyChanged(nameof(IsGif)); Changed(previewToo: false); }
     partial void OnRepeatChanged(ChoiceOption value) => Changed(previewToo: false);
@@ -243,7 +335,9 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
     public bool IsPickingFocus => Pick == PickTarget.Focus;
     partial void OnPickChanged(PickTarget value)
     {
-        OnPropertyChanged(nameof(IsPickingFrom)); OnPropertyChanged(nameof(IsPickingTo)); OnPropertyChanged(nameof(IsPickingFocus));
+        OnPropertyChanged(nameof(IsPickingFrom)); OnPropertyChanged(nameof(IsPickingTo)); OnPropertyChanged(nameof(IsPickingFocus)); OnPropertyChanged(nameof(IsPickingTarget));
+        // a target is picked on the first frame, which shows the whole picture
+        if (value == PickTarget.Target) { Player.IsPlaying = false; Player.Position = 0; }
         Player.IsPicking = value != PickTarget.None;
         Player.PickHint = PickHint;
         OnPropertyChanged(nameof(PickHint));
@@ -252,7 +346,8 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
     void RaiseEffect()
     {
         foreach (var n in new[] { nameof(IsRack), nameof(IsAperture), nameof(IsDepthEffect), nameof(IsParallax), nameof(HasFrameCount), nameof(ApertureLabel),
-                                  nameof(EffectNote), nameof(CanAdd) })
+                                  nameof(EffectNote), nameof(CanAdd), nameof(IsZoom), nameof(IsFog), nameof(IsPan), nameof(IsSlice), nameof(IsTilt), nameof(HasTargetPick),
+                                  nameof(IsLongClip), nameof(FramesMax), nameof(FramesMin), nameof(TargetLabel), nameof(TargetText) })
             OnPropertyChanged(n);
         if (IsAperture && Math.Abs(FNumber - 2.8) < 0.01) FNumber = 2.0;
     }
@@ -272,7 +367,12 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
     /// <summary>The options as set now.</summary>
     public AnimationOptions Options() => new()
     {
-        Effect = Selected.Effect, Frames = Frames, PingPong = PingPong ? null : false, Repeat = Repeat.Value, LongEdge = Size.Value,
+        Effect = Selected.Effect, Frames = Frames, PingPong = IsLongClip ? PingPong : PingPong ? null : false, Repeat = Repeat.Value, LongEdge = Size.Value,
+        Target = HasTargetPick ? Target : null,
+        FogMode = (Lux.Engine.Pipeline.Animate.FogMode)FogMode.Value, FogDensity = Math.Round(FogDensity, 2),
+        SliceOrder = (Lux.Engine.Pipeline.Animate.SliceOrder)SliceOrder.Value, SliceSoftness = Math.Round(Softness, 2),
+        Travel = Travel.Value > 0 ? Travel.Value / 1000.0 : null, Flat = Travel.Value == 0,
+        MiniatureFNumber = Miniature.Value > 0 ? Miniature.Value / 1000f : null, Tilt = Math.Round(Tilt, 1),
         Format = (AnimationFormat)Format.Value, GifDither = (GifDither)Dither.Value,
         FNumber = (float)Math.Round(FNumber, 1),
         FocusFromMm = Metres(FocusFromText), FocusToMm = Metres(FocusToText), FocusMm = Metres(FocusText),
@@ -378,6 +478,8 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
     [RelayCommand] void PickFrom() => Pick = Pick == PickTarget.FocusFrom ? PickTarget.None : PickTarget.FocusFrom;
     [RelayCommand] void PickTo() => Pick = Pick == PickTarget.FocusTo ? PickTarget.None : PickTarget.FocusTo;
     [RelayCommand] void PickFocus() => Pick = Pick == PickTarget.Focus ? PickTarget.None : PickTarget.Focus;
+    [RelayCommand] void PickTargetPoint() => Pick = Pick == PickTarget.Target ? PickTarget.None : PickTarget.Target;
+    [RelayCommand] void ClearTarget() { Pick = PickTarget.None; Target = null; }
 
     readonly Dictionary<PickTarget, (double X, double Y)> _picked = new();
 
@@ -386,6 +488,13 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
         var target = Pick;
         if (target == PickTarget.None) return;
         Pick = PickTarget.None;
+        if (target == PickTarget.Target)
+        {
+            // the first frame of the zoom-through is the whole picture; the pan-and-zoom starts on its middle, enlarged by the start zoom
+            double k = IsPan ? Lux.Engine.Pipeline.Animate.PanZoomMove.ZoomStart : 1.0;
+            Target = (Math.Clamp(0.5 + (x - 0.5) / k, 0, 1), Math.Clamp(0.5 + (y - 0.5) / k, 0, 1));
+            return;
+        }
         _picked[target] = (x, y);
         UpdateMarkers();
         _ = Task.Run(async () =>

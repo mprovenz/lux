@@ -47,6 +47,23 @@ public sealed record CaptureMotion(float? BlurPixels, bool BlurIsExtrapolated, f
     public const double QuarterMarginDegrees = 15.0;
     const double DegreesPerRadian = 180.0 / 3.14159265358979323846;
 
+    /// <summary>
+    /// How the camera was held: the quarter turn that shows the capture upright, in degrees clockwise (0, 90, 180, 270), or −1 when the
+    /// camera recorded no usable gravity. The rule uses the mean of the accelerometer samples: gravity along +y means held level, along
+    /// −x means 90, along +x means 270, and along −y means 180.
+    /// </summary>
+    public static int HeldDegrees(LightHeader header)
+    {
+        double gx = 0, gy = 0; int n = 0;
+        foreach (var m in header.ImuData)
+            foreach (var a in m.Accelerometer) { gx += a.Data.X; gy += a.Data.Y; n++; }
+        if (n == 0) return -1;
+        // the two means are rounded to single precision before the comparisons
+        gx = (float)(gx / n); gy = (float)(gy / n);
+        if (Math.Max(Math.Abs(gx), Math.Abs(gy)) <= 0.4) return -1;
+        return Math.Abs(gy) >= Math.Abs(gx) ? (gy > 0 ? 0 : 180) : (gx < 0 ? 90 : 270);
+    }
+
     /// <summary>The motion results of a capture.</summary>
     /// <param name="heldDegrees">The quarter turn that shows the capture upright, in degrees clockwise (0, 90, 180, 270), or −1 when the
     /// camera recorded no usable gravity.</param>

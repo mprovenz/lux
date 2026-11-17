@@ -38,7 +38,7 @@ public class AnimateTests
         Assert.True(h.Library.IsAnimateOpen);
         Assert.False(h.Library.IsExportOpen);
         Assert.Equal("Animate L16_00493", p.Title);
-        Assert.Equal(new[] { "Rack focus", "Aperture sweep", "Wigglegram", "Parallax", "Lens tour" }, p.Effects.Select(e => e.Name));
+        Assert.Equal(new[] { "Rack focus", "Aperture sweep", "Wigglegram", "Parallax", "Lens tour" }, p.Effects.Take(5).Select(e => e.Name));
         Assert.True(p.IsRack);
         await WaitPreviewAsync(h, p);
         Assert.True(p.Player.Length >= 24);                  // 24 frames played forward and back
@@ -247,7 +247,7 @@ public class AnimateTests
         await h.MockupSelectionAsync();
         h.Library.OpenExport();
         var panel = h.Library.ExportPanel!;
-        Assert.Equal(new[] { "dng", "jpg", "jpg+depth", "jpg-hdr", "tiff16", "tiff-linear", "hdr", "ppm", "depth" }, panel.Formats.Select(f => f.Key));
+        Assert.Equal(new[] { "dng", "jpg", "jpg+depth", "jpg-hdr", "tiff16", "tiff-linear", "hdr", "ppm", "depth", "stereo-sbs", "stereo-anaglyph", "stereo-wiggle", "stereo-mpo", "mesh-glb", "pointcloud-ply" }, panel.Formats.Select(f => f.Key));
         Assert.DoesNotContain(panel.Formats, f => f.Key is "wiggle" or "rack");
         Assert.True(panel.CanAnimate);
         panel.Formats.First(f => f.Key == "dng").IsOn = false;

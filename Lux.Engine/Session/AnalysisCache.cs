@@ -41,6 +41,14 @@ public static class AnalysisCache
     public const int EngineCacheVersion = 2;   // 2: level-1 tiles with the DB source-frame black at every build level (1 held a level-1 build's estimate tiles)
 
     public const string GeometryTier = "geometry", LinearTier = "13mp", FullTier = "full";
+    /// <summary>The geometry tier of a registration that ran the telephoto alignment check. It has the layout of <see cref="GeometryTier"/>
+    /// plus the block <c>report</c> (the lines of <see cref="CaptureGeometry.TeleCheckReport"/>). The two tiers are separate, so a
+    /// corrected geometry never serves a default export and a default geometry never serves an export with the check. The image
+    /// tiers hold tiles of the default geometry only.</summary>
+    public const string TeleCheckGeometryTier = "geometry-telecheck";
+
+    /// <summary>The geometry tier for a registration with or without the telephoto alignment check.</summary>
+    public static string GeometryTierOf(bool teleCheck) => teleCheck ? TeleCheckGeometryTier : GeometryTier;
 
     public static string TierName(CacheLevel level) => level switch
     {
@@ -81,31 +89,40 @@ public static class AnalysisCache
     // ------------------------------------------------------------------------------------------------ geometry tier
 
     /// <summary>The cached geometry, or null when the tier is absent, incomplete or damaged (a damaged tier is dropped so it is rebuilt).</summary>
-    public static CaptureGeometry? LoadGeometry(IAnalysisCache cache, Action<string>? log = null)
+    /// <param name="teleCheck">Read the geometry of a registration that ran the telephoto alignment check (<see cref="TeleCheckGeometryTier"/>).</param>
+    public static CaptureGeometry? LoadGeometry(IAnalysisCache cache, Action<string>? log = null, bool teleCheck = false)
     {
-        if (cache.CompleteDescriptor(GeometryTier) is null) return null;
+        string tier = GeometryTierOf(teleCheck);
+        if (cache.CompleteDescriptor(tier) is null) return null;
         try
         {
-            var header = cache.Read(GeometryTier, "header");
+            var header = cache.Read(tier, "header");
             if (header is null) return null;
-            return CaptureGeometry.Deserialize(header, cache.Read(GeometryTier, "depth"));
+            var g = CaptureGeometry.Deserialize(header, cache.Read(tier, "depth"));
+            if (!teleCheck) return g;
+            var report = cache.Read(tier, "report");
+            return g.WithTeleCheckReport(report is null ? Array.Empty<string>() : System.Text.Encoding.UTF8.GetString(report).Split('\n', StringSplitOptions.RemoveEmptyEntries));
         }
         catch (Exception e) when (e is CacheCorruptException or InvalidDataException)
         {
             log?.Invoke($"analysis cache: the geometry tier is damaged ({e.Message}); it is discarded and recomputed");
-            cache.Drop(GeometryTier);
+            cache.Drop(tier);
             return null;
         }
     }
 
+    /// <summary>Keep a geometry. A geometry with a telephoto check report goes into <see cref="TeleCheckGeometryTier"/>, every other
+    /// geometry into <see cref="GeometryTier"/>: the tier follows the geometry, not the caller.</summary>
     public static void SaveGeometry(IAnalysisCache cache, CaptureGeometry g)
     {
-        cache.SetComplete(GeometryTier, null);
-        cache.Write(GeometryTier, new[] { ("header", g.SerializeHeader()) }, 1);
+        string tier = GeometryTierOf(g.TeleCheckReport is not null);
+        cache.SetComplete(tier, null);
+        cache.Write(tier, new[] { ("header", g.SerializeHeader()) }, 1);
         var d = g.SerializeDepth();
-        if (d.Length > 0) cache.Write(GeometryTier, new[] { ("depth", d) }, 4);
+        if (d.Length > 0) cache.Write(tier, new[] { ("depth", d) }, 4);
+        if (g.TeleCheckReport is { } report) cache.Write(tier, new[] { ("report", System.Text.Encoding.UTF8.GetBytes(string.Join('\n', report))) }, 1);
         string desc = g.FullDepth is { } fd ? FormattableString.Invariant($"depth {fd.W}x{fd.H}, {g.Tele.Count} telephoto") : $"no depth, {g.Tele.Count} telephoto";
-        cache.SetComplete(GeometryTier, desc);
+        cache.SetComplete(tier, desc);
     }
 
     // ------------------------------------------------------------------------------------------------ tile tiers

@@ -454,6 +454,8 @@ public sealed record EditValues
     /// <summary>The depth effect's f-number (null = all in focus) and focus distance in mm (null = Lumen's default focus).</summary>
     public float? FNumber { get; init; }
     public float? FocusMm { get; init; }
+    /// <summary>The renderer of the depth effect (Lumen's by default). It belongs to <see cref="EditGroups.DepthEffect"/>.</summary>
+    public Lux.Engine.Pipeline.Dof.DofRendering DepthRendering { get; init; }
     /// <summary>Per-slider choice (Lumen's patch dialog ticks each tone property): when set, exactly these sliders are applied and the Tone /
     /// Colour / Sharpening flags of <see cref="Groups"/> are ignored; null = every slider of those groups.</summary>
     public IReadOnlySet<AdjustmentKey>? Sliders { get; init; }

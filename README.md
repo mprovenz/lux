@@ -25,10 +25,11 @@ The app runs on Linux, Windows and macOS (x64 and ARM64). Get it from the [Relea
   - a Level button, which turns the photo by the angle that the camera's gravity reading suggests
   - the depth effect (aperture and focus)
   - Lumen's depth-editing tools (refine edge, blend area, match depth, quick select)
+  - refined depth: an optional depth version in which a depth network corrects outlines, thin objects and the sky (see [Refined depth](#refined-depth))
 
   The editor can show a photo and its depth map side by side. A before / after view compares the edit with the original.
 - **Quality per photo:** choose how much rendered detail Lux keeps for each photo (preview, 13 MP or full detail). Lux always keeps the depth map at full precision.
-- **Export:** DNG, JPG, HDR and depth formats, and animations (rack focus, aperture sweep, wigglegram, parallax, lens tour) with a preview.
+- **Export:** DNG, JPG, HDR and depth formats, and animations (rack focus, aperture sweep, wigglegram, parallax, lens tour, zoom-through, fog, pan and zoom, slice reveal, tilt-shift) with a preview.
 - **Lumen sessions:** import the depth edits and settings that Lumen saved for a photo.
 - **Camera:** list the photos on a connected L16 and import them (Linux and Windows).
 - **Queue and settings:** one list shows all background work. You can adjust the thread counts, the memory and the number of jobs that run at the same time.
@@ -71,6 +72,8 @@ A photo beside its depth map:
   - Lux keeps the edits to a capture's depth map next to the capture. Every export uses them.
   - Lux can import what Lumen saved for a photo from its session files: the depth edits, the depth effect, the tone settings
     and the crop / rotation. After the import, Lux renders the photo as Lumen does.
+- Refined depth (see [Refined depth](#refined-depth)): an optional step that corrects the outlines of objects, thin objects
+  and the sky in the depth map with a depth network. The network is downloaded on first use. It is off by default.
 
 ## Projects
 - **Lux.Engine** — the image-processing engine (`.lri` parse, module ISP, registration/depth, fusion, ResAmp,
@@ -80,13 +83,15 @@ A photo beside its depth map:
     edits, exports, the analysis cache.
   - The exporter that `convert` runs on.
 - **Lux.Cli** — `lux-light`. Its commands are `convert`, `inspect`, `profile`, `isp`, `isp-run`, `mod-info`, `devices`,
-  `pull`, `version`, `edits-info`, `import-lumen-edits`, `cache`, `animate`. `convert` produces pictures and `animate` produces
-  animations. `convert` writes:
+  `pull`, `version`, `edits-info`, `import-lumen-edits`, `cache`, `animate`, `depth-model`. `convert` produces pictures and
+  `animate` produces animations. `convert` writes:
   - Lumen's formats: DNG, JPG, HDR, PPM and JPEG+GDepth.
   - The Lux formats that use the same render: the 16-bit TIFF, the scene-linear TIFF, the HDR gain-map JPG, the stereo depth
     pair, `lens-frames` and the experimental `parallax-*` animations and stills.
 - **Lux.Library** — the photo library that the app uses: folders, albums, ratings, the job queue, edit sessions and camera import.
 - **Lux.App** — the desktop app (Avalonia).
+- **Lux.DepthModel** — the depth network of refined depth: the list of files it needs, their download into the app's data
+  folder, and the inference. It calls the inference runtime through the runtime's C interface, so it adds no package.
 - **Lux.Store** — what Lux keeps per capture on disk (the `LuxImageContext` folder): the depth-edit database and the
   analysis cache. This project has the SQLite dependency (`Microsoft.Data.Sqlite`), so the engine itself has none.
 
@@ -585,6 +590,70 @@ lux-light convert ~/Pictures/L16/L16_00493.lri --f-number 2             # the sa
 lux-light convert ~/Pictures/L16/L16_00493.lri --no-edits               # the clean picture, nothing saved applied
 ```
 
+## Refined depth
+
+The camera's depth map has real distances, but it has typical faults: its depth steps sit beside the outlines of objects, it
+loses thin objects such as fence bars, it fills the gaps between railing bars, and it scatters the sky over many distances. A
+depth network sees outlines, thin objects, gaps and the sky in the picture, but it gives no real distances. Refined depth joins
+the two.
+
+- **What it does.** Lux runs the network on the capture's own picture: once on the whole picture, and once more on overlapping
+  tiles at twice the scale for fine detail. Lux then keeps the camera's depth, except in two places: in the sky, which goes to the
+  far limit, and where the local shape of the camera's depth contradicts the network. There, each pixel takes the trusted camera
+  depth nearby that belongs to the same surface in the network's view. Only where no such depth exists (a thin bar that the
+  camera's depth does not contain) does a pixel take the network's value, mapped to a distance.
+- **The other cameras check the depth.** Lux renders the other cameras that have the same view as the reference camera, and
+  compares each with the reference camera at the place that the camera's depth predicts. Depth that the other cameras contradict
+  is not trusted. Depth that they confirm is never rewritten outside the sky, also where the network sees another shape: a
+  printed picture on a wall stays flat.
+- **The sky.** The sky is where the network sees the farthest thing in the picture. Three checks apply. A place where the
+  detailed pass sees something nearer is not sky. A thin, sharp line in the picture (a wire, a mast, an antenna) is not sky and
+  keeps its depth. A connected area is sky only when the camera's depth on it is far (a median of 11 m or more): the far wall of
+  a room is not sky.
+- **Telephoto captures.** A capture whose reference camera has no other cameras with the same view gets only its sky corrected.
+  The same applies to a capture with too little trusted depth.
+- **What it changes.** Typically a few percent of the depth map: outlines, thin objects, gaps and the sky. Every other pixel keeps
+  the camera's depth, bit for bit. The picture itself, the registration and the fusion of the cameras do not use refined depth.
+- **Where it is used.** The outputs that read the depth: the depth effect (`--f-number`), `jpg+depth`, `depth` and the depth-based
+  parallax formats.
+- **It is opt-in.** Without `--depth-refine` (command line) or "Refine depth" (app), nothing changes.
+- **Its limits.** It does not repair depth that is wrong over a large area, and it does not make far depth more exact. An object
+  that is out of focus close to the camera, a semi-transparent net and reflections in glass can come out wrong. A wide, bright
+  object in front of a hazy sky can become sky. A smooth surface inside a window frame or behind a net can move farther away.
+  The sky behind window glass often stays as it is. A rim of a few pixels beside a skyline or a thin object keeps the camera's
+  depth. Check the result.
+
+**The files.** Refined depth needs two files that are not part of Lux. Lux downloads them on first use, about 110 MB (about
+180 MB on Windows), into `models/depth` in the app's data folder, and checks each against a fixed SHA-256:
+
+| File | License | Source |
+|---|---|---|
+| Depth Anything V2 Small, the depth network, as an ONNX file | Apache-2.0 | The `onnx-community/depth-anything-v2-small` repository on Hugging Face, at a fixed revision |
+| ONNX Runtime 1.23.2, the library that runs the network | MIT | The ONNX Runtime releases on GitHub |
+
+ONNX Runtime 1.23.2 has builds for Linux, Windows and macOS on x64 and arm64 processors. On another computer Lux says that
+refined depth is not available. A download sends the file's address and a generic client name, nothing else.
+
+**In the app.** Settings has a "Refined depth" section: the state of the files, "Download", "Remove" and the folder. In Develop,
+"Refine depth" under "Depth version" makes a version named "Refined" of the photo's depth and shows it. The first time, the app
+asks before it downloads the files. The refined version is a depth version like the others: you can switch between it and the
+clean depth, edit it with the depth tools, and exports use the version that is active. It is stored with the photo, so it is
+made once and does not need the files again. A later version of Lux with other refinement rules does not change a stored
+refined version.
+
+**On the command line.** `lux-light depth-model install` downloads the files (`status` and `remove` do what they say).
+`convert --depth-refine` then refines the depth for that export; nothing is stored. A capture with saved depth edits keeps
+those, and a capture whose active version is the app's "Refined" version uses it as saved.
+
+```
+lux-light depth-model install
+lux-light convert ~/Pictures/L16/L16_00493.lri --depth-refine --f-number 2 --formats jpg
+lux-light convert ~/Pictures/L16/L16_00493.lri --depth-refine --formats depth
+```
+
+**The same result every time?** On one computer, yes. Between computers the network's output can differ in its last digits,
+because ONNX Runtime uses the instructions of each processor. Everything around the network uses the engine's exact arithmetic.
+
 ## The analysis cache (`LuxImageContext/cache`)
 
 Most of the time of a full-size export goes into work that depends only on the capture:
@@ -649,14 +718,15 @@ lux-light --help
 | `version [--offline]` | Print the version of this build and check GitHub for a newer release |
 | `edits-info <input...>` | Show the saved depth edits of a capture: the variants, the active variant, the amount of stored data, and whether all stored data is intact. `--set-active <variant\|none>` selects the variant that `convert` uses |
 | `import-lumen-edits <lris file or folder...>` | Import Lumen session files (.lris) into Lux. An import contains what Lumen saved for the photo: the depth map and depth edits, the depth effect, the tone and color settings, the crop / rotation and the rating. convert then renders the photo as Lumen does. The capture of each session (the .lri of the same name) must be beside it |
-| `animate <input...> --anim-effect <effect>` | Make an animation of each capture, as the desktop app does. The effects are:<br>rack-focus and aperture-sweep: Lumen's depth effect. Each frame is exactly the still that convert writes with `--f-number` and `--focus-depth`.<br>wigglegram: the pictures of the wide lenses.<br>parallax: a small camera move made from the photo and its depth.<br>lens-tour: each lens in turn.<br>Lux writes GIF, APNG and WebP itself. MP4 and WebM need ffmpeg. Options: `lux-light --help`, ANIMATE OPTIONS |
+| `animate <input...> --anim-effect <effect>` | Make an animation of each capture, as the desktop app does. The effects are:<br>rack-focus and aperture-sweep: Lumen's depth effect. Each frame is exactly the still that convert writes with `--f-number` and `--focus-depth`.<br>wigglegram: the pictures of the wide lenses.<br>parallax: a small camera move made from the photo and its depth.<br>lens-tour: each lens in turn.<br>zoom-through: a zoom from the whole picture onto telephoto detail.<br>fog: depth fog that moves through the scene.<br>pan-zoom: a push-in with a moving camera, made from the photo and its depth.<br>slice-reveal: the colors come in slice by slice of distance.<br>tilt-shift: a miniature look with the focus swept through the scene.<br>Lux writes GIF, APNG and WebP itself. MP4 and WebM need ffmpeg. Options: `lux-light --help`, ANIMATE OPTIONS |
 | `cache <input...> [--level none\|geometry\|13mp\|full]` | Show the analysis cache of a capture, or change it to a level (see [The analysis cache](#the-analysis-cache-luximagecontextcache)). Exports from the cache are byte-identical to exports computed from scratch |
+| `depth-model status\|install\|remove` | Show, download or delete the files that refined depth needs (`convert --depth-refine`): the depth network and the runtime that runs it. They are not part of Lux |
 
 ### INPUT
 
 - convert, animate, inspect, mod-info, profile, isp, isp-run, edits-info and cache take one or more .lri files, directories, or both. Directories are scanned for *.lri.
 - import-lumen-edits takes .lris files, directories, or both.
-- devices, pull and version take no input files.
+- devices, pull, version and depth-model take no input files.
 
 ### CONVERT OPTIONS
 
@@ -670,7 +740,7 @@ With no options, `convert` replicates Lumen's output pixel for pixel: DNG (fmt 2
 | `--out-file <path>` | Name the output file (only when the run makes exactly one file) |
 | `-j, --threads <n>` | Number of inputs converted in parallel (default: CPU count) |
 | `--render-threads <n>` | Threads per input for the tile render (default: CPU count ÷ the inputs converted at once; 1 = sequential) |
-| `--formats <list>` | Comma-separated list of formats (default dng,jpg)<br>Lumen formats: dng, jpg, hdr, ppm, jpg+depth<br>Lux formats: tiff16, tiff-linear, jpg-hdr, depth, lens-frames, parallax-wiggle, parallax-wiggle-interp, parallax-orbit, parallax-single, parallax-rack, parallax-dolly, parallax-dof, parallax-anaglyph, parallax-crosseye, parallax-sbs, parallax-still<br>all: every format above except hdr, ppm, tiff16, tiff-linear and jpg-hdr<br>`depth` is the stereo depth pair in metric millimeters (`<stem>_depth.f32` + `<stem>_depth.jpg`) on the exported grid. The Lux formats are named `<stem>_<format>.<ext>`. lens-frames writes `<stem>_<module>.jpg`. tiff16 writes `<stem>.tif`, tiff-linear writes `<stem>_linear.tif` and jpg-hdr writes `<stem>_hdr.jpg` |
+| `--formats <list>` | Comma-separated list of formats (default dng,jpg)<br>Lumen formats: dng, jpg, hdr, ppm, jpg+depth<br>Lux formats: tiff16, tiff-linear, jpg-hdr, depth, lens-frames, parallax-wiggle, parallax-wiggle-interp, parallax-orbit, parallax-single, parallax-rack, parallax-dolly, parallax-dof, parallax-anaglyph, parallax-crosseye, parallax-sbs, parallax-still, stereo-sbs, stereo-anaglyph, stereo-wiggle, stereo-mpo, mesh-glb, pointcloud-ply<br>all: every format above except hdr, ppm, tiff16, tiff-linear and jpg-hdr<br>`depth` is the stereo depth pair in metric millimeters (`<stem>_depth.f32` + `<stem>_depth.jpg`) on the exported grid. The Lux formats are named `<stem>_<format>.<ext>`. lens-frames writes `<stem>_<module>.jpg`. tiff16 writes `<stem>.tif`, tiff-linear writes `<stem>_linear.tif` and jpg-hdr writes `<stem>_hdr.jpg` |
 
 #### GRID (picks the pixel grid; leaves tone and color alone)
 
@@ -700,6 +770,7 @@ Lumen's synthetic depth of field, for dng, jpg, jpg+depth, hdr and ppm.
 | \* | `--f-number <N>` | Blur the picture as a lens of aperture f/N does, using the depth map of the capture. A smaller N gives a shallower depth of field. A value at or above the all-in-focus f-number of the capture (about f/15 for a 28 mm capture) does not change the image, exactly as in Lumen. Lumen's slider goes from f/2 to that value; convert also accepts smaller values. The Exif FNumber becomes N. This option needs the depth map, so the full registration runs even at a reduced `--level` |
 | \* | `--focus-depth <mm>` | Distance that stays sharp, in millimeters (default: the distance the camera focused at, as Lumen chooses it). Needs `--f-number` |
 | \* | `--focus-point <x,y>` | Focus on the object at this point of the picture, as a click with Lumen's focus tool does. x and y go from 0 to 1, and 0,0 is the top left. Needs `--f-number`. Not combinable with `--focus-depth` or `--rotate` |
+| \* | `--dof-rendering <r>` | Renderer of the depth effect: lumen or lux (default lumen). lumen is Lumen's renderer, bit for bit. lux is the Lux rendering: clipped lights become bright discs, small lights keep their brightness, the blur discs have a sharp edge, and grain is added only where the picture is blurred |
 
 #### TONE & COLOR ADJUSTMENTS
 
@@ -763,6 +834,34 @@ A capture with an edited depth map keeps those edits in the `LuxImageContext` fo
 |---|---|---|
 | \* | `--no-edits` | Ignore saved depth edits and saved settings: use the depth computed from the capture |
 | \* | `--edits <variant>` | Use this variant instead of the active one (`edits-info` lists them) |
+
+#### REFINED DEPTH
+
+Needs the depth model; see the `depth-model` command and [Refined depth](#refined-depth).
+
+The camera's depth map has real distances, but its steps sit beside the outlines of objects, it loses thin objects, it fills
+the gaps between bars and it scatters the sky. A depth network sees these things in the picture, but it gives no real
+distances. Refined depth joins the two: it keeps the camera's depth, except in the sky and where the shape of the camera's
+depth contradicts the network. The other cameras with the same view check the camera's depth first: depth that they confirm is
+kept. A telephoto capture has no such cameras, and gets only its sky corrected. The outputs that read the depth then use the
+refined depth: `--f-number`, `jpg+depth`, `depth` and the depth-based parallax formats. The picture itself is not changed.
+Without this option nothing changes.
+
+| | Option | Description |
+|---|---|---|
+| \* | `--depth-refine` | Refine the depth map with the depth network. This adds about 20 to 50 seconds per capture. A capture with saved depth edits keeps those: add `--no-edits` to refine the camera's depth instead. The result can differ in the last digits between computers, because the network runs on each computer's own processor. convert stops when the depth model is not installed: it never downloads it by itself |
+
+#### TELEPHOTO CHECK
+
+Lux registers each telephoto module to the wide picture as Lumen does. In some captures, mostly near, dark or stacked scenes,
+a module stays several pixels off. The merged picture then has no telephoto detail in the area of that module. The telephoto
+check measures each module against the reference picture after the registration. It corrects a module with a small rotation,
+but only when the measurement is clear. The full-size picture changes where a module was off. It can also change slightly
+where the check moves a module that was almost aligned. Without this option nothing changes.
+
+| | Option | Description |
+|---|---|---|
+| \* | `--tele-check` | Check the alignment of the telephoto modules and correct each module that is off by 4 pixels or more. This adds 1 to 3 seconds per capture. The run says what it did for each module. The check does not help when the depth of a near scene is wrong, or when a module shows too little texture. The analysis cache keeps the checked geometry apart from the default one, and convert does not read kept image tiles for this run |
 
 #### ANALYSIS CACHE
 
@@ -849,6 +948,33 @@ This format writes each module of the capture as a display JPG through the porte
 | `--lens-profile <p>` | Lumen's renderer profile, 0-3 (default 3 = Desktop). It selects the module-ISP kernels |
 | `--lens-modules <list>` | Comma-separated module filter, e.g. A1,B4 |
 | `--lens-stack <all\|n>` | Frame of a stacked capture to write (default 0) |
+
+#### STEREO
+
+A stereo pair from the two wide lenses A5 and A1. They sit 44 mm apart, close to the distance between two eyes, so each eye gets the picture of a real lens: no depth map is involved. The two pictures are aligned with the capture's calibration, matched in color, shifted so that the scene sits behind the screen, and cropped to their common area. About 10 % of the frame is lost. The lens pair needs a wide capture, held level, whose depth spans at most 3 % of the picture width: with a far background, a subject that is not nearer than about 1.2 m. For every other capture, convert makes the two eyes from the merged picture and the depth map, as parallax-sbs does, and says so in its output. The files are named `<stem>_stereo-sbs.jpg`, `<stem>_stereo-anaglyph.jpg`, `<stem>_stereo-wiggle.<ext>` and `<stem>_stereo.mpo`.
+
+| Option | Description |
+|---|---|
+| `stereo-sbs` | The two eyes side by side, the left eye on the left, JPG |
+| `stereo-anaglyph` | One picture for red-cyan glasses (Dubois), JPG |
+| `stereo-wiggle` | An animation of two frames that switches between the eyes |
+| `stereo-mpo` | MPO file: the two JPG pictures with a multi-picture index, for 3D cameras, televisions and viewers. Other programs show the left eye |
+| `--stereo-source <s>` | Where the two eyes come from: auto (default) \| real \| depth. real writes the lens pair only: also for a scene that is deeper than is comfortable, and no file when the capture has no lens pair. depth always uses the depth map |
+| `--stereo-layout <l>` | Width of each eye in stereo-sbs: full (default) \| half. half squeezes each eye to half its width, for 3D televisions |
+| `--stereo-size <px>` | Long edge of one eye in pixels (default: the size of the pair; 1040 for stereo-wiggle) |
+| `--stereo-format <c>` | Container of stereo-wiggle: gif (default) \| webp \| apng |
+
+#### 3D
+
+One capture gives a relief. 3D files from the picture and the depth map of one capture. One capture sees the scene from one place, so the result is a relief, not a full 3D scene: it looks right inside a small viewing angle, about 0.5 to 3 degrees, and shows holes and stretched edges outside it. Both formats use the depth as exported, on the 13 MP picture or on a smaller `--level`. `--depth-refine` is recommended: the refined depth gives cleaner outlines and fewer terraces. The files are named `<stem>_3d.glb` and `<stem>_cloud.ply`. Positions are in meters.
+
+| Option | Description |
+|---|---|
+| `mesh-glb` | A 3D photo: a textured mesh in a binary glTF file, for 3D viewers, game engines and the web. One vertex for each 4 pixels, no triangle across a step in the depth, then simplified. The texture is the picture |
+| `pointcloud-ply` | A colored point cloud in a binary PLY file (position, normal, color), with x to the right, y down and z forward from the camera. Points at depth steps, beyond 30 m and in the sky are left out |
+| `--mesh-triangles <n>` | Number of triangles of mesh-glb after the simplification (default 250000) |
+| `--mesh-depth <d>` | Depth of mesh-glb: relief (default) \| metric. relief caps the depth at 4 times the distance of the subject, so that a far background stays close behind the subject. metric keeps the real distances and leaves out content beyond 60 m |
+| `--pc-step <n>` | Every n-th pixel becomes a point of pointcloud-ply: 1 \| 2 \| 4 (default) \| 8 |
 
 #### PARALLAX
 
@@ -988,6 +1114,27 @@ Exit status:
 
 The release page is https://github.com/mprovenz/lux/releases.
 
+### DEPTH-MODEL
+
+`lux-light depth-model status|install|remove` manages the files of refined depth. `install` downloads them once (about 110 MB;
+about 180 MB on Windows) into the folder `models/depth` of the app's data folder, and checks each file against a fixed SHA-256.
+`remove` deletes them. The desktop app uses the same files (Settings, Refined depth).
+
+- The depth network is Depth Anything V2 Small (Apache-2.0), as an ONNX file from the `onnx-community/depth-anything-v2-small`
+  repository on Hugging Face.
+- The runtime is ONNX Runtime 1.23.2 (MIT), from its GitHub releases. There are builds for Linux, Windows and macOS on x64 and
+  arm64 processors. On another computer the command says that refined depth is not available.
+- A download sends the file's address and a generic client name, nothing else.
+- `LUX_DEPTH_MODEL_SOURCE=<folder or URL>` makes `install` read the files from there instead, under the names
+  `onnxruntime-<platform>-1.23.2.tgz` (`.zip` on Windows) and `depth-anything-v2-small.onnx`. The files must be the same: the
+  SHA-256 check stays.
+
+Exit status:
+
+- 0: done (`status`: installed).
+- 1: `status`: not installed.
+- 2: an error.
+
 ### GLOBAL OPTIONS
 
 | Option | Description |
@@ -1062,3 +1209,6 @@ Lux is released under the GNU General Public License, version 3. See [LICENSE](L
 This product includes DNG technology under license by Adobe.
 
 This product includes Gain Map technology under license by Adobe.
+
+Refined depth uses two files that are downloaded on first use and are not part of Lux: the depth network Depth Anything V2 Small
+(Apache License 2.0) and ONNX Runtime (MIT License). See [Refined depth](#refined-depth).

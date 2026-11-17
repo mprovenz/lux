@@ -31,15 +31,20 @@ public static class ConvertCmd
     {
         /// <summary>The still formats of Lux: tiff16, tiff-linear, jpg-hdr.</summary>
         public StillFormat[] Still { get; init; } = Array.Empty<StillFormat>();
-        public int Count => Raster.Length + Still.Length + (Depth ? 1 : 0) + (LensFrames ? 1 : 0) + Parallax.Length;
+        /// <summary>The stereo formats: stereo-sbs, stereo-anaglyph, stereo-wiggle, stereo-mpo.</summary>
+        public StereoFormat[] Stereo { get; init; } = Array.Empty<StereoFormat>();
+        /// <summary>The 3D formats: mesh-glb, pointcloud-ply.</summary>
+        public SceneFormat[] Scene { get; init; } = Array.Empty<SceneFormat>();
+        public int Count => Raster.Length + Still.Length + (Depth ? 1 : 0) + (LensFrames ? 1 : 0) + Parallax.Length + Stereo.Length + Scene.Length;
         /// <summary>Every name, in the `--formats` spelling.</summary>
         public IEnumerable<string> Names => Raster.Select(NameOf).Concat(Still.Select(StillFormats.NameOf)).Concat(Depth ? new[] { "depth" } : Array.Empty<string>())
-            .Concat(LensFrames ? new[] { "lens-frames" } : Array.Empty<string>()).Concat(Parallax.Select(ParallaxFormats.Name));
+            .Concat(LensFrames ? new[] { "lens-frames" } : Array.Empty<string>()).Concat(Parallax.Select(ParallaxFormats.Name)).Concat(Stereo.Select(StereoExport.NameOf)).Concat(Scene.Select(SceneExport.NameOf));
     }
 
     public const string KnownFormats = "dng, jpg, hdr, ppm, jpg+depth, tiff16, tiff-linear, jpg-hdr, depth, all, lens-frames, parallax-wiggle, parallax-wiggle-interp, "
                                      + "parallax-orbit, parallax-single, parallax-rack, parallax-dolly, parallax-dof, parallax-anaglyph, "
-                                     + "parallax-crosseye, parallax-sbs, parallax-still";
+                                     + "parallax-crosseye, parallax-sbs, parallax-still, stereo-sbs, stereo-anaglyph, stereo-wiggle, stereo-mpo, "
+                                     + "mesh-glb, pointcloud-ply";
 
     /// <summary>Parse a `--formats` list. `all` is every format except `hdr` and `ppm` (aliases: jpeg, gdepth, jpg-depth, radiance).
     /// `depth` is not a Lumen `ExportImageFormat` — it is the stereo depth **pair** (`&lt;stem&gt;_depth.f32` +
@@ -47,7 +52,7 @@ public static class ConvertCmd
     public static FormatSet ParseFormats(string list)
     {
         var outp = new List<ExportImageFormat>(); bool depth = false, lens = false;
-        var px = new List<ParallaxFormat>(); var still = new List<StillFormat>();
+        var px = new List<ParallaxFormat>(); var still = new List<StillFormat>(); var stereo = new List<StereoFormat>(); var scene = new List<SceneFormat>();
         foreach (var raw in list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             string t = raw.ToLowerInvariant();
@@ -62,6 +67,8 @@ public static class ConvertCmd
             if (t == "lens-frames") { lens = true; continue; }
             if (StillFormats.TryParse(t, out StillFormat sf)) { if (!still.Contains(sf)) still.Add(sf); continue; }
             if (ParallaxFormats.TryParse(t, out var pf)) { if (!px.Contains(pf)) px.Add(pf); continue; }
+            if (StereoExport.TryParse(t, out var stf)) { if (!stereo.Contains(stf)) stereo.Add(stf); continue; }
+            if (SceneExport.TryParse(t, out var scf)) { if (!scene.Contains(scf)) scene.Add(scf); continue; }
             ExportImageFormat v = t switch
             {
                 "dng" => ExportImageFormat.Dng,
@@ -73,7 +80,7 @@ public static class ConvertCmd
             };
             if (!outp.Contains(v)) outp.Add(v);
         }
-        var set = new FormatSet(outp.ToArray(), depth, lens, px.ToArray()) { Still = still.ToArray() };
+        var set = new FormatSet(outp.ToArray(), depth, lens, px.ToArray()) { Still = still.ToArray(), Stereo = stereo.ToArray(), Scene = scene.ToArray() };
         if (set.Count == 0) throw new FormatException("--formats needs at least one format");
         return set;
     }
@@ -122,6 +129,7 @@ public static class ConvertCmd
         ("--f-number",      new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth, ExportImageFormat.Hdr, ExportImageFormat.Ppm }),
         ("--focus-depth",   new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth, ExportImageFormat.Hdr, ExportImageFormat.Ppm }),
         ("--focus-point",   new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth, ExportImageFormat.Hdr, ExportImageFormat.Ppm }),
+        ("--dof-rendering", new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth, ExportImageFormat.Hdr, ExportImageFormat.Ppm }),
         ("--iso",           new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         ("--focal",         new[] { ExportImageFormat.Dng, ExportImageFormat.Jpeg, ExportImageFormat.JpegGDepth }),
         // rotation is baked by ExportTransform upstream of every writer, so it reaches all four raster formats
@@ -267,6 +275,34 @@ public static class ConvertCmd
             return null;
         }
 
+        // ---- the stereo flags
+        foreach (var (flag, applies) in new (string, Func<StereoFormat, bool>)[] { ("--stereo-source", _ => true), ("--stereo-size", _ => true),
+                                                                                   ("--stereo-layout", f => f == StereoFormat.Sbs), ("--stereo-format", f => f == StereoFormat.Wiggle) })
+        {
+            if (!o.Given.Contains(flag) || set.Stereo.Any(applies)) continue;
+            error = $"{flag} configures a format this run does not write (--formats {label}). It applies to: {(flag == "--stereo-layout" ? "stereo-sbs" : flag == "--stereo-format" ? "stereo-wiggle" : "the stereo formats")}";
+            return null;
+        }
+        if (o.StereoSource is not null and not ("auto" or "real" or "depth")) { error = "--stereo-source must be auto, real or depth"; return null; }
+        if (o.StereoLayout is not null and not ("full" or "half")) { error = "--stereo-layout must be full or half"; return null; }
+        if (o.StereoFormat is not null and not ("gif" or "webp" or "apng")) { error = "--stereo-format must be gif, webp or apng"; return null; }
+        if (o.StereoSize is int ss && ss < 64) { error = "--stereo-size must be at least 64 (pixels)"; return null; }
+        if (set.Stereo.Length > 0 && (o.Transform is not null || (o.Rotate ?? 0) != 0 || o.Upright))
+        { error = "--rotate, --transform and --upright cannot be combined with the stereo formats: a stereo pair is written upright by itself"; return null; }
+        if (set.Stereo.Length > 0 && o.OutFile is not null) { error = "--out-file cannot be combined with the stereo formats; give -o"; return null; }
+
+        // ---- the 3D flags
+        foreach (var (flag, format) in new[] { ("--mesh-triangles", SceneFormat.MeshGlb), ("--mesh-depth", SceneFormat.MeshGlb), ("--pc-step", SceneFormat.PointCloudPly) })
+        {
+            if (!o.Given.Contains(flag) || set.Scene.Contains(format)) continue;
+            error = $"{flag} configures a format this run does not write (--formats {label}). It applies to: {SceneExport.NameOf(format)}";
+            return null;
+        }
+        if (o.MeshDepth is not null and not ("relief" or "metric")) { error = "--mesh-depth must be relief or metric"; return null; }
+        if (o.MeshTriangles is int mt && mt is < 1000 or > 5_000_000) { error = "--mesh-triangles must be between 1000 and 5000000"; return null; }
+        if (o.PcStep is not null and not (1 or 2 or 4 or 8)) { error = "--pc-step must be 1, 2, 4 or 8"; return null; }
+        if (set.Scene.Length > 0 && o.OutFile is not null) { error = "--out-file cannot be combined with the 3D formats; give -o"; return null; }
+
         // ---- the parallax value checks, so a typo fails here rather than after a level-0 build
         string container = o.ParallaxFormat ?? "gif";
         if (!Animation.Containers.Contains(container)) { error = $"--parallax-format must be one of {string.Join(", ", Animation.Containers)}"; return null; }
@@ -327,6 +363,7 @@ public static class ConvertCmd
         { error = "--focus-depth / --focus-point choose where the depth effect focuses; they need --f-number"; return null; }
         if (o.DepthFNumber is not null && (o.Rotate ?? 0) != 0 && o.FocusPoint is not null)
         { error = "--focus-point is given in the unrotated image; it cannot be combined with --rotate"; return null; }
+        if (o.DofRendering is not null and not ("lumen" or "lux")) { error = "--dof-rendering takes lumen or lux"; return null; }
 
         if (o.MemoryBudgetGb is double mb && !(mb > 0)) { error = "--memory-budget takes a size in GB greater than 0"; return null; }
         if (o.DngHighlights is not null and not ("clip" or "keep")) { error = "--dng-highlights takes clip or keep"; return null; }
@@ -371,6 +408,8 @@ public static class ConvertCmd
             noise = new NoiseControls { GrainStrength = o.GrainStrength ?? 1f, DenoiseThreshold = o.DenoiseThreshold ?? 1f };
             if (!noise.IsLumen) notes.Add("--grain-strength / --denoise-threshold: the image tiles kept in a capture's analysis cache are Lumen's, so they are not read for this run; the kept geometry and depth map are");
         }
+        if (set.Scene.Length > 0) notes.Add("3D formats: one capture gives a relief that looks right inside a viewing angle of a few degrees, not a full 3D scene" + (o.DepthRefine ? "" : "; --depth-refine gives cleaner results"));
+        if (o.TeleCheck) notes.Add("--tele-check: each telephoto module is checked against the reference picture after the registration and corrected when it is clearly off; the kept image tiles of the analysis cache are not read for this run");
         if (o.NoCache) notes.Add("--no-cache: the capture's analysis cache is neither read nor written");
         if (o.NoEdits && o.Edits is not null) { error = "--no-edits and --edits are alternatives; pass one"; return null; }
         if (o.NoEdits) notes.Add("--no-edits: saved depth edits are ignored; the depth is the one computed from the capture");
@@ -389,6 +428,7 @@ public static class ConvertCmd
         Say("--jpeg-modify", o.JpegModify?.ToString("yyyy-MM-ddTHH:mm:ss")); Say("--jpeg-comment", o.JpegComment); Say("--jpeg-software", o.JpegSoftware);
         Say("--grain-strength", o.GrainStrength?.ToString(System.Globalization.CultureInfo.InvariantCulture)); Say("--denoise-threshold", o.DenoiseThreshold?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Say("--hdr-cs", o.HdrCs);
+        Say("--dof-rendering", o.DofRendering == "lux" ? "lux" : null);
         Say("--f-number", o.DepthFNumber); Say("--focus-depth", o.FocusDepth); if (o.FocusPoint is { } sfp) applied.Add(FormattableString.Invariant($"--focus-point {sfp.X},{sfp.Y}"));
         if (applied.Count > 0)
             notes.Add($"adjustments: {string.Join(", ", applied)} — these depart from the values the .lri and Lumen's own rules supply");
@@ -414,6 +454,7 @@ public static class ConvertCmd
         var overridden = new HashSet<string>();
         if (o.DepthFNumber is not null) overridden.Add("f-number");
         if (o.FocusDepth is not null || o.FocusPoint is not null) overridden.Add("focus");
+        if (o.DofRendering is not null) overridden.Add("dof-rendering");
         if (o.Rotate is not null || o.Transform is not null) overridden.Add("transform");
         foreach (var (v, id) in new (object?, string)[] { (o.Exposure, "2"), (o.Temperature, "3"), (o.Tint, "4"), (o.Shadows, "5"), (o.Highlights, "6"), (o.Contrast, "7"),
                                                           (o.Saturation, "8"), (o.Vibrance, "9"), (o.Clarity, "10"), (o.Sharpening ?? o.JpegSharpening, "13") })
@@ -435,7 +476,9 @@ public static class ConvertCmd
             DepthEffectFNumber = o.DepthFNumber,
             FocusDepthMm = o.FocusDepth,
             FocusPoint = o.FocusPoint,
+            DepthEffectRendering = o.DofRendering == "lux" ? Lux.Engine.Pipeline.Dof.DofRendering.Lux : Lux.Engine.Pipeline.Dof.DofRendering.Lumen,
             UseSavedEdits = !o.NoEdits,
+            TeleCheck = o.TeleCheck,
             CacheUse = o.NoCache ? CacheUse.None : CacheUse.ReadWriteGeometry,
             MemoryBudgetBytes = o.MemoryBudgetGb is double gb ? (long)(gb * (1L << 30)) : null,
             EditsVariant = o.Edits,
@@ -459,6 +502,15 @@ public static class ConvertCmd
             HdrColorSpace = o.HdrCs,
             Stills = set.Still, Tiff = tiff, GainMap = gainMap,
             LuxFormats = set.LensFrames || px.Length > 0 ? VisualFormats.Writer : null,
+            Scene = set.Scene.Length > 0 ? new SceneRequest
+            {
+                Formats = set.Scene, MeshTriangles = o.MeshTriangles ?? 250_000, MeshRelief = o.MeshDepth != "metric", PointStep = o.PcStep ?? 4,
+            } : null,
+            Stereo = set.Stereo.Length > 0 ? new StereoRequest
+            {
+                Formats = set.Stereo, HalfWidth = o.StereoLayout == "half", Size = o.StereoSize ?? 0, Container = o.StereoFormat ?? "gif",
+                Source = o.StereoSource switch { "real" => StereoSource.Real, "depth" => StereoSource.Depth, _ => StereoSource.Auto },
+            } : null,
             LensFrames = set.LensFrames ? new LensRequest
             {
                 Ev = o.LensEv, Quality = o.LensQuality, Level = o.LensLevel, Profile = (RendererProfile)o.LensProfile,
@@ -480,6 +532,20 @@ public static class ConvertCmd
     }
 
     public static string NameOf(ExportImageFormat f) => ExportFormats.NameOf(f);
+
+    /// <summary>How the camera was held for a capture file: the degrees clockwise (0, 90, 180, 270) that show it upright; 0 when the
+    /// camera recorded no orientation. Reads the first block of the file only.</summary>
+    public static int HeldTurnOf(string lriPath)
+    {
+        using var fs = File.OpenRead(lriPath);
+        var header = Lux.Engine.Lri.LriFile.ReadFirstBlockHeader((offset, count) =>
+        {
+            var b = new byte[(int)Math.Max(0, Math.Min(count, fs.Length - offset))];
+            fs.Position = offset; fs.ReadExactly(b);
+            return b;
+        }, fs.Length);
+        return header is null ? 0 : Math.Max(0, Lux.Store.HeldTurn.Degrees(header));
+    }
 
     /// <summary>The quarter turn of a saved transform's matrix (0 for none or a mirror).</summary>
     public static int TurnOf(float[]? m)

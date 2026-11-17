@@ -147,9 +147,11 @@ internal sealed class PhotoEditImpl : IPhotoEdit
         public TAdj Adj = TAdj.Default;
         public LumenGeometryEdits Geo = null!;
         public float? FNumber, Focus;
+        /// <summary>The renderer of the depth effect.</summary>
+        public Lux.Engine.Pipeline.Dof.DofRendering Rendering;
         /// <summary>The geometry is a decision of its own: the display-only held turn does not apply.</summary>
         public bool Decided;
-        public State Clone() => new() { Adj = Adj, Geo = Geo.Clone(), FNumber = FNumber, Focus = Focus, Decided = Decided };
+        public State Clone() => new() { Adj = Adj, Geo = Geo.Clone(), FNumber = FNumber, Focus = Focus, Rendering = Rendering, Decided = Decided };
     }
 
     State _st;
@@ -232,6 +234,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
             if (recipe.Transform is { } t) st.Geo = new LumenGeometryEdits(LumenTransform.FromExport(t));
             if (recipe.FNumber is float f) st.FNumber = f;
             if (recipe.FocusDepth is float fd) st.Focus = fd;
+            st.Rendering = recipe.DepthEffectRendering;
         }
         return (b, st);
     }
@@ -270,6 +273,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
         {
             Output = RenderOutput.Display, ToneV2 = toneV2, Adjustments = _st.Adj,
             DepthEffectFNumber = _st.FNumber, FocusDepthMm = _st.Focus is float f && f > 0f ? f : null,
+            DepthEffectRendering = _st.Rendering,
         };
         var original = edited with { Adjustments = TAdj.Default };
         edited = edited with { Overlay = _overlay };
@@ -378,6 +382,21 @@ internal sealed class PhotoEditImpl : IPhotoEdit
         return true;
     }
 
+    /// <summary>Set the renderer of the depth effect (one history step); returns false when nothing changed.</summary>
+    internal bool SetDepthRendering(Lux.Engine.Pipeline.Dof.DofRendering rendering)
+    {
+        CheckWritable();
+        string label = rendering == Lux.Engine.Pipeline.Dof.DofRendering.Lux ? "Lux rendering" : "Lumen rendering";
+        lock (_lock)
+        {
+            if (_st.Rendering == rendering) return false;
+            Push(_st.Clone(), label, HistoryEntryKind.DepthEffect);
+            _st.Rendering = rendering;
+        }
+        Changed_(EditChangeKind.Adjustment, null, committed: true, geometry: false, step: label);
+        return true;
+    }
+
     internal void BeginDepthDrag()
     {
         CheckWritable();
@@ -428,6 +447,8 @@ internal sealed class PhotoEditImpl : IPhotoEdit
 
     /// <summary>The f-number and focus settings now.</summary>
     internal (float? FNumber, float? Focus) DepthEffect { get { lock (_lock) return (_st.FNumber, _st.Focus); } }
+    /// <summary>The renderer of the depth effect now.</summary>
+    internal Lux.Engine.Pipeline.Dof.DofRendering DepthRendering { get { lock (_lock) return _st.Rendering; } }
 
     /// <summary>Put an overlay in place. <paramref name="committed"/>: the whole picture changes (a mode switch: the floor rises, everything is
     /// rendered again); otherwise only <paramref name="rect"/> changed (a stroke preview, the selection after a stroke) and only its tiles are
@@ -506,6 +527,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
     internal EditValues Snapshot(State st) => new()
     {
         Groups = EditGroups.All, Adjustments = st.Adj, Transform = Describe(st.Geo.T), FNumber = st.FNumber, FocusMm = st.Focus,
+        DepthRendering = st.Rendering,
     };
 
     internal static PhotoTransform Describe(LumenTransform t)
@@ -670,7 +692,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
             LumenGeometryEdits.SetCropFromRect(s.Geo.T, frame);
             s.Geo.InitTransform(s.Geo.T);
         }
-        if (g.HasFlag(EditGroups.DepthEffect)) { s.FNumber = _base.FNumber is null ? null : Info.AllInFocusFNumber; s.Focus = _base.Focus is null ? null : -1f; }
+        if (g.HasFlag(EditGroups.DepthEffect)) { s.FNumber = _base.FNumber is null ? null : Info.AllInFocusFNumber; s.Focus = _base.Focus is null ? null : -1f; s.Rendering = _base.Rendering; }
         return s;
     }
 
@@ -684,7 +706,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
             geo = !next.Geo.T.SameAs(_st.Geo.T) || next.Geo.CropState != _st.Geo.CropState || next.Decided != _st.Decided;
             // nothing to reset: no step (as an unchanged drag) — except "Revert to original", which always shows as its own step (a revert
             // that left the selection on "Opened" would read as a jump back, not as a revert)
-            if (!geo && next.Adj == _st.Adj && next.FNumber == _st.FNumber && next.Focus == _st.Focus && groups != EditGroups.All) return;
+            if (!geo && next.Adj == _st.Adj && next.FNumber == _st.FNumber && next.Focus == _st.Focus && next.Rendering == _st.Rendering && groups != EditGroups.All) return;
             Push(_st.Clone(), groups == EditGroups.All ? "revert to original" : "reset", groups == EditGroups.DepthEffect ? HistoryEntryKind.DepthEffect : HistoryEntryKind.Several);
             _st = next; _cropBefore = null;
         }
@@ -734,7 +756,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
             Turn(s, heldTurn);
             s.Decided = true;
         }
-        if (g.HasFlag(EditGroups.DepthEffect)) { s.FNumber = v.FNumber; s.Focus = v.FocusMm; }
+        if (g.HasFlag(EditGroups.DepthEffect)) { s.FNumber = v.FNumber; s.Focus = v.FocusMm; s.Rendering = v.DepthRendering; }
         bool cropOk = true;
         var vt = ToLumen(v.Transform);
         bool sameAspect = vt.AspectW == s.Geo.T.AspectW && vt.AspectH == s.Geo.T.AspectH;
@@ -1012,7 +1034,7 @@ internal sealed class PhotoEditImpl : IPhotoEdit
         float? fn = st.FNumber == _base.FNumber ? null : st.FNumber;
         float? fo = st.Focus == _base.Focus ? null : st.Focus;
         bool? decided = st.Decided == _base.Decided ? null : st.Decided;
-        var r = new CaptureRecipe { Adjustments = adj, Transform = tr, FNumber = fn, FocusDepth = fo, GeometryDecided = decided };
+        var r = new CaptureRecipe { Adjustments = adj, Transform = tr, FNumber = fn, FocusDepth = fo, GeometryDecided = decided, DepthEffectRendering = st.Rendering };
         return r.IsEmpty ? null : r;
     }
 

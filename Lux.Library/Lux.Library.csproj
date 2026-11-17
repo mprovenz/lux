@@ -27,6 +27,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Lux.Engine\Lux.Engine.csproj" />
     <ProjectReference Include="..\Lux.Store\Lux.Store.csproj" />
+    <ProjectReference Include="..\Lux.DepthModel\Lux.DepthModel.csproj" />
   </ItemGroup>
 
 </Project>

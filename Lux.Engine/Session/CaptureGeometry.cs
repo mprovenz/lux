@@ -36,6 +36,9 @@ public sealed class CaptureGeometry
     public required IReadOnlyList<TeleCamera> Tele { get; init; }
     /// <summary>The upsampled full-frame depth (metric mm, W0×H0); null when the chain produced none (no reference guide).</summary>
     public (float[] Depth, int W, int H)? FullDepth { get; init; }
+    /// <summary>What the telephoto alignment check did, one line for each telephoto module; null when the check did not run. The header
+    /// does not carry it: the analysis cache keeps it in a block of its own.</summary>
+    public IReadOnlyList<string>? TeleCheckReport { get; init; }
 
     /// <summary>Take the geometry out of a registration state that has run the whole chain (states 1–7 and the upsample).</summary>
     public static CaptureGeometry FromRegistration(StereoAsyncApi api)
@@ -52,8 +55,27 @@ public sealed class CaptureGeometry
             RefPose = Clone(api.Cams[refId].Pose), RefSlot = api.Cams[refId].Slot.Clone(),
             Tele = tele,
             FullDepth = api.FullDepth is { } fd ? (fd.Depth, fd.W, fd.H) : null,
+            TeleCheckReport = api.Cdp.TeleCheckEnabled ? TeleCheckLines(api) : null,
         };
     }
+
+    static List<string> TeleCheckLines(StereoAsyncApi api)
+    {
+        var lines = new List<string>();
+        foreach (var c in api.Cdp.Higher)
+        {
+            if (!api.Cdp.TeleCheckResults.TryGetValue(c.Id, out var r)) continue;
+            string px = double.IsFinite(r.Residual) ? FormattableString.Invariant($"{r.Residual:0.0} px off") : "not measured";
+            lines.Add(r.Apply ? FormattableString.Invariant($"{c.Name} corrected ({px}, turned {r.AngleDegrees:0.00} degrees)") : $"{c.Name} unchanged ({px}, {r.Reason})");
+        }
+        return lines;
+    }
+
+    /// <summary>The same geometry with a telephoto check report (read back from the analysis cache).</summary>
+    public CaptureGeometry WithTeleCheckReport(IReadOnlyList<string>? report) => new()
+    {
+        RefId = RefId, Names = Names, RefPair = RefPair, RefPose = RefPose, RefSlot = RefSlot, Tele = Tele, FullDepth = FullDepth, TeleCheckReport = report,
+    };
 
     /// <summary>
     /// The geometry a Lumen session file restores (its Stereo record): the ctor state of the capture

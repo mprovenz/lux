@@ -20,7 +20,12 @@ internal sealed partial class DepthSession
             int k = all.Where(x => x.Kind == DepthEditStore.KindLumenImport).ToList().FindIndex(x => x.Id == v.Id);
             return k <= 0 ? "From Lumen" : $"From Lumen {k + 1}";
         }
-        int i = all.Where(x => x.Kind != DepthEditStore.KindLumenImport).ToList().FindIndex(x => x.Id == v.Id);
+        if (v.Kind == DepthEditStore.KindRefined)
+        {
+            int k = all.Where(x => x.Kind == DepthEditStore.KindRefined).ToList().FindIndex(x => x.Id == v.Id);
+            return k <= 0 ? "Refined" : $"Refined {k + 1}";
+        }
+        int i = all.Where(x => x.Kind is not (DepthEditStore.KindLumenImport or DepthEditStore.KindRefined)).ToList().FindIndex(x => x.Id == v.Id);
         return i <= 0 ? "Lux edits" : $"Lux edits {i + 1}";
     }
 
@@ -45,7 +50,7 @@ internal sealed partial class DepthSession
                         bool tone = false;
                         if (v.Kind == DepthEditStore.KindLumenImport) try { tone = store.ReadRenderSettings(v.Id)?.ToneV2 ?? false; } catch (DepthEditStoreException) { }
                         DateTime? created = DateTime.TryParse(v.CreatedUtc, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var t) ? t : null;
-                        list.Add(new DepthVersion(v.Name, VersionName(v, all), v.Kind == DepthEditStore.KindLumenImport ? DepthVersionKind.LumenImport : DepthVersionKind.Lux,
+                        list.Add(new DepthVersion(v.Name, VersionName(v, all), v.Kind == DepthEditStore.KindLumenImport ? DepthVersionKind.LumenImport : v.Kind == DepthEditStore.KindRefined ? DepthVersionKind.Refined : DepthVersionKind.Lux,
                                                   v.Name == active, (int)v.Cursor, store.LogCount(v.Id), created, v.History == Lux.Store.HistoryState.Unreliable) { NewerToneStyle = tone });
                     }
                 }

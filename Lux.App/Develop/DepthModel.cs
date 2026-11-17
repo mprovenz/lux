@@ -183,6 +183,8 @@ public enum VersionKind
     Lux,
     /// <summary>Depth edits imported from a Lumen session.</summary>
     Lumen,
+    /// <summary>Refined depth: Lux's own depth joined with a depth network's view of the picture. It is edited like a Lux version.</summary>
+    Refined,
 }
 
 /// <param name="Id">The library's variant id ("clean", "lux", "lux-2", "lumen-import").</param>
@@ -222,6 +224,11 @@ public interface IDepthSession
     void EndEffectDrag();
     /// <summary>Committed values (typed, double-click, a key step): one history step per value that changed.</summary>
     void SetEffect(double? fNumber, double focusMm);
+    /// <summary>The depth effect uses the Lux rendering: bright discs from lights, sharp disc edges, grain only in blurred areas.
+    /// False = Lumen's renderer (the default).</summary>
+    bool LuxRendering => false;
+    /// <summary>Choose the renderer of the depth effect (one history step when it changes).</summary>
+    void SetLuxRendering(bool on) { }
     /// <summary>Click to focus (picture point as shown): the depth there becomes the focus (one step), or the reason it cannot.</summary>
     Task<PointResult> FocusAtAsync(NormPoint picture, CancellationToken cancel = default);
     /// <summary>Whether a focus click at the point would be accepted (from the depth in memory; the focus tool's cursor).</summary>
@@ -288,6 +295,9 @@ public interface IDepthSession
     string LumenImportWarning { get; }
     /// <summary>Import the photo's Lumen session as a version (made current).</summary>
     Task<ToolOutcome> ImportLumenAsync(bool newerToneStyle);
+    /// <summary>Make the refined version of the photo's depth (once; later calls switch to it) and make it current. It needs the depth
+    /// model's files: the caller makes sure they are installed. Several seconds of work, reported through <see cref="Activity"/>.</summary>
+    Task<ToolOutcome> RefineDepthAsync() => Task.FromResult(new ToolOutcome(ToolResult.Failed, "Refined depth is not available here."));
 
     event Action? Changed;
 }

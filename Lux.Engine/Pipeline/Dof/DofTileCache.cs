@@ -88,6 +88,30 @@ public sealed class DofTileCache
     /// occluded depth and the matte of its fetch rect and hands them to the builder. Null = no depth edits.</summary>
     public Lux.Engine.Pipeline.Dof.Edit.DepthEditLayer? EditLayer { get => _in.Layer; set => _in = _in with { Layer = value }; }
 
+    /// <summary>The renderer of the tiles. Set it before the first tile is made.</summary>
+    public DofRendering Rendering { get; init; }
+    /// <summary>The parts of the Lux rendering (used when <see cref="Rendering"/> is <see cref="DofRendering.Lux"/>).</summary>
+    public LuxDofOptions LuxOptions { get; init; } = LuxDofOptions.Default;
+    /// <summary>Per channel, the gain that takes a pixel of the color cache to display white = 1: the capture's exposure ratio divided by its
+    /// neutral. The Lux rendering expands values above 1.</summary>
+    public (float R, float G, float B) WhiteGains { get; init; } = (1f, 1f, 1f);
+
+    // the grain model of each level, measured when the first tile of the level is made
+    readonly System.Collections.Concurrent.ConcurrentDictionary<int, Lazy<LuxNoiseModel>> _noise = new();
+
+    /// <summary>The grain model of a level (<see cref="LuxNoiseModel.Measure"/> on the level's color).</summary>
+    public LuxNoiseModel NoiseModel(int level)
+        => _noise.GetOrAdd(level, l => new Lazy<LuxNoiseModel>(() =>
+        {
+            using var _ = Diagnostics.PhaseLog.Time(() => $"dof.noise-model L{l}");
+            // (the fallback's channel weights: a neutral color has the channel values 1 / gain)
+            return LuxNoiseModel.Measure(r => Colour(l, r), Grid.LevelDims[l], 1f / WhiteGains.R, 1f / WhiteGains.G, 1f / WhiteGains.B);
+        }, LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    LuxDofTile? LuxTile(int level)
+        => Rendering != DofRendering.Lux ? null
+           : new LuxDofTile(LuxOptions, WhiteGains.R, WhiteGains.G, WhiteGains.B, LuxOptions.Grain > 0f ? NoiseModel(level) : null);
+
     // each tile with the geometry it was made with (SwapDepth compares it with the geometry of the new depth)
     TileStore<(int L, int Tx, int Ty), (ushort[] Px, DofTileGeometry Geo, int DepthW, int DepthH)> _tiles = new();
 
@@ -101,10 +125,22 @@ public sealed class DofTileCache
     /// (null = DefaultFocusDepth, what the renderer puts into the focus setting when the depth is published).
     /// </summary>
     public static DofTileCache ForCapture(Lux.Engine.Lri.LriFile lri, PipelineCache colour, DepthImageCache depth, float fnum, float? focusDepth)
+        => ForCapture(lri, colour, depth, fnum, focusDepth, DofRendering.Lumen);
+
+    /// <summary>The same with the renderer of the tiles. For the Lux rendering, display white comes from the capture's exposure ratio and
+    /// neutral, so it does not move with the tone settings of an export.</summary>
+    public static DofTileCache ForCapture(Lux.Engine.Lri.LriFile lri, PipelineCache colour, DepthImageCache depth, float fnum, float? focusDepth, DofRendering rendering)
     {
         var state = new DofState(DofConstants.FromCapture(lri));
         state.Set(fnum, focusDepth ?? DofModel.DefaultFocusDepth(lri, depth.Current));
-        return new DofTileCache(new DofTileGrid(colour.LevelDims), state, DofModel.DeviceType(lri), depth, colour.LevelDims, colour.RenderRoi, BuildAndBlur);
+        var gains = (1f, 1f, 1f);
+        if (rendering == DofRendering.Lux)
+        {
+            float ratio = lri.LumenExposureRatio; var nt = lri.LumenNeutral;
+            if (ratio > 0f && nt is { Length: >= 3 } && nt[0] > 0f && nt[1] > 0f && nt[2] > 0f) gains = (ratio / nt[0], ratio / nt[1], ratio / nt[2]);
+        }
+        return new DofTileCache(new DofTileGrid(colour.LevelDims), state, DofModel.DeviceType(lri), depth, colour.LevelDims, colour.RenderRoi, BuildAndBlur)
+        { Rendering = rendering, WhiteGains = gains, LuxOptions = LuxDofOptions.Default };
     }
 
     /// <summary>The builder → crop → blur steps of the tile lambda: build the two-layer buffer over the fetch rect (synthesis on), crop it to
@@ -120,15 +156,23 @@ public sealed class DofTileCache
     /// <summary>With <paramref name="pooledOutput"/> the returned array is a <see cref="ScratchPool"/> array (possibly longer than the image; the
     /// caller gives it back) and the builder's full-size planes are pooled too (given back here once the blur has read them).</summary>
     static (float[] Rgba, RectI Rect, int Stride) BuildAndBlur(DofTileGeometry g, float[] colour, DepthImage depth, float[]? occDepth, float[]? matte, bool pooledOutput)
+        => BuildAndBlur(g, colour, depth, occDepth, matte, pooledOutput, null);
+
+    /// <summary>The builder and the blur of one tile with the Lux rendering. <paramref name="colour"/> is expanded in place first.</summary>
+    public static (float[] Rgba, RectI Rect, int Stride) BuildAndBlur(DofTileGeometry g, float[] colour, DepthImage depth, float[]? occDepth, float[]? matte, LuxDofTile lux)
+        => BuildAndBlur(g, colour, depth, occDepth, matte, false, lux);
+
+    static (float[] Rgba, RectI Rect, int Stride) BuildAndBlur(DofTileGeometry g, float[] colour, DepthImage depth, float[]? occDepth, float[]? matte, bool pooledOutput, LuxDofTile? lux)
     {
         int w = g.FetchRect.Width, h = g.FetchRect.Height;
+        if (lux is not null) lux = lux with { Expanded = LuxRendering.Expand(colour, w * h, lux) };
         var buf = new DualLayerBuffer();
         if (occDepth != null && matte != null) { buf.OccDepth = new DofImage(occDepth, 1, w, h); buf.Matte = new DofImage(matte, 1, w, h); }
         var pooled = pooledOutput ? new List<float[]>() : null;
         using (Diagnostics.PhaseLog.Time("dof.builder"))
             DualLayerBuilder.Build(buf, new DofImage(colour, 4, w, h), new DofImage(depth.ToDense(), 1, w, h), g.Focus, g.FocalLength, g.FocalLength35, g.LevelPitch,
                 synth: true, g.Device, g.InFocusNear, g.InFocusFar, null, pooled);
-        var blur = new DefocusBlur(buf.Crop(g.CropRect), g.BlurRect, g.BlurRect, g.FocalLength, g.LevelPitch, g.SyntheticFNumber, g.Focus, g.Device);
+        var blur = new DefocusBlur(buf.Crop(g.CropRect), g.BlurRect, g.BlurRect, g.FocalLength, g.LevelPitch, g.SyntheticFNumber, g.Focus, g.Device, lux);
         var o = blur.Run(true, null, pooledOutput);
         if (pooled != null) foreach (var a in pooled) ScratchPool.Return(a);
         return (pooledOutput ? o.D : o.ToArray(), new RectI(0, 0, o.W, o.H), o.W);
@@ -191,7 +235,8 @@ public sealed class DofTileCache
         // a tile with an edit layer goes through the built-in builder (the Blur delegate has no layer inputs)
         float[] rgba; RectI rect; int stride;
         bool builtIn = occ != null || (Blur.Target is null && Blur.Method == DefaultBlurMethod);
-        using (Diagnostics.PhaseLog.Time(() => $"dof.build+blur L{level}")) (rgba, rect, stride) = builtIn ? BuildAndBlur(g, colour, depth, occ, matte, pooledOutput: true) : Blur(g, colour, depth);
+        var lux = builtIn ? LuxTile(level) : null;
+        using (Diagnostics.PhaseLog.Time(() => $"dof.build+blur L{level}")) (rgba, rect, stride) = builtIn ? BuildAndBlur(g, colour, depth, occ, matte, pooledOutput: true, lux) : Blur(g, colour, depth);
         ushort[] half; using (Diagnostics.PhaseLog.Time(() => $"dof.half L{level}")) half = ToHalf(rgba, stride, g.FinalCrop(rect), g.TileRect.Width, g.TileRect.Height);
         if (builtIn) ScratchPool.Return(rgba);
         return (half, g, depthCache.Current.W, depthCache.Current.H);

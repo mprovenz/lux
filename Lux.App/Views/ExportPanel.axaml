@@ -96,6 +96,13 @@
               <ComboBox Grid.Column="1" ItemsSource="{Binding ToneChoices}" SelectedItem="{Binding ToneStyle}" AutomationProperties.Name="Tone style"
                         ToolTip.Tip="Lumen's newer tone style is kept with photos whose Lumen edits were imported with it" />
             </Grid>
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12" RowDefinitions="Auto,Auto" RowSpacing="4">
+              <TextBlock Text="Telephoto" VerticalAlignment="Center" />
+              <CheckBox Grid.Column="1" x:Name="TeleCheckBox" IsChecked="{Binding TeleCheck}" Content="Check telephoto alignment"
+                        AutomationProperties.Name="Check telephoto alignment"
+                        ToolTip.Tip="Off: the lenses are aligned as Lumen aligns them. On: each telephoto lens is checked against the wide picture, and a lens that is clearly off is corrected. This brings back telephoto detail in some near, dark or stacked photos." />
+              <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TeleCheckNote" Classes="small secondary wrap" Text="{x:Static vm:ExportPanelViewModel.TeleCheckNote}" />
+            </Grid>
             <Grid ColumnDefinitions="110,*,Auto" ColumnSpacing="12">
               <TextBlock Text="Folder" VerticalAlignment="Center" />
               <TextBox Grid.Column="1" Classes="tall mono" Text="{Binding Folder}" AutomationProperties.Name="Export folder" />

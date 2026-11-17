@@ -481,6 +481,32 @@ public sealed class CalibDataProcessor
         FilterTele();
         FineTele();
         BundleAdjustTele();
+        if (TeleCheckEnabled) CheckTele();
         return true;
+    }
+
+    // ───────────────────────────── telephoto alignment check (not in Lumen; off by default) ─────────────────────────────
+    /// <summary>Run the telephoto alignment check (<see cref="TeleCheck"/>) after the bundle adjustment. Off by default: the registration is
+    /// then Lumen's, bit for bit.</summary>
+    public bool TeleCheckEnabled;
+    /// <summary>What the check found for each higher-group camera, by camera id. Empty when the check did not run.</summary>
+    public Dictionary<int, TeleCheck.Result> TeleCheckResults = new();
+
+    /// <summary>The telephoto alignment check for every higher-group camera. A corrected pose is written to the camera's slot, as the
+    /// bundle adjustment writes its result.</summary>
+    public void CheckTele()
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var reference = TeleCheck.Prepare(TeleCheck.Gray(Ref.Image), Ref.Image.W, Ref.Image.H, Depth, Ref.View().Basic(), Threads);
+        foreach (var c in Higher)
+        {
+            var r = TeleCheck.Check(reference, TeleCheck.Gray(c.Image), c.Image.W, c.Image.H, c.View().Basic(), Threads);
+            TeleCheckResults[c.Id] = r;
+            Log?.Invoke($"  tele check cam {c.Id} ({c.Name}): {r.Matches} matches, residual {r.Residual:G4} px, splits {r.Splits}, rotation {r.AngleDegrees:G4} deg → {r.Reason}");
+            if (!r.Apply) continue;
+            var slot = TeleCheck.Corrected(c.Pose, c.Slot, r.Rotation!);
+            CalibWrite(c, slot.K, slot.R, slot.T, "tele check");
+        }
+        Log?.Invoke($"  tele check: {sw.Elapsed.TotalSeconds:F2}s");
     }
 }

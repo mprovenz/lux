@@ -57,6 +57,8 @@ public static class SavedDepthEdits
         st.EditedDepth = new AppliedDepthEdits(v.Name, v.Kind, session.Cache, session.Editor.Layer, tiles);
         string note = tiles == 0 && v.Kind == DepthEditStore.KindLumenImport
             ? $"saved depth: variant '{v.Name}' (no depth edits)"
+            : v.Kind == DepthEditStore.KindRefined
+            ? $"saved depth: variant '{v.Name}' (refined depth, {tiles} edited tile{(tiles == 1 ? "" : "s")})"
             : $"saved depth edits: variant '{v.Name}' ({tiles} edited tile{(tiles == 1 ? "" : "s")})"
             + (v.Kind == DepthEditStore.KindLumenImport ? ", imported from Lumen — it uses Lumen's stored depth map" : "")
             + (sameDepth == false && v.Kind != DepthEditStore.KindLumenImport ? "; the depth saved with the edits differs from the depth computed now and is the one used" : "");

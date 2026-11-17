@@ -186,7 +186,9 @@ public sealed class FakeJobQueue : IJobQueue, IDisposable
     internal static string FormatList(ExportOptions o)
     {
         static string Name(string f) => f switch { "dng" => "DNG", "jpg" => "JPG", "jpg+depth" => "JPG + depth", "hdr" => "HDR", "ppm" => "PPM", "depth" => "depth map",
-                                                   "jpg-hdr" => "JPG + HDR gain map", "tiff16" => "TIFF 16-bit", "tiff-linear" => "TIFF linear (HDR)", _ => f };
+                                                   "jpg-hdr" => "JPG + HDR gain map", "tiff16" => "TIFF 16-bit", "tiff-linear" => "TIFF linear (HDR)",
+                                                   "stereo-sbs" => "Stereo side by side", "stereo-anaglyph" => "Stereo anaglyph", "stereo-wiggle" => "Stereo wiggle", "stereo-mpo" => "Stereo MPO",
+                                                   "mesh-glb" => "3D photo (GLB)", "pointcloud-ply" => "Point cloud (PLY)", _ => f };
         return string.Join(" + ", o.Formats.Select(Name));
     }
 

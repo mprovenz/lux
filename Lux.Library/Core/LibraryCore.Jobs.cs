@@ -333,12 +333,23 @@ internal static class ExportJobs
     /// <summary>The name of a format in a job title: the names of the export panel for the still formats of Lux, else upper case.</summary>
     internal static string DisplayName(string f) => f.Trim().ToLowerInvariant() switch
     {
-        "tiff16" => "TIFF 16-bit", "tiff-linear" => "TIFF linear (HDR)", "jpg-hdr" => "JPG + HDR gain map", _ => f.ToUpperInvariant(),
+        "tiff16" => "TIFF 16-bit", "tiff-linear" => "TIFF linear (HDR)", "jpg-hdr" => "JPG + HDR gain map",
+        "stereo-sbs" => "Stereo side by side", "stereo-anaglyph" => "Stereo anaglyph", "stereo-wiggle" => "Stereo wiggle", "stereo-mpo" => "Stereo MPO",
+        "mesh-glb" => "3D photo (GLB)", "pointcloud-ply" => "Point cloud (PLY)",
+        _ => f.ToUpperInvariant(),
     };
 
     /// <summary>The still formats of Lux among the format names (tiff16, tiff-linear, jpg-hdr).</summary>
     static StillFormat[] Stills(ExportOptions o)
         => o.Formats.Select(f => StillFormats.TryParse(f.Trim(), out StillFormat s) ? s : (StillFormat?)null).Where(s => s is not null).Select(s => s!.Value).Distinct().ToArray();
+
+    /// <summary>The stereo formats among the format names (stereo-sbs, stereo-anaglyph, stereo-wiggle, stereo-mpo).</summary>
+    static StereoFormat[] Stereo(ExportOptions o)
+        => o.Formats.Select(f => StereoExport.TryParse(f.Trim().ToLowerInvariant(), out StereoFormat s) ? s : (StereoFormat?)null).Where(s => s is not null).Select(s => s!.Value).Distinct().ToArray();
+
+    /// <summary>The 3D formats among the format names (mesh-glb, pointcloud-ply).</summary>
+    static SceneFormat[] Scene(ExportOptions o)
+        => o.Formats.Select(f => SceneExport.TryParse(f.Trim().ToLowerInvariant(), out SceneFormat s) ? s : (SceneFormat?)null).Where(s => s is not null).Select(s => s!.Value).Distinct().ToArray();
 
     static (ExportImageFormat? Format, bool DepthMap) Parse(string f) => f.Trim().ToLowerInvariant() switch
     {
@@ -349,7 +360,9 @@ internal static class ExportJobs
         "ppm" => (ExportImageFormat.Ppm, false),
         "depth" => (null, true),
         "tiff16" or "tiff-linear" or "jpg-hdr" => (null, false),   // the still formats of Lux: see Stills
-        _ => throw new LibraryException($"“{f}” is not a format Lux can export (dng, jpg, jpg+depth, hdr, ppm, tiff16, tiff-linear, jpg-hdr, depth)."),
+        "stereo-sbs" or "stereo-anaglyph" or "stereo-wiggle" or "stereo-mpo" => (null, false),   // the stereo formats: see Stereo
+        "mesh-glb" or "pointcloud-ply" => (null, false),   // the 3D formats: see Scene
+        _ => throw new LibraryException($"“{f}” is not a format Lux can export (dng, jpg, jpg+depth, hdr, ppm, tiff16, tiff-linear, jpg-hdr, depth, stereo-sbs, stereo-anaglyph, stereo-wiggle, stereo-mpo, mesh-glb, pointcloud-ply)."),
     };
 
     /// <summary>A custom long edge as `convert --level L --size W,H`: W,H from the photo's full size (after its saved crop when edits are used),
@@ -396,8 +409,11 @@ internal static class ExportJobs
             CacheUse = o.UseCache ? CacheUse.ReadWriteGeometry : CacheUse.None,
             JpegQuality = o.JpegQuality,
             DngKeepHighlights = o.DngKeepHighlights,
+            TeleCheck = o.TeleCheck,
             JpegEmbedIcc = o.EmbedColorProfile,
             Stills = Stills(o),
+            Stereo = Stereo(o) is { Length: > 0 } stereo ? new StereoRequest { Formats = stereo } : null,
+            Scene = Scene(o) is { Length: > 0 } scene ? new SceneRequest { Formats = scene } : null,
             Tiff = new TiffOptions { ColorSpace = o.TiffColorSpace is string tcs && StillFormats.TryParseColorSpace(tcs, out var tiffCs) ? tiffCs : TiffColorSpace.Srgb },
             JpegSharpening = DisplayIspTuning.GuiSharpeningProperty,
             Adjustments = o.Adjustments?.Validate(),
@@ -441,6 +457,8 @@ internal static class ExportJobs
     {
         foreach (var f in r.Formats) yield return Path.Combine(dir, stem + ExportFormats.Extension(f));
         foreach (var f in r.Stills) yield return Path.Combine(dir, stem + StillFormats.Suffix(f));
+        if (r.Stereo is { } st) foreach (var f in st.Formats) yield return Path.Combine(dir, stem + StereoExport.Suffix(f, st));
+        if (r.Scene is { } sc) foreach (var f in sc.Formats) yield return Path.Combine(dir, stem + SceneExport.Suffix(f));
         if (r.DepthMap) { yield return Path.Combine(dir, stem + "_depth.f32"); yield return Path.Combine(dir, stem + "_depth.jpg"); }
     }
 
@@ -520,20 +538,22 @@ internal static class ExportJobs
                                  string path, string outDir, string stem, LibraryCore.PhaseProgress pp, CaptureItem item)
     {
         int threads = lib.SettingsImpl.RenderThreads;
-        using var s = CaptureSession.Open(path, new SessionOptions { Context = ctx, Threads = threads, Progress = pp.On, DisplayCacheBytes = 0, KeepGeometry = true,
+        using var s = CaptureSession.Open(path, new SessionOptions { Context = ctx, Threads = threads, Progress = pp.On, DisplayCacheBytes = 0, KeepGeometry = true, TeleCheck = o.TeleCheck,
                                                                      Log = lib.Log is null ? null : m => lib.Log($"[{r.CaptureId[..8]}] {m}") });
         if (o.UseSavedEdits && o.EditsVariant is not null && !ctx.HasSavedEdits) throw new LibraryException($"This photo has no saved version “{o.EditsVariant}”.");
         // a photo shown the way the camera was held is exported that way, unless the export (or the setting) asks for
         // the capture as recorded: the held turn as Lumen's own rotate — the transform "Rotate as the camera was held" would save
         var upright = lib.UprightTransform(r.CaptureId, o.Unturned, out int turn);
         var req = BuildRequest(o, outDir, stem, item, turn) with { Context = ctx, Progress = pp.On };
+        // a stereo pair needs to know how the camera was held: turned, the two wide lenses are one above the other
+        if (req.Stereo is { } stereoReq) req = req with { Stereo = stereoReq with { HeldTurn = Math.Max(0, Lux.Store.HeldTurn.Degrees(s.Lri)) } };
         if (upright is not null) req = req with { Transform = upright, OverriddenSettings = new HashSet<string>(req.OverriddenSettings ?? new HashSet<string>()) { "transform" } };
         Exporter.Result res;
         try { res = await s.ExportAsync(req, job.Cancel).ConfigureAwait(false); }
         catch (ExportRequestException e) { throw new LibraryException(e.Message.Replace("--edits ", "version ")); }
         // as `convert` does: a level-0 build's geometry + depth is kept when the capture already has a context (not for a Lumen-session render,
         // whose geometry is the session's)
-        if (o.UseCache && s.SavedState?.SessionGeometry is null && Exporter.BuildLevelFor(req) == 0 && ctx.Context.ExistingRoot is not null && s.CacheLevel == CacheLevel.None)
+        if (o.UseCache && s.SavedState?.SessionGeometry is null && Exporter.BuildLevelFor(req) == 0 && ctx.Context.ExistingRoot is not null && (o.TeleCheck ? !s.HasKeptGeometry : s.CacheLevel == CacheLevel.None))
         {
             try { await s.EnsureCacheAsync(CacheLevel.Geometry, job.Cancel).ConfigureAwait(false); job.Note("Kept the computed depth for later exports."); lib.OnCacheChanged(r.CaptureId); }
             catch (Exception e) when (e is IOException or InvalidOperationException) { }

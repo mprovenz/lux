@@ -15,7 +15,8 @@ sealed class DisplayTileMemory
     /// <summary>Everything a tile's linear input depends on besides the tile itself.</summary>
     /// <param name="DepthGen">The session's depth generation for a depth-effect tile (0 otherwise): a depth change makes the kept input of every
     /// depth-effect tile unreachable (it is fetched again from the depth-effect cache, which kept the unchanged tiles).</param>
-    public readonly record struct Key(ExportState State, int Level, int Tx, int Ty, float? DepthFNumber, float? FocusMm, bool SavedEdits, bool ToneV2, long DepthGen = 0);
+    public readonly record struct Key(ExportState State, int Level, int Tx, int Ty, float? DepthFNumber, float? FocusMm, bool SavedEdits, bool ToneV2, long DepthGen = 0,
+        Lux.Engine.Pipeline.Dof.DofRendering DepthRendering = Lux.Engine.Pipeline.Dof.DofRendering.Lumen);
 
     public sealed class Entry
     {

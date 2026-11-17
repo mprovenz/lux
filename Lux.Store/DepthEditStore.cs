@@ -78,6 +78,11 @@ public sealed class DepthEditStore : IDisposable
     public const int SchemaVersion = 2;
     public const int ApplicationId = 0x4C584445;   // "LXDE"
     public const string KindLux = "lux", KindLumenImport = "lumen-import";
+    /// <summary>A variant whose pinned depth is refined depth: the camera's depth joined with a depth network's view of the picture.
+    /// It is edited and exported like any other variant. <see cref="RefineInfoBlob"/> records what made it.</summary>
+    public const string KindRefined = Lux.Engine.Pipeline.DepthRefine.DepthRefiner.StoredKind;
+    /// <summary>The blob of a refined variant that names the network and the rules version (UTF-8 text).</summary>
+    public const string RefineInfoBlob = "refine-info";
     public const int PinnedTile = 512;
 
     readonly SqliteConnection _db;

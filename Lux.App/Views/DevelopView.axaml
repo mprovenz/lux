@@ -54,8 +54,17 @@
             <Button Classes="link small" Content="Start a clean version" Command="{Binding Depth.StartCleanVersionCommand}" Margin="0,0,10,0" MinHeight="26"
                     IsVisible="{Binding Depth.CanStartClean}" ToolTip.Tip="A new version from Lux's own depth, with no depth edits; the versions you have stay as they are" />
             <Button Classes="link small" Content="Import Lumen edits…" Command="{Binding ImportLumenEditsCommand}" IsVisible="{Binding Depth.CanImportLumen}" MinHeight="26"
-                    ToolTip.Tip="Bring this photo's Lumen edits in as a version of its own (the others are kept)" />
+                    Margin="0,0,10,0" ToolTip.Tip="Bring this photo's Lumen edits in as a version of its own (the others are kept)" />
+            <Button x:Name="RefineDepthButton" Classes="link small" Content="Refine depth" Command="{Binding Depth.RefineDepthCommand}" IsVisible="{Binding Depth.CanRefineDepth}" MinHeight="26"
+                    ToolTip.Tip="A new version of the depth: a depth network corrects outlines, thin objects and the sky. It takes several seconds. The versions you have stay as they are" />
           </WrapPanel>
+          <Grid x:Name="ModelDownloadRow" ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="{Binding Depth.IsModelDownloading}">
+            <StackPanel Spacing="3" VerticalAlignment="Center">
+              <TextBlock Classes="secondary small wrap" Text="{Binding Depth.ModelDownloadText}" />
+              <ProgressBar Minimum="0" Maximum="100" Value="{Binding Depth.ModelDownloadProgress}" Height="4" />
+            </StackPanel>
+            <Button Grid.Column="1" Classes="ghost small" Content="Cancel" Command="{Binding Depth.CancelModelDownloadCommand}" />
+          </Grid>
         </StackPanel>
         <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,4">
           <TextBlock Classes="strong" Text="History" VerticalAlignment="Center" />
@@ -460,6 +469,19 @@
                              KeyDown="OnEffectKeyDown" GotFocus="OnEffectGotFocus" LostFocus="OnEffectLostFocus" AutomationProperties.Name="Focus distance"
                              ToolTip.Tip="A distance (4.5, 4.5 m, 450 cm)" />
                   </Grid>
+                  <Grid ColumnDefinitions="84,Auto,*" IsEnabled="{Binding Depth.IsReady}">
+                    <TextBlock Classes="adjlabel" Classes.moved="{Binding Depth.IsLuxRendering}" Text="Rendering" VerticalAlignment="Center"
+                               ToolTip.Tip="How the depth effect draws the blur" />
+                    <Border Grid.Column="1" BorderBrush="{DynamicResource LuxLineLight}" BorderThickness="1" CornerRadius="2" VerticalAlignment="Center">
+                      <StackPanel Orientation="Horizontal" AutomationProperties.Name="Rendering">
+                        <Button x:Name="RenderingLumen" Classes="seg small" Classes.selected="{Binding !Depth.IsLuxRendering}" Content="Lumen" Command="{Binding Depth.SetRenderingCommand}"
+                                CommandParameter="false" ToolTip.Tip="The blur exactly as Lumen draws it" />
+                        <Button x:Name="RenderingLux" Classes="seg small" Classes.selected="{Binding Depth.IsLuxRendering}" Content="Lux" Command="{Binding Depth.SetRenderingCommand}"
+                                CommandParameter="true" ToolTip.Tip="Bright discs from lights, sharp disc edges, grain only in blurred areas" />
+                      </StackPanel>
+                    </Border>
+                  </Grid>
+                  <TextBlock x:Name="RenderingNote" Classes="small secondary wrap" Text="{x:Static vm:DepthViewModel.LuxRenderingText}" />
                   <CheckBox Content="Shade outside focal region" IsChecked="{Binding Depth.ShadeOutsideFocus}" IsEnabled="{Binding Depth.CanShade}" MinHeight="32"
                             ToolTip.Tip="Shade the parts of the photo that can't be brought into focus (H)" AutomationProperties.Name="Shade outside focal region" />
                   <Grid ColumnDefinitions="*,Auto">

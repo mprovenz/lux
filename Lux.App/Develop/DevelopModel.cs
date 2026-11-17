@@ -142,11 +142,14 @@ public sealed record EditSet(EditGroups Groups, IReadOnlyDictionary<string, doub
     /// distance (null = the photo's default focus).</summary>
     public double? DepthFNumber { get; init; }
     public double? DepthFocusMm { get; init; }
+    /// <summary>The depth effect uses the Lux rendering (it travels with the f-number and the focus).</summary>
+    public bool DepthLuxRendering { get; init; }
 
     /// <summary>"Depth effect f/2.0 · focus 4.56 m", "Depth effect off".</summary>
     public string DepthEffectText => DepthFNumber is double f
         ? $"f/{f.ToString("0.0", CultureInfo.InvariantCulture)} · focus " + (DepthFocusMm is double mm ? DepthText.Distance(mm) : "default")
         : "Off" + (DepthFocusMm is double m2 ? $" · focus {DepthText.Distance(m2)}" : "");
+    // (the rendering is not part of this text: it shows in the Rendering choice)
 
     /// <summary>The same set limited to <paramref name="sliders"/> (null: unchanged).</summary>
     public EditSet OnlySliders(IReadOnlySet<string>? sliders) => sliders == null ? this : this with

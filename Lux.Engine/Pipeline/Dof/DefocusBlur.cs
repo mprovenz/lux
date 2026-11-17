@@ -33,14 +33,17 @@ public sealed class DefocusBlur
 
     readonly DualLayerBuffer _buf; readonly RectI _in, _out; readonly float _f, _pitch, _n, _focus; readonly int _deviceType; readonly DofDevice _p;
     readonly bool _hasMatte, _hasOcc; readonly int _w, _h;
+    /// <summary>Not null = the Lux rendering (<see cref="LuxRendering"/>). Null = Lumen's renderer.</summary>
+    readonly LuxDofTile? _lux;
 
     public float[]? RadiusVis, RadiusOcc; public float MinRadius, MaxRadius; public List<Layer>? Layers;
     /// <summary>Test hook: called after each band with (band index, band image, blurred band, accumulation).</summary>
     public Action<int, DofImage, DofImage, DofImage>? BandObserver;
 
     /// <summary>The constructor (buffer, inRect, outRect, f, pitch, N, focus, device).</summary>
-    public DefocusBlur(DualLayerBuffer buffer, RectI inRect, RectI outRect, float f, float pitch, float n, float focus, int deviceType)
+    public DefocusBlur(DualLayerBuffer buffer, RectI inRect, RectI outRect, float f, float pitch, float n, float focus, int deviceType, LuxDofTile? lux = null)
     {
+        _lux = lux;
         _buf = buffer; _in = inRect; _out = outRect; _f = f; _pitch = pitch; _n = n; _focus = focus; _deviceType = deviceType;
         if (buffer.Vis == null || buffer.VisDepth == null) throw new InvalidOperationException("no visible image or depth in the dual layered buffer");
         _w = buffer.Vis.W; _h = buffer.Vis.H;
@@ -442,9 +445,11 @@ public sealed class DefocusBlur
         var ls = Layers!; int n = ls.Count, w = _w, h = _h, np = w * h * 4; var o = outp.D;
         var pre = new float[]?[n];
         float[]? full = null;
+        var lux = _lux?.Options; bool crisp = lux is { CrispDisc: true };
+        int down = lux?.DownscaleDiameter ?? _p.DownscaleDiameter;
         for (int i = n - 1; i >= 0; i--)
         {
-            if (ls[i].Diameter < _p.DownscaleDiameter) continue;
+            if (ls[i].Diameter < down) continue;
             full ??= ScratchPool.Rent<float>(np);
             Array.Clear(full, 0, np);
             var img = new DofImage(full, 4, w, h);
@@ -452,14 +457,19 @@ public sealed class DefocusBlur
             if (i > 0) FillLayer(img, ls[i - 1], ls[i]);
             FillLayer(img, ls[i], ls[i]);
             pre[i] = ScratchPool.Rent<float>(np);
-            BlurLayer(img, _in, _out, ls[i].Diameter, _p, pre[i]);
+            if (crisp) LuxRendering.BlurReduced(img, _in, ls[i].Diameter, lux!, pre[i]);
+            else BlurLayer(img, _in, _out, ls[i].Diameter, lux is null ? _p : _p with { DownscaleDiameter = down }, pre[i]);
         }
         ScratchPool.Return(full);
-        int maxR = 0; var discs = new (int[] Hw, float Weight)[n];
+        int maxR = 0; var discs = new (int[] Hw, float Weight)[n]; var kernels = new LuxRendering.DiscKernel?[n];
         for (int i = 0; i < n; i++)
         {
             int d = ls[i].Diameter;
-            if (d >= 3 && pre[i] is null) { int r = (d - 1) / 2; discs[i] = DofFilters.CircleDisc(r); if (r > maxR) maxR = r; }
+            if (d >= 3 && pre[i] is null)
+            {
+                int r = (d - 1) / 2; if (r > maxR) maxR = r;
+                if (crisp) kernels[i] = new LuxRendering.DiscKernel(r); else discs[i] = DofFilters.CircleDisc(r);
+            }
         }
         DofFilters.Rows(h, (long)w * n * 24, (ya, yb) =>
         {
@@ -488,6 +498,13 @@ public sealed class DefocusBlur
                     if (i > 0) FillLayer(bimg, ls[i - 1], ls[i], ba, bb);
                     FillLayer(bimg, ls[i], ls[i], ba, bb);
                     if (d < 3) { DofFilters.Composite(o, y0 * w * 4, bandBuf, (y0 - ba) * w * 4, (y1 - y0) * w * 4); continue; }
+                    if (kernels[i] is { } kern)
+                    {
+                        // the Lux rendering: the anti-aliased disc alone
+                        LuxRendering.DiscRows4(bimg, kern, discBuf, -y0 * w * 4, y0, y1);
+                        DofFilters.Composite(o, y0 * w * 4, discBuf, 0, (y1 - y0) * w * 4);
+                        continue;
+                    }
                     int da = Math.Max(0, y0 - 2), db = Math.Min(h, y1 + 2);
                     DofFilters.CircleRows4(bimg, r, 2 * r + 1, discs[i].Hw, discs[i].Weight, discBuf, -da * w * 4, da, db);
                     var dimg = new DofImage(discBuf, 4, w, h, w, -da * w * 4, 0, 0, w, h);
@@ -521,7 +538,8 @@ public sealed class DefocusBlur
                 using (Diagnostics.PhaseLog.Time("dof.blur.bands")) o = RunStrips(target, normalize: post);
                 if (!post) return o;
                 using (Diagnostics.PhaseLog.Time("dof.blur.edge")) EdgeSoften(o, RadiusVis!);
-                using (Diagnostics.PhaseLog.Time("dof.blur.noise")) AddNoise(o, _p, 0);
+                if (_lux is null) { using (Diagnostics.PhaseLog.Time("dof.blur.noise")) AddNoise(o, _p, 0); }
+                else using (Diagnostics.PhaseLog.Time("dof.blur.lux-post")) LuxPost(o);
                 return o;
             }
             finally { Release(); }
@@ -533,6 +551,26 @@ public sealed class DefocusBlur
         EdgeSoften(outp, RadiusVis!); observer?.Invoke("edge", outp);
         AddNoise(outp, _p, 0);
         return outp;
+    }
+
+    /// <summary>The end of the Lux rendering: the inverse of the highlight expansion, then grain where the picture is blurred. The grain
+    /// weight of a pixel is sqrt(1 − k) with k = the part of the variance of white noise that the disc of the pixel's band keeps.</summary>
+    void LuxPost(DofImage o)
+    {
+        var lux = _lux!;
+        if (lux.Expanded) LuxRendering.Compress(o, lux);
+        if (lux.Noise is null || !(lux.Options.Grain > 0f)) return;
+        var ls = Layers!; int n = ls.Count; var lo = new float[n]; var wt = new float[n];
+        for (int i = 0; i < n; i++)
+        {
+            lo[i] = ls[i].Lo; int d = ls[i].Diameter;
+            if (d < 3) continue;
+            int r = (d - 1) / 2;
+            float kept = r <= 8 ? new LuxRendering.DiscKernel(r).SumSq : 1f / (3.1415927f * (float)(r * r));
+            wt[i] = MathF.Sqrt(1f - kept);
+        }
+        float Weight(float r) { int a = 0, cnt = n; while (cnt > 0) { int half = cnt >> 1; if (r < lo[a + half]) cnt = half; else { a += half + 1; cnt = cnt - 1 - half; } } return a > 0 ? wt[a - 1] : 0f; }
+        LuxRendering.AddGrain(o, RadiusVis!, Weight, lux.Noise, lux.Options.Grain, _in.X0, _in.Y0);
     }
 
     // ---- post stage ----

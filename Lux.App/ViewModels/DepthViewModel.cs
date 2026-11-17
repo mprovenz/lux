@@ -112,12 +112,13 @@ public sealed partial class DepthViewModel : ObservableObject
     {
         nameof(HasDepth), nameof(IsReady), nameof(IsNotReady), nameof(ReadinessTitle), nameof(ReadinessText), nameof(CanAnalyse), nameof(IsAnalysing), nameof(AnalysisProgress),
         nameof(InFocusText), nameof(ShadeOutsideFocus), nameof(CanShade), nameof(FocusPin), nameof(ReferencePin), nameof(IsEffectOn),
+        nameof(IsLuxRendering),
         nameof(Tool), nameof(Mode), nameof(IsFocusTool), nameof(IsBrushTool), nameof(IsMatchTool), nameof(IsMatchBrush), nameof(IsLasso), nameof(IsQuickSelect), nameof(HasOptionBar),
         nameof(ToolTitle), nameof(ToolHint), nameof(UsesBrush), nameof(SizeValue), nameof(SizeText), nameof(SizeLabel), nameof(SizeTip), nameof(BrushDiameterPx), nameof(FollowColour), nameof(AddToSelection),
         nameof(HasPending), nameof(CanApply), nameof(PendingText), nameof(TargetText), nameof(TargetIsPicked), nameof(IsPicking),
         nameof(IsBusy), nameof(ActivityText), nameof(ActivityProgress), nameof(ActivityIndeterminate), nameof(CanCancelActivity),
         nameof(HistoryStatus), nameof(IsRebuilding), nameof(RebuildText), nameof(RebuildProgress), nameof(IsUnreliable), nameof(UnreliableText), nameof(UnreliableShort),
-        nameof(HasDepthEdits), nameof(CanImportLumen), nameof(CurrentVersionName), nameof(HasMessage), nameof(MessageText), nameof(MessageIsWarning), nameof(LineText),
+        nameof(HasDepthEdits), nameof(CanImportLumen), nameof(CanRefineDepth), nameof(CurrentVersionName), nameof(HasMessage), nameof(MessageText), nameof(MessageIsWarning), nameof(LineText),
         nameof(ShowLine), nameof(SelectionOpacity), nameof(ShowsSelectionTint), nameof(CanStartClean), nameof(IsApplyingStroke),
     };
 
@@ -161,6 +162,14 @@ public sealed partial class DepthViewModel : ObservableObject
     // ============================================================================================================ depth effect
 
     public bool IsEffectOn => _d?.FNumber != null && IsReady;
+
+    /// <summary>The "Rendering" choice of the depth effect: Lux (true) or Lumen (false).</summary>
+    public bool IsLuxRendering => _d?.LuxRendering == true;
+
+    /// <summary>The one-line description under the choice.</summary>
+    public const string LuxRenderingText = "Lux gives bright discs from lights, sharp disc edges, and grain only in blurred areas.";
+
+    [RelayCommand] void SetRendering(string lux) { if (IsReady) { _d!.SetLuxRendering(lux == "true"); Refresh(); } }
 
     /// <summary>"2.13 m – 45.6 m", "Everything (the effect is off)".</summary>
     public string InFocusText => !IsReady ? "—" : _d!.InFocus is { } r ? $"{DepthText.Distance(r.NearMm)} – {DepthText.Distance(r.FarMm)}" : "Everything";
@@ -608,6 +617,82 @@ public sealed partial class DepthViewModel : ObservableObject
     public bool ActivityIndeterminate => _d?.Activity is { Running: true } a && double.IsNaN(a.Progress);
     public bool CanCancelActivity => _d?.Activity is { Running: true, CanCancel: true };
     [RelayCommand] void CancelActivity() => _d?.CancelActivity();
+
+    // ---- refined depth: a version made with the depth network, whose files are downloaded on first use
+    Lux.DepthModel.IDepthModelService? _model;
+    /// <summary>The depth model's files (the page sets it once).</summary>
+    public Lux.DepthModel.IDepthModelService? Model
+    {
+        get => _model;
+        set
+        {
+            if (_model != null) _model.StatusChanged -= OnModelChanged;
+            _model = value;
+            if (_model != null) _model.StatusChanged += OnModelChanged;
+            RaiseModel();
+        }
+    }
+    void OnModelChanged() => Avalonia.Threading.Dispatcher.UIThread.Post(RaiseModel);
+    void RaiseModel()
+    {
+        OnPropertyChanged(nameof(CanRefineDepth)); OnPropertyChanged(nameof(IsModelDownloading));
+        OnPropertyChanged(nameof(ModelDownloadText)); OnPropertyChanged(nameof(ModelDownloadProgress));
+    }
+
+    /// <summary>"Refine depth" is offered while the photo has no refined version yet, on a computer that can run the depth model.</summary>
+    public bool CanRefineDepth => _d != null && IsReady && _model is { } m && m.Status.State != Lux.DepthModel.DepthModelState.NotAvailable
+                                  && _d.Versions.All(v => v.Kind != VersionKind.Refined);
+    public bool IsModelDownloading => _model?.Status.State == Lux.DepthModel.DepthModelState.Downloading;
+    public string ModelDownloadText => _model?.Status is { State: Lux.DepthModel.DepthModelState.Downloading } s
+        ? $"Downloading the depth model · {DepthModelViewModel.Size(s.BytesDone)} of {DepthModelViewModel.Size(s.BytesTotal)}" : "";
+    public double ModelDownloadProgress => _model?.Status is { State: Lux.DepthModel.DepthModelState.Downloading, BytesTotal: > 0 } s ? 100.0 * s.BytesDone / s.BytesTotal : 0;
+    [RelayCommand] void CancelModelDownload() => _model?.CancelDownload();
+
+    /// <summary>The first-use question.</summary>
+    public static string ModelDownloadQuestion(long bytes) => $"Refined depth needs a one-time download of about {DepthModelViewModel.Size(bytes)}. Download now?";
+
+    /// <summary>Make the photo's refined depth version. Without the depth model's files it asks once to download them, then continues.</summary>
+    [RelayCommand]
+    async Task RefineDepth()
+    {
+        if (_d is not { } d || _model is not { } m) return;
+        if (!IsReady) { RefuseNotReady(); return; }
+        switch (m.Status.State)
+        {
+            case Lux.DepthModel.DepthModelState.NotAvailable:
+                ShowMessage(m.Status.Reason ?? "Refined depth is not available on this computer.", warning: true);
+                return;
+            case Lux.DepthModel.DepthModelState.Downloading:
+                _shell.Notify("The depth model is still downloading");
+                return;
+            case Lux.DepthModel.DepthModelState.Installed:
+                await RunRefine(d).ConfigureAwait(true);
+                return;
+        }
+        ConfirmViewModel? c = null;
+        c = new ConfirmViewModel("Download the depth model?", ModelDownloadQuestion(m.DownloadBytes), "Download",
+            async () =>
+            {
+                _shell.CloseDialog(c!);
+                await m.DownloadAsync().ConfigureAwait(true);
+                var s = m.Status;
+                if (s.State == Lux.DepthModel.DepthModelState.Failed) { ShowMessage(s.Reason ?? "The download failed.", warning: true); return; }
+                if (s.State != Lux.DepthModel.DepthModelState.Installed) return;   // canceled
+                if (ReferenceEquals(_d, d)) await RunRefine(d).ConfigureAwait(true);
+                else _shell.Notify("The depth model is installed");
+            },
+            () => _shell.CloseDialog(c!));
+        _shell.ShowDialog(c);
+    }
+
+    async Task RunRefine(IDepthSession d)
+    {
+        Clear();
+        var r = await d.RefineDepthAsync().ConfigureAwait(true);
+        if (r.Changed) _shell.Notify(r.Message is { } note ? "Showing the refined depth. " + note : "Showing the refined depth. The other versions are kept");
+        else if (r.Result != ToolResult.Cancelled) Report(r);
+        Refresh();
+    }
 
     // ---- the message line ("nothing changed because …")
     [ObservableProperty] string? _message;

@@ -229,6 +229,24 @@
         </StackPanel>
       </Border>
 
+      <!-- Refined depth: the depth model's files, downloaded on first use -->
+      <Border x:Name="DepthModelSection" Classes="section" DataContext="{Binding DepthModel}" x:DataType="vm:DepthModelViewModel">
+        <StackPanel Spacing="10">
+          <TextBlock Classes="large" Text="Refined depth" />
+          <TextBlock Classes="secondary small wrap" Text="{Binding DescriptionText}" />
+          <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+            <StackPanel Spacing="4" VerticalAlignment="Center">
+              <TextBlock x:Name="DepthModelState" Classes="wrap" Text="{Binding StateText}" />
+              <ProgressBar Minimum="0" Maximum="100" Value="{Binding Progress}" IsVisible="{Binding IsDownloading}" Height="4" />
+            </StackPanel>
+            <Button Grid.Column="1" x:Name="DepthModelDownload" Content="{Binding DownloadLabel}" Command="{Binding DownloadCommand}" IsVisible="{Binding CanDownload}" />
+            <Button Grid.Column="2" x:Name="DepthModelCancel" Content="Cancel" Command="{Binding CancelDownloadCommand}" IsVisible="{Binding IsDownloading}" />
+            <Button Grid.Column="3" x:Name="DepthModelRemove" Content="Remove" Command="{Binding RemoveCommand}" IsVisible="{Binding CanRemove}" />
+          </Grid>
+          <TextBlock Classes="secondary small wrap" Text="{Binding FolderText}" IsVisible="{Binding IsAvailable}" />
+        </StackPanel>
+      </Border>
+
       <!-- Background work: every limit of the job queue -->
       <Border x:Name="LimitsSection" Classes="section">
         <StackPanel Spacing="14">
