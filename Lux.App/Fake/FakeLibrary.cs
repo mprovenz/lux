@@ -621,6 +621,11 @@ public sealed class FakeLibrary : ILibrary
 
     /// <summary>Preview frames take this long each (tests set 0).</summary>
     public int FakeFrameMs { get; set; } = 40;
+    /// <summary>Previews of the depth effects, the parallax and the zoom-through make a second pass of sharper frames (twice the size), as
+    /// the real library does. Off by default.</summary>
+    public bool FakeSharpPass { get; set; }
+    /// <summary>The time the second pass takes before its first frame, ms (the real zoom-through makes the full-size picture then).</summary>
+    public int FakeSharpSetUpMs { get; set; }
 
     public Task<IAnimationSource> OpenAnimationAsync(string captureId, CancellationToken cancel = default)
         => Task.FromResult<IAnimationSource>(new FakeAnimationSource(this, Get(captureId) ?? throw new LibraryException("The photo is no longer in the library.")));

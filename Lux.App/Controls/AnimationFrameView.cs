@@ -20,7 +20,7 @@ public sealed class AnimationFrameView : Control
     /// <summary>Degrees clockwise the frame is turned when drawn (the display-only "as the camera was held" turn); clicks and markers
     /// stay in the frame's own (unturned) coordinates.</summary>
     public static readonly StyledProperty<int> RotationProperty = AvaloniaProperty.Register<AnimationFrameView, int>(nameof(Rotation));
-    /// <summary>"Preparing frames · 6 of 24": the player waits for frames — the spinner and the text are drawn over the frame it holds.</summary>
+    /// <summary>"Frame 6 of 24": the frames are being made. The picture is a still, dimmed, with the spinner and this text over it.</summary>
     public static readonly StyledProperty<string?> PreparingProperty = AvaloniaProperty.Register<AnimationFrameView, string?>(nameof(Preparing));
     readonly ProcessingIndicator _spinner = new();
 

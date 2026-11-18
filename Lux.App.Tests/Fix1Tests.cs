@@ -27,8 +27,8 @@ public class Fix1Tests
         return h;
     }
 
-    /// <summary>The player never advances over a frame that is not made — it holds with the spinner and "Preparing frames ·
-    /// n of m" — and plays on by itself when the frames come, also after another effect is chosen; the scrubber shows the ready range.</summary>
+    /// <summary>The player never moves while frames are not made — it shows one still picture with the spinner and "Frame n of m" — and
+    /// plays by itself when the last frame is in, also after another effect is chosen; the strip under the scrubber shows the frames made.</summary>
     [AvaloniaFact]
     public async Task Player_waits_for_frames_and_plays_on_by_itself()
     {
@@ -40,7 +40,7 @@ public class Fix1Tests
         Dispatcher.UIThread.RunJobs(); h.Window.RenderFrame(); Dispatcher.UIThread.RunJobs();
         var view = h.Window.GetVisualDescendants().OfType<AnimationFrameView>().First(v => v.IsEffectivelyVisible);
         var strip = h.Window.GetVisualDescendants().OfType<FrameReadyStrip>().First(v => v.IsEffectivelyVisible);
-        bool sawPreparing = false, shot = false; int badSteps = 0;
+        bool sawLoading = false, shot = false; int badSteps = 0;
         async Task Run(Func<bool> until, int ms)
         {
             var t = System.Diagnostics.Stopwatch.StartNew();
@@ -48,18 +48,18 @@ public class Fix1Tests
             {
                 await h.Lib.FlushEventsAsync();
                 Dispatcher.UIThread.RunJobs();
-                pl.Advance();                     // as the timer would: it must refuse a frame that is not ready
+                pl.Advance();                     // a step by hand: it must be refused while frames are not made
                 h.Window.RenderFrame();
-                if (pl.Frame != null && !pl.IsUpdating && !pl.IsReadyAt(pl.Position)) badSteps++;   // the previous preview's picture may stay until the new one's first frame
-                if (pl.IsPreparing && pl.HasFrame && pl.Preview is { IsComplete: false })
+                if (!pl.IsComplete && pl.Position != 0) badSteps++;
+                if (pl.IsLoading && pl.HasFrame && !pl.IsUpdating)
                 {
-                    sawPreparing = true;
-                    Assert.StartsWith("Preparing frames · ", pl.PreparingText);
-                    Assert.True(strip.ReadyCount < pl.Length);
-                    if (!shot && strip.ReadyCount >= 3)
+                    sawLoading = true;
+                    Assert.StartsWith("Frame ", pl.LoadingText);
+                    Assert.True(strip.ReadyCount <= pl.Length);
+                    if (!shot && strip.ReadyCount >= 3 && strip.ReadyCount < pl.Length)
                     {
                         shot = true;
-                        Assert.StartsWith("Preparing frames", view.PreparingDrawn);
+                        Assert.StartsWith("Frame ", view.PreparingDrawn);
                         Shot(h, "fix1-10a-player-preparing");
                     }
                 }
@@ -68,21 +68,21 @@ public class Fix1Tests
         }
         await Run(() => pl.IsComplete, 30_000);
         Assert.True(pl.IsComplete);
-        Assert.True(sawPreparing, "the player never said it was preparing frames");
+        Assert.True(sawLoading, "the player never said it was making frames");
         Assert.Equal(0, badSteps);
         // all made: it plays on by itself
         int at = pl.Position;
-        await Run(() => pl.Position != at && !pl.IsPreparing, 5000);
-        Assert.False(pl.IsPreparing);
+        await Run(() => pl.Position != at && !pl.IsLoading, 5000);
+        Assert.False(pl.IsLoading);
         Assert.NotEqual(at, pl.Position);
         Assert.Equal(pl.Length, strip.ReadyCount);
         Shot(h, "fix1-10b-player-playing");
 
-        // another effect: back to preparing at once, then playing again without a click
-        sawPreparing = false; shot = true;
+        // another effect: back to the progress state at once, then playing again without a click
+        sawLoading = false; shot = true;
         p.Effects.First(e => e.Effect == AnimationEffect.ApertureSweep).SelectCommand.Execute(null);
         await Run(() => pl.Preview?.Options.Effect == AnimationEffect.ApertureSweep && pl.IsComplete, 30_000);
-        Assert.True(sawPreparing);
+        Assert.True(sawLoading);
         Assert.True(pl.IsPlaying);
         at = pl.Position;
         await Run(() => pl.Position != at, 5000);

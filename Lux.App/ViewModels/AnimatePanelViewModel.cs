@@ -114,6 +114,7 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
             _pingPong = m?.PingPong ?? AnimationSpec.DefaultPingPong(start.Effect, AnimationPath.Sweep);
             if (m is null) PreferFormat(start.Effect);
         }
+        _sizeWasSharp = _size.Value > SharpPreviewAbove;
         _loading = false;
         // the frames carry the photo's orientation (exports follow the view shown as held): no turn when drawing them;
         // only the thumbnail standing in before the first frame is turned as the library shows it
@@ -186,18 +187,15 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
     /// <summary>The size of the file's frames, from the last estimate.</summary>
     (int W, int H)? _fileSize;
 
-    /// <summary>Say plainly when the frames on screen have less detail than the file will have: while sharper frames replace them, or when
-    /// the preview stays a quick one (the lens effects; a file larger than the sharper frames).</summary>
+    /// <summary>Say plainly when the frames that play have less detail than the file will have (the lens effects, the long clips, a file
+    /// larger than the preview's frames). The frames that play are the final ones: the note is about them, not about the still picture
+    /// that shows while they are made.</summary>
     void UpdateDetailNote()
     {
         string? text = null;
-        if (Player.Preview is { IsPlanned: true } p && _fileSize is { } file && (p.Frame(0) ?? p.NearestFrame(0)) is { } f)
-        {
-            if (p.IsSharpening)
-                text = $"Sharper frames replace the quick ones as they are made. The file is made at {file.W} × {file.H}.";
-            else if (Math.Max(f.Width, f.Height) * 10 < Math.Max(file.W, file.H) * 9)
-                text = $"The preview's frames are {f.Width} × {f.Height}: they show less detail than the file, which is made at {file.W} × {file.H}.";
-        }
+        if (Player.Preview is { IsPlanned: true, IsFinal: true } p && _fileSize is { } file && p.FinalFrame(0) is { } f
+            && Math.Max(f.Width, f.Height) * 10 < Math.Max(file.W, file.H) * 9)
+            text = $"The preview's frames are {f.Width} × {f.Height}: they show less detail than the file, which is made at {file.W} × {file.H}.";
         if (PreviewDetailNote != text) PreviewDetailNote = text;
     }
 
@@ -317,7 +315,16 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
     partial void OnMiniatureChanged(ChoiceOption value) => Changed();
     partial void OnTiltChanged(double value) { OnPropertyChanged(nameof(TiltText)); Changed(); }
     partial void OnTargetChanged((double X, double Y)? value) => Changed();
-    partial void OnSizeChanged(ChoiceOption value) => Changed(previewToo: false);
+    partial void OnSizeChanged(ChoiceOption value)
+    {
+        // The depth effects and the parallax get sharper preview frames for a file larger than 600 pixels. A size change that crosses
+        // that limit changes the preview's final quality, so the preview is made again. Other size changes only change the estimate.
+        bool sharp = value.Value > SharpPreviewAbove, was = _sizeWasSharp;
+        _sizeWasSharp = sharp;
+        Changed(previewToo: sharp != was && (IsDepthEffect || IsParallax));
+    }
+    const int SharpPreviewAbove = 600;
+    bool _sizeWasSharp;
     partial void OnFormatChanged(ChoiceOption value) { OnPropertyChanged(nameof(IsGif)); Changed(previewToo: false); }
     partial void OnRepeatChanged(ChoiceOption value) => Changed(previewToo: false);
     partial void OnDitherChanged(ChoiceOption value) => Changed(previewToo: false);
@@ -336,8 +343,9 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
     partial void OnPickChanged(PickTarget value)
     {
         OnPropertyChanged(nameof(IsPickingFrom)); OnPropertyChanged(nameof(IsPickingTo)); OnPropertyChanged(nameof(IsPickingFocus)); OnPropertyChanged(nameof(IsPickingTarget));
-        // a target is picked on the first frame, which shows the whole picture
-        if (value == PickTarget.Target) { Player.IsPlaying = false; Player.Position = 0; }
+        // A target is picked on the first frame, which shows the whole picture: the player holds that frame for as long as the pick is
+        // open. It plays on by itself after the pick, also when the pick is canceled.
+        Player.HoldAtStart = value == PickTarget.Target;
         Player.IsPicking = value != PickTarget.None;
         Player.PickHint = PickHint;
         OnPropertyChanged(nameof(PickHint));
@@ -414,7 +422,9 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
             if (!ReferenceEquals(_source, src)) src.AnalysisFinished += (_, _) => RefreshEffects();
             _source = src;
             if (!available || seq != Volatile.Read(ref _seq)) return;
-            var p = src.Preview(o);
+            IAnimationPreview p;
+            try { p = src.Preview(o); }
+            catch (ObjectDisposedException) { return; }   // the panel closed meanwhile
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (_disposed || seq != _seq) return;
@@ -424,6 +434,7 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
                 PreviewNote = NotesOf(p);
                 UpdateDetailNote();
             });
+            if (_disposed || seq != Volatile.Read(ref _seq)) { if (_disposed) p.Dispose(); return; }
             await RefreshEstimateAsync().ConfigureAwait(false);
         });
     }
@@ -443,10 +454,15 @@ public sealed partial class AnimatePanelViewModel : ObservableObject, IDisposabl
                 UpdateDetailNote();
             });
         }
-        // a finer estimate as frames arrive (every few frames, and at the end)
-        if (sender is IAnimationPreview p && (p.IsComplete || Interlocked.Increment(ref _estimateTick) % 6 == 0)) _ = RefreshEstimateAsync();
-        if (sender is IAnimationPreview { IsComplete: true }) RefreshEffects();
+        if (sender is not IAnimationPreview p) return;
+        // A finer estimate as the first frames arrive (every few frames), once when they are complete and once when the preview is final.
+        // A second pass raises many more changes: they need no new estimate.
+        bool complete = p.IsComplete && !ReferenceEquals(Interlocked.Exchange(ref _completeSeen, p), p);
+        bool final = p.IsFinal && !ReferenceEquals(Interlocked.Exchange(ref _finalSeen, p), p);
+        if (complete || final || (!p.IsComplete && Interlocked.Increment(ref _estimateTick) % 6 == 0)) _ = RefreshEstimateAsync();
+        if (complete) RefreshEffects();
     }
+    IAnimationPreview? _completeSeen, _finalSeen;
 
     async Task RefreshEstimateAsync()
     {

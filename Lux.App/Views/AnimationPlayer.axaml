@@ -4,19 +4,20 @@
              xmlns:c="using:Lux.App.Controls"
              x:Class="Lux.App.Views.AnimationPlayer"
              x:DataType="vm:AnimationPlayerViewModel">
-  <!-- The animation preview on the page's picture area: frames as they arrive ("Processing image" over the blurred photo until the first),
-       play / pause, step, scrub, loop; clicks pick focus points while the panel asks for one. -->
+  <!-- The animation preview on the page's picture area. While the frames are made it shows one still picture under a spinner, a text and
+       a progress bar, and does not play. When every frame is ready it plays by itself: play / pause, step, scrub, loop. Clicks pick
+       focus points while the panel asks for one. -->
   <DockPanel Background="{DynamicResource LuxGround}">
     <Border DockPanel.Dock="Bottom" Classes="toolbar" Padding="12,6" BorderBrush="{DynamicResource LuxLineDark}" BorderThickness="0,1,0,0">
       <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
-        <Button Classes="small" Content="‹" Command="{Binding StepBackCommand}" ToolTip.Tip="Previous frame (Left)" AutomationProperties.Name="Previous frame" MinWidth="36" />
-        <Button Grid.Column="1" Classes="primary small" Content="{Binding PlayLabel}" Command="{Binding TogglePlayCommand}" MinWidth="72"
+        <Button Classes="small" Content="‹" Command="{Binding StepBackCommand}" IsEnabled="{Binding IsReady}" ToolTip.Tip="Previous frame (Left)" AutomationProperties.Name="Previous frame" MinWidth="36" />
+        <Button Grid.Column="1" Classes="primary small" Content="{Binding PlayLabel}" Command="{Binding TogglePlayCommand}" IsEnabled="{Binding IsReady}" MinWidth="72"
                 ToolTip.Tip="Play or pause the preview (Space)" AutomationProperties.Name="Play or pause" />
-        <Button Grid.Column="2" Classes="small" Content="›" Command="{Binding StepForwardCommand}" ToolTip.Tip="Next frame (Right)" AutomationProperties.Name="Next frame" MinWidth="36" />
+        <Button Grid.Column="2" Classes="small" Content="›" Command="{Binding StepForwardCommand}" IsEnabled="{Binding IsReady}" ToolTip.Tip="Next frame (Right)" AutomationProperties.Name="Next frame" MinWidth="36" />
         <Panel Grid.Column="3" Margin="8,0" VerticalAlignment="Center">
           <Slider Minimum="0" Maximum="{Binding MaxPosition}" Value="{Binding Position}" SmallChange="1" LargeChange="4" IsSnapToTickEnabled="True"
-                  TickFrequency="1" VerticalAlignment="Center" AutomationProperties.Name="Frame" />
-          <!-- the ready range: which frames are made (the player never plays over the others) -->
+                  TickFrequency="1" VerticalAlignment="Center" IsEnabled="{Binding IsReady}" AutomationProperties.Name="Frame" />
+          <!-- which frames are made at the final preview quality (the player plays when all are) -->
           <c:FrameReadyStrip x:Name="ReadyStrip" Ready="{Binding ReadyPositions}" Height="3" VerticalAlignment="Bottom" Margin="0,0,0,2" IsHitTestVisible="False"
                              ToolTip.Tip="Frames ready" />
         </Panel>
@@ -32,11 +33,15 @@
       </Grid>
     </Border>
     <Panel Margin="16">
-      <c:ImageStateView Source="{Binding Placeholder}" Orientation="{Binding PlaceholderRotation}" State="Processing" Label="{Binding WaitingLabel}" Progress="{Binding Progress}"
+      <c:ImageStateView Source="{Binding Placeholder}" Orientation="{Binding PlaceholderRotation}" State="Processing" Label="{Binding WaitingLabel}"
                         IsVisible="{Binding IsWaiting}" Placeholder="{DynamicResource LuxPlaceholder}" HorizontalAlignment="Center" VerticalAlignment="Center"
                         Width="520" Height="390" />
       <c:AnimationFrameView x:Name="FrameView" Frame="{Binding Frame}" Markers="{Binding Markers}" IsPicking="{Binding IsPicking}" Rotation="{Binding Rotation}"
-                            Preparing="{Binding PreparingText}" AutomationProperties.Name="Animation preview" Focusable="True" />
+                            Preparing="{Binding LoadingText}" AutomationProperties.Name="Animation preview" Focusable="True" />
+      <!-- the progress while the frames are made, under the spinner and its text. The bar shows when the amount of work is known;
+           a step without a count shows the spinner alone. -->
+      <ProgressBar x:Name="LoadingBar" Width="240" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,96,0,0" IsHitTestVisible="False"
+                   IsVisible="{Binding ShowLoadingBar}" Value="{Binding LoadingFraction}" AutomationProperties.Name="Preview progress" />
       <Border Classes="note" IsVisible="{Binding IsPicking}" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,8,0,0" Padding="12,6">
         <TextBlock Text="{Binding PickHint}" />
       </Border>

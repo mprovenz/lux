@@ -131,7 +131,7 @@ public class AnimateTests
         var p = h.Library.AnimatePanel!;
         await h.SettleAsync(() => p.Player.Preview?.IsPlanned == true, timeoutMs: 3000);
         Assert.True(p.Player.IsWaiting);
-        Assert.Equal("Processing image", p.Player.WaitingLabel);
+        Assert.Equal("Frame 0 of 24", p.Player.WaitingLabel);   // the progress under the spinner, over the blurred photo
         Shot(h, "05-preview-processing");
         await h.SettleAsync(() => p.Player.HasFrame, timeoutMs: 15000);
         Assert.True(p.Player.HasFrame);

@@ -427,7 +427,9 @@ public sealed partial class LibraryViewModel : ObservableObject
     public bool IsList => Mode == BrowseMode.List;
     public bool ShowSizeSlider => Mode != BrowseMode.List;
 
-    [RelayCommand] void SetMode(BrowseMode mode) => Mode = mode;
+    /// <summary>The user chooses a browse view (the header's switch, or G, T, L). The Animate panel's preview covers the browse area, so
+    /// the panel closes and the chosen view shows.</summary>
+    [RelayCommand] public void SetMode(BrowseMode mode) { CloseAnimate(); Mode = mode; }
 
     BrowseMode ReadMode(string key) =>
         Enum.TryParse<BrowseMode>(_s.Library.Settings.GetValue("view:" + key), out var m) ? m : BrowseMode.Grid;

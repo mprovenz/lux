@@ -138,9 +138,9 @@ public partial class BrowseView : UserControl
             case Key.A when ctrl && e.KeyModifiers.HasFlag(KeyModifiers.Shift): _vm.OpenAnimate(); break;
             case Key.Escape: _vm.ClearSelection(); break;
             case Key.Enter: _vm.OpenInDevelopCommand.Execute(null); break;
-            case Key.G when e.KeyModifiers == KeyModifiers.None: _vm.Mode = BrowseMode.Grid; break;
-            case Key.T when e.KeyModifiers == KeyModifiers.None: _vm.Mode = BrowseMode.Timeline; break;
-            case Key.L when e.KeyModifiers == KeyModifiers.None: _vm.Mode = BrowseMode.List; break;
+            case Key.G when e.KeyModifiers == KeyModifiers.None: _vm.SetMode(BrowseMode.Grid); break;
+            case Key.T when e.KeyModifiers == KeyModifiers.None: _vm.SetMode(BrowseMode.Timeline); break;
+            case Key.L when e.KeyModifiers == KeyModifiers.None: _vm.SetMode(BrowseMode.List); break;
             case >= Key.D0 and <= Key.D5 when !ctrl: _vm.SetRating(e.Key - Key.D0); break;
             case >= Key.NumPad0 and <= Key.NumPad5 when !ctrl: _vm.SetRating(e.Key - Key.NumPad0); break;
             default: return;

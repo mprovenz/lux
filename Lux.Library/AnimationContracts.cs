@@ -227,7 +227,10 @@ public interface IAnimationSource : IDisposable
     /// <summary>A progressive preview of <paramref name="options"/> at a small size (export level 4), then for the depth effects and the
     /// parallax sharper frames from export level 3 that replace the quick ones (<see cref="IAnimationPreview.IsSharpening"/>): frames are made
     /// in an order that covers the whole animation early, and kept for this source — asking again for the same frames returns them at once. A new preview of other
-    /// options does not stop an earlier one's frames being kept; the earlier one stops rendering.</summary>
+    /// options does not stop an earlier one's frames being kept; the earlier one stops rendering. The frames of the last pass are the
+    /// final preview quality (<see cref="IAnimationPreview.IsFinal"/>, <see cref="IAnimationPreview.FinalFrame"/>): export level 4 for a
+    /// preview with one pass, export level 3 for the depth effects and the parallax of a file larger than 600 pixels, and the full-size
+    /// picture in frames of at most 720 pixels for the zoom-through.</summary>
     IAnimationPreview Preview(AnimationOptions options);
     /// <summary>The file size and time of the export, from the preview's frames when it has them (encoded in the chosen format and scaled),
     /// else typical figures; the time from the photo's kept data (cache level). Runs off the caller's thread.</summary>
@@ -237,6 +240,11 @@ public interface IAnimationSource : IDisposable
     /// <summary>The photo's saved settings changed (e.g. a turn kept for exports): frames made so far are dropped and the settings read again.</summary>
     void Reload();
 }
+
+/// <summary>The work of a preview that is not final yet.</summary>
+/// <param name="Text">What it does, for example "Frame 12 of 24".</param>
+/// <param name="Fraction">The part of the work that is done, 0 to 1. Null when the amount of work is not known.</param>
+public sealed record PreviewWork(string Text, double? Fraction);
 
 /// <summary>A preview being made (<see cref="IAnimationSource.Preview"/>).</summary>
 public interface IAnimationPreview : IDisposable
@@ -255,6 +263,13 @@ public interface IAnimationPreview : IDisposable
     bool IsComplete { get; }
     /// <summary>Every frame is ready and sharper frames are being made to replace them (frames at the file's size, up to export level 3).</summary>
     bool IsSharpening => false;
+    /// <summary>Every frame is ready at the final preview quality. The player plays the animation only then. A preview with one pass is
+    /// final when it is complete. A preview with a sharper second pass is final when that pass ends.</summary>
+    bool IsFinal => IsComplete && !IsSharpening;
+    /// <summary>A frame at the final preview quality, or null while it is not made. The player plays only these frames.</summary>
+    PreviewFrame? FinalFrame(int index) => IsFinal ? Frame(index) : null;
+    /// <summary>What the preview does until it is final, for the progress display.</summary>
+    PreviewWork Work => new(Status, IsPlanned ? Progress : null);
     /// <summary>Why it stopped (plain language); null while fine.</summary>
     string? Error { get; }
     IReadOnlyList<string> Notes { get; }

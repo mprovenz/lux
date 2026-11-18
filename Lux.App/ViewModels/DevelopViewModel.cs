@@ -482,7 +482,12 @@ public sealed partial class DevelopViewModel : ObservableObject, IAsyncDisposabl
     [ObservableProperty] bool _showingBefore;
     [ObservableProperty] double _splitPosition = 0.5;
 
-    partial void OnModeChanged(DevelopMode value) { if (value != DevelopMode.BeforeAfter) ShowingBefore = false; RaiseModes(); }
+    partial void OnModeChanged(DevelopMode value) { if (value != DevelopMode.BeforeAfter) ShowingBefore = false; ShowPicture(); RaiseModes(); }
+
+    /// <summary>A view mode shows the picture. The Animate panel's preview covers the picture, so the panel closes when a view mode is
+    /// chosen, also when that mode is already the current one. Its preview work stops with it. The Export panel does not cover the
+    /// picture and stays.</summary>
+    void ShowPicture() => AnimatePanel = null;
     partial void OnCompareStyleChanged(CompareStyle value) { ShowingBefore = false; RaiseModes(); }
     partial void OnShowingBeforeChanged(bool value) => RaiseModes();
 
@@ -503,7 +508,7 @@ public sealed partial class DevelopViewModel : ObservableObject, IAsyncDisposabl
         : CompareStyle == CompareStyle.Split ? CompareMode.Split
         : ShowingBefore ? CompareMode.ToggleBefore : CompareMode.ToggleAfter;
 
-    [RelayCommand] void SetMode(DevelopMode mode) { if (mode == DevelopMode.PhotoDepth && IsCropping) CancelCrop(); Mode = mode; }
+    [RelayCommand] void SetMode(DevelopMode mode) { ShowPicture(); if (mode == DevelopMode.PhotoDepth && IsCropping) CancelCrop(); Mode = mode; }
 
     /// <summary>"Photo + depth": the photo beside its depth map (pan and zoom locked together).</summary>
     public bool IsPhotoDepth => Mode == DevelopMode.PhotoDepth;
@@ -514,15 +519,16 @@ public sealed partial class DevelopViewModel : ObservableObject, IAsyncDisposabl
     public bool ShowDepthBeside => IsPhotoDepth && !DepthOnly;
     /// <summary>The main viewer shows the depth map instead of the photo.</summary>
     public bool MainShowsDepth => IsPhotoDepth && DepthOnly;
-    [RelayCommand] void ToggleDepthOnly() { if (!IsPhotoDepth) Mode = DevelopMode.PhotoDepth; DepthOnly = !DepthOnly; }
+    [RelayCommand] void ToggleDepthOnly() { ShowPicture(); if (!IsPhotoDepth) Mode = DevelopMode.PhotoDepth; DepthOnly = !DepthOnly; }
     /// <summary>D: single ↔ photo + depth.</summary>
     [RelayCommand] void TogglePhotoDepth() => SetMode(IsPhotoDepth ? DevelopMode.Single : DevelopMode.PhotoDepth);
     [RelayCommand] void SetCompareStyle(CompareStyle style) => CompareStyle = style;
-    [RelayCommand] void ToggleBefore() { if (Mode != DevelopMode.BeforeAfter) { Mode = DevelopMode.BeforeAfter; CompareStyle = CompareStyle.Toggle; ShowingBefore = true; } else if (CompareStyle == CompareStyle.Toggle) ShowingBefore = !ShowingBefore; else Mode = DevelopMode.Single; }
+    [RelayCommand] void ToggleBefore() { ShowPicture(); if (Mode != DevelopMode.BeforeAfter) { Mode = DevelopMode.BeforeAfter; CompareStyle = CompareStyle.Toggle; ShowingBefore = true; } else if (CompareStyle == CompareStyle.Toggle) ShowingBefore = !ShowingBefore; else Mode = DevelopMode.Single; }
 
     /// <summary>\ : single ↔ before / after (in the toggle style it flips before ↔ after).</summary>
     public void BackslashKey()
     {
+        ShowPicture();
         if (Mode != DevelopMode.BeforeAfter) Mode = DevelopMode.BeforeAfter;
         else if (CompareStyle == CompareStyle.Toggle) ShowingBefore = !ShowingBefore;
         else Mode = DevelopMode.Single;

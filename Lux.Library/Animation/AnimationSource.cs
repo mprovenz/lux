@@ -17,6 +17,9 @@ namespace Lux.Library.Animation;
 /// export level 3 that replace them (see <see cref="SharpSpec"/>). Frames are made in an order that covers the animation early (first, last,
 /// middle, quarters, …) and kept per set of frame-defining values for as long as the source is open. A depth effect on a photo that has
 /// not been analyzed asks the Queue for the analysis (so it shows there) and continues when it is done.
+///
+/// The frames of the last pass are the final preview quality. The player plays a preview only when it is final
+/// (<see cref="IAnimationPreview.IsFinal"/>). Until then <see cref="IAnimationPreview.Work"/> says what is being made.
 /// </summary>
 internal sealed class AnimationSourceImpl : IAnimationSource
 {
@@ -222,6 +225,8 @@ internal sealed class AnimationSourceImpl : IAnimationSource
 
     internal static string SharpKey(AnimationOptions o) => $"{FrameKey(o)}|{o.LongEdge}";
 
+    string? _recentKey, _previousKey;
+
     public IAnimationPreview Preview(AnimationOptions options)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -230,7 +235,10 @@ internal sealed class AnimationSourceImpl : IAnimationSource
         {
             string key = FrameKey(options);
             if (!_stores.TryGetValue(key, out store!)) _stores[key] = store = new FrameStore();
-            foreach (var (k, other) in _stores) if (k != key) other.DropSharp();
+            // The sharp frames of this preview and of the one before it are kept, so a change to another effect and back is ready at
+            // once (the zoom-through's second pass takes a minute or more). Older sharp frames go: they are about 3.5 MB each.
+            if (_recentKey != key) { _previousKey = _recentKey; _recentKey = key; }
+            foreach (var (k, other) in _stores) if (k != key && k != _previousKey) other.DropSharp();
             _current?.Stop();
             _current = new PreviewImpl(this, options, store);
         }
@@ -362,6 +370,10 @@ internal sealed class FrameStore
     /// <summary>Drop the sharp frames (a preview of other values is on screen; ~3.5 MB each).</summary>
     public void DropSharp() { lock (_sharp) { _sharp.Clear(); _sharpKey = null; } }
     public int SharpCount(string key) { lock (_sharp) return _sharpKey == key ? _sharp.Count : 0; }
+    /// <summary>The notes of the pass that made the sharp frames (the zoom-through checks the photo on its full-size picture).</summary>
+    public IReadOnlyList<string>? SharpNotes { get; set; }
+    /// <summary>The sharp frame made for <paramref name="key"/>, or null.</summary>
+    public PreviewFrame? Sharp(int i, string key) { lock (_sharp) return _sharpKey == key && _sharp.TryGetValue(i, out var f) ? f : null; }
 }
 
 /// <summary>A preview being made: the plan, then the frames in a coarse-to-fine order, one at a time (one source renders one preview at a
@@ -379,7 +391,12 @@ internal sealed class PreviewImpl : IAnimationPreview
     public AnimationOptions Options { get; }
     internal FrameStore Store { get; }
 
-    public PreviewImpl(AnimationSourceImpl src, AnimationOptions options, FrameStore store) { _src = src; Options = options; Store = store; }
+    public PreviewImpl(AnimationSourceImpl src, AnimationOptions options, FrameStore store)
+    {
+        _src = src; Options = options; Store = store;
+        _sharpKey = AnimationSourceImpl.SharpSpec(options) is null ? null : AnimationSourceImpl.SharpKey(options);
+        _sharpSetUp = _sharpKey is not null;
+    }
 
     volatile IReadOnlyList<string> _notes = Array.Empty<string>();
 
@@ -391,6 +408,39 @@ internal sealed class PreviewImpl : IAnimationPreview
     public string Status => _status;
     public bool IsComplete => _complete;
     public bool IsSharpening => _sharpening;
+
+    // The final preview quality. A preview with a second pass is final when every sharp frame is made. A preview with one pass is final
+    // when it is complete. The player plays only final frames, so these values must never say "final" between the two passes.
+    readonly string? _sharpKey;      // set when a second pass follows the quick frames
+    volatile bool _sharpSkipped;     // the second pass could not replace the quick frames: they are the final ones
+    volatile bool _final;
+    volatile bool _sharpSetUp;       // the second pass has not made its picture yet (true from the start when a second pass follows)
+
+    public bool IsFinal => _final;
+
+    public PreviewFrame? FinalFrame(int index) => _sharpKey is { } key && !_sharpSkipped ? Store.Sharp(index, key) : _plan is null ? null : Store.Get(index);
+
+    /// <summary>The time of a sharp frame against a quick frame, for the progress fraction.</summary>
+    const double SharpWeight = 4;
+
+    public PreviewWork Work
+    {
+        get
+        {
+            if (_error is { } e) return new PreviewWork(e, null);
+            if (_plan is not { } plan || plan.Frames.Count == 0) return new PreviewWork(_status, null);
+            int n = plan.Frames.Count, quick = 0, sharp = 0;
+            for (int i = 0; i < n; i++) { if (Store.Get(i) is not null) quick++; if (_sharpKey is { } k && Store.Sharp(i, k) is not null) sharp++; }
+            if (_sharpKey is null || _sharpSkipped) return new PreviewWork($"Frame {quick} of {n}", (double)quick / n);
+            double fraction = (quick + SharpWeight * sharp) / (n * (1 + SharpWeight));
+            if (quick < n) return new PreviewWork($"Frame {quick} of {n} · first pass", fraction);
+            // The zoom-through makes the full-size picture before its first sharp frame. That step has no count.
+            if (_sharpSetUp && sharp == 0)
+                return Options.Effect == AnimationEffect.ZoomThrough ? new PreviewWork("Making the full-size picture. This takes a minute or two.", null)
+                                                                     : new PreviewWork("Preparing the final pass", fraction);
+            return new PreviewWork($"Frame {sharp} of {n} · final pass", fraction);
+        }
+    }
     public string? Error => _error;
     /// <summary>The plan's notes, then what the frames show: why nothing (or little) changes on this photo with these settings.</summary>
     public IReadOnlyList<string> Notes => _notes;
@@ -522,39 +572,54 @@ internal sealed class PreviewImpl : IAnimationPreview
                 }
                 Advise();
                 _status = $"{order.Count} frames ready ({sw.Elapsed.TotalSeconds:0.0} s)";
+                // Set the second pass's flags before the quick frames are reported complete. A reader must never see "complete" without
+                // "sharpening" while a second pass is still to come: the player would take the quick frames for the final ones.
+                var sharp0 = AnimationSourceImpl.SharpSpec(Options);
+                if (sharp0 is not null) _sharpening = true; else _final = true;
                 _complete = true;
                 Raise();
                 // the sharper pass (depth effects, parallax): the same frames from export level 3, replacing the quick ones as they come
-                if (AnimationSourceImpl.SharpSpec(Options) is { } sharp0)
+                if (sharp0 is not null)
                 {
-                    _sharpening = true;
                     var sharp = _src.Oriented(sharp0, Options);
                     string key = AnimationSourceImpl.SharpKey(Options);
                     _status = $"{order.Count} frames ready · sharpening {order.Count(i => Store.HasSharp(i, key))} of {order.Count}"; Raise();
-                    var r2 = _src.WithSession(s => AnimationRenderer.CreateAsync(s, sharp, null, ct).GetAwaiter().GetResult());
-                    // the second pass of the zoom-through checks the photo on its full-size picture: its notes replace the quick look's
-                    if (Options.Effect == AnimationEffect.ZoomThrough) { _notes = r2.Plan.Notes.ToList(); Raise(); }
-                    if (r2.Plan.Frames.Count == r.Plan.Frames.Count)
+                    if (order.All(i => Store.HasSharp(i, key)))
                     {
-                        int sharpDone = order.Count(i => Store.HasSharp(i, key));
-                        foreach (var k in order)
+                        // An earlier preview of the same frames made every sharp frame: nothing to render again.
+                        if (Options.Effect == AnimationEffect.ZoomThrough && Store.SharpNotes is { } kept) _notes = kept;
+                        _sharpSetUp = false;
+                    }
+                    else
+                    {
+                        var r2 = _src.WithSession(s => AnimationRenderer.CreateAsync(s, sharp, null, ct).GetAwaiter().GetResult());
+                        // the second pass of the zoom-through checks the photo on its full-size picture: its notes replace the quick look's
+                        if (Options.Effect == AnimationEffect.ZoomThrough) { _notes = r2.Plan.Notes.ToList(); Store.SharpNotes = _notes; Raise(); }
+                        _sharpSetUp = false;
+                        if (r2.Plan.Frames.Count != r.Plan.Frames.Count) _sharpSkipped = true;
+                        else
                         {
-                            ct.ThrowIfCancellationRequested();
-                            if (_src.IsDisposed) return;
-                            if (Store.HasSharp(k, key)) continue;
-                            _status = $"{order.Count} frames ready · sharpening {sharpDone} of {order.Count}"; Raise();
-                            var img = r2.Render(k, ct);
-                            Store.PutSharp(new PreviewFrame(k, img.W, img.H, img.P, r2.Plan.Frames[k].Label), key);
-                            sharpDone++;
-                            Raise();
+                            int sharpDone = order.Count(i => Store.HasSharp(i, key));
+                            foreach (var k in order)
+                            {
+                                ct.ThrowIfCancellationRequested();
+                                if (_src.IsDisposed) return;
+                                if (Store.HasSharp(k, key)) continue;
+                                _status = $"{order.Count} frames ready · sharpening {sharpDone} of {order.Count}"; Raise();
+                                var img = r2.Render(k, ct);
+                                Store.PutSharp(new PreviewFrame(k, img.W, img.H, img.P, r2.Plan.Frames[k].Label), key);
+                                sharpDone++;
+                                Raise();
+                            }
                         }
                     }
+                    _final = true;
                     _sharpening = false;
                     _status = $"{order.Count} frames ready ({sw.Elapsed.TotalSeconds:0.0} s)";
                     Raise();
                 }
             }
-            finally { _sharpening = false; _src.RenderGate.Release(); }
+            finally { _sharpening = false; _sharpSetUp = false; _src.RenderGate.Release(); }
         }
         catch (OperationCanceledException) { _status = "Stopped"; }
         catch (Exception e) when (e is LibraryException or ExportRequestException or InvalidOperationException or IOException)

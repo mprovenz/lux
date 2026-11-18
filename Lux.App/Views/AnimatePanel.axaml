@@ -48,11 +48,11 @@
             <Border Classes="warningbox" IsVisible="{Binding PreviewNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" AutomationProperties.Name="About this preview">
               <TextBlock x:Name="PreviewNoteText" Classes="wrap small" Text="{Binding PreviewNote}" />
             </Border>
-            <!-- the preview's detail next to the file's: said while sharper frames come, or when the preview stays a quick one -->
+            <!-- the preview's detail next to the file's: said when the frames that play are smaller than the file's -->
             <Border Classes="note" IsVisible="{Binding PreviewDetailNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" AutomationProperties.Name="Preview detail">
               <TextBlock x:Name="PreviewDetailText" Classes="wrap small" Text="{Binding PreviewDetailNote}" />
             </Border>
-            <!-- always shown: the preview is not the file -->
+            <!-- always shown: the preview is not the file. The player plays only when every frame is ready at preview quality. -->
             <TextBlock x:Name="PreviewQualityText" Classes="secondary small wrap"
                        Text="The preview is made at preview quality. The exported file can show more detail." />
           </StackPanel>
