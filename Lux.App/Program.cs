@@ -17,6 +17,9 @@ internal static class Program
         // before anything else. In a plain archive or a development build it does nothing.
         Velopack.VelopackApp.Build().Run();
         Options = AppOptions.Parse(args);
+        // the problem log in the app's data folder: from here on, an exception that nothing handles is recorded there
+        try { CrashLog.Start(CompositionRoot.AppDataFolder(Options)); } catch (Exception) { /* no data folder: the app says so when it opens the library */ }
+        CrashLog.InstallProcessHandlers();
         return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 

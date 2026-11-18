@@ -43,6 +43,8 @@ public partial class App : Application
                 var window = new MainWindow { DataContext = vm };
                 platform.Window = window;
                 desktop.MainWindow = window;
+                // an exception in an event handler is recorded in the problem log and shown as a notice; the app continues
+                CrashLog.AttachUi(Avalonia.Threading.Dispatcher.UIThread, m => vm.Notify(m));
                 desktop.ShutdownRequested += async (_, _) => await vm.DisposeAsync();
                 _ = InitializeAsync(vm, options);
             }

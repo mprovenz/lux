@@ -17,9 +17,9 @@ public sealed record LaplacianPyramidConfig(float Clarity, float Shadows, float 
 
     public static LaplacianPyramidConfig FromTuning(Tuning t)
     {
-        float G(string k, float d) { try { return (float)t.Num("tone_adjust." + k); } catch (KeyNotFoundException) { return d; } }
+        float G(string k, float d) => (float)t.NumOr("tone_adjust." + k, d);
         float[] samples = DefaultSamples;
-        try { samples = t.Vec("tone_adjust.lpyr_samples").Select(v => (float)v).ToArray(); } catch (KeyNotFoundException) { }
+        if (t.VecOrNull("tone_adjust.lpyr_samples") is { } set) samples = set.Select(v => (float)v).ToArray();
         return new LaplacianPyramidConfig(G("lpyr_clarity", 0f), G("lpyr_shadows", 1f), G("lpyr_highlights", 1f), G("lpyr_sigma", 0.5f),
                                           G("lpyr_lower_percentile", -8f), G("lpyr_higher_percentile", 0.2f), G("lpyr_mid_percentile", -1f), samples);
     }

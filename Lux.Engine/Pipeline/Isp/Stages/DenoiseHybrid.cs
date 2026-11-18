@@ -23,7 +23,7 @@ public sealed class DenoiseHybridStage : IStage
     {
         var img = p.Rgb ?? throw new InvalidOperationException("Denoising:hybrid needs the RGB working image");
         var t = p.Context.Tuning;
-        float Get(string k, float d) { try { return (float)t.Num(k); } catch (KeyNotFoundException) { return d; } }
+        float Get(string k, float d) => (float)t.NumOr(k, d);
         var nlm = new HybridDenoise.NlmParams { WindowSize = (int)Get("nlm_denoiser.window_size", 5), PatchSize = (int)Get("nlm_denoiser.patch_size", 5), StepSize = (int)Get("nlm_denoiser.step_size", 2), ChromaBoost = Get("nlm_denoiser.chroma_boost", 2f), PyramidSize = (int)Get("nlm_denoiser.pyramid_size", 5), MinLumaStd = Get("nlm_denoiser.min_luma_std", 0.0025f) };
         var bil = new HybridDenoise.BilateralParams { WindowSize = (int)Get("bilateral_denoiser.window_size", 5), ChromaBoost = Get("bilateral_denoiser.chroma_boost", 2f), PyramidSize = (int)Get("bilateral_denoiser.pyramid_size", 5) };
         float thr = Get("denoising.threshold_multiplier", 1f) * Get("pipeline.parameter_scale", 1f);

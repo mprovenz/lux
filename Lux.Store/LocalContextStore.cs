@@ -162,8 +162,13 @@ public sealed class LocalContextStore
     static readonly ConcurrentDictionary<string, bool> Probes = new(StringComparer.Ordinal);
 
     /// <summary>Whether a folder can be written: an actual probe (create and delete a small file), cached per folder until
-    /// <see cref="ForgetProbes"/>.</summary>
-    public static bool IsWritable(string folder) => Probes.GetOrAdd(Path.GetFullPath(folder), Probe);
+    /// <see cref="ForgetProbes"/>. A folder that does not exist cannot be written; that answer is not cached, because the folder can
+    /// appear later (a drive that is connected).</summary>
+    public static bool IsWritable(string folder)
+    {
+        string f = Path.GetFullPath(folder);
+        return Directory.Exists(f) && Probes.GetOrAdd(f, Probe);
+    }
 
     static bool Probe(string folder)
     {

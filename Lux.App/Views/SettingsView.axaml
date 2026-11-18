@@ -217,6 +217,7 @@
             <StackPanel Spacing="2" VerticalAlignment="Center">
               <TextBlock Classes="mono" Text="{Binding VersionText}" />
               <TextBlock Classes="secondary small wrap" Text="{Binding StateText}" />
+              <TextBlock x:Name="ProblemLogNote" Classes="secondary small wrap" Text="{Binding ProblemLogText}" IsVisible="{Binding ProblemLogText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             </StackPanel>
             <Button Grid.Column="1" Content="Check now" Command="{Binding CheckNowCommand}" IsEnabled="{Binding CanCheck}" IsVisible="{Binding IsAvailable}" />
             <Button Grid.Column="2" Classes="accent" Content="Restart to update" Command="{Binding RestartCommand}" IsVisible="{Binding CanRestart}" />

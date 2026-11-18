@@ -27,6 +27,9 @@ public sealed partial class UpdatesViewModel : ObservableObject
 
     public string VersionText => "Lux " + _updates.Status.CurrentVersion;
 
+    /// <summary>Where the problem log is (<see cref="CrashLog"/>); empty when there is none.</summary>
+    public string ProblemLogText => CrashLog.FilePath is { } p ? "Problems that Lux runs into are recorded in " + p : "";
+
     /// <summary>False for a copy that cannot update itself (a plain archive or a development build).</summary>
     public bool IsAvailable => _updates.Status.State != UpdateState.NotAvailable;
 

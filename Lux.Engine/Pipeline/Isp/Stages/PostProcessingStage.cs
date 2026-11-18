@@ -19,7 +19,7 @@ public sealed class PostProcessingStage : IStage
     {
         var img = p.Rgb ?? throw new InvalidOperationException("PostProcessing needs the RGB working image");
         var t = p.Context.Tuning;
-        float Get(string k, float d) { try { return (float)t.Num(k); } catch (KeyNotFoundException) { return d; } }
+        float Get(string k, float d) => (float)t.NumOr(k, d);
         float sat = Get("tone_mapping.saturation", 1f), vib = Get("tone_mapping.vibrance", 1f);
         float c = Get("tone_mapping.sharpening", 0f), d = Get("tone_mapping.sharpening_scale", 1f);
         float a = Get("tone_mapping.grain_power", 0f), b = Get("tone_mapping.grain_sigma", 1f);

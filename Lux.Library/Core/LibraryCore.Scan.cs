@@ -426,14 +426,15 @@ internal sealed class FolderWatcher : IDisposable
         _ctxTimer = new Timer(_ => FlushContexts(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
-    /// <summary>Match the watchers to the folder list.</summary>
+    /// <summary>Match the watchers to the folder list. A folder that cannot be reached has no watcher: a watcher does not follow a folder
+    /// that goes away and comes back, so it is made again when the folder is back.</summary>
     public void Sync()
     {
         var folders = _lib.Db.Read(c => c.Rows(null, "SELECT id, path FROM folder", r => (r.GetInt64(0), r.GetString(1))));
         lock (_w)
         {
             if (_disposed) return;
-            foreach (var id in _w.Keys.Except(folders.Select(f => f.Item1)).ToList()) { _w[id].Dispose(); _w.Remove(id); }
+            foreach (var id in _w.Keys.Except(folders.Where(f => Directory.Exists(f.Item2)).Select(f => f.Item1)).ToList()) { _w[id].Dispose(); _w.Remove(id); }
             foreach (var (id, path) in folders)
             {
                 if (_w.ContainsKey(id) || !Directory.Exists(path)) continue;

@@ -22,6 +22,11 @@ public sealed class Tuning
 
     public string Str(string key) => _v.TryGetValue(key, out var v) ? System.Convert.ToString(v, CultureInfo.InvariantCulture)! : throw Missing(key);
     public double Num(string key) => _v.TryGetValue(key, out var v) ? System.Convert.ToDouble(v, CultureInfo.InvariantCulture) : throw Missing(key);
+    /// <summary>The number of a key, or <paramref name="fallback"/> when the key is not set. It does not throw for a missing key:
+    /// stages call it for each tile, and an exception for each call is slow.</summary>
+    public double NumOr(string key, double fallback) => _v.TryGetValue(key, out var v) ? System.Convert.ToDouble(v, CultureInfo.InvariantCulture) : fallback;
+    /// <summary>The vector of a key, or null when the key is not set or is not a vector.</summary>
+    public double[]? VecOrNull(string key) => _v.TryGetValue(key, out var v) && v is double[] a ? a : null;
     public bool Flag(string key) => _v.TryGetValue(key, out var v) && v is bool b ? b : throw Missing(key);
     public double[] Vec(string key) => _v.TryGetValue(key, out var v) && v is double[] a ? a : throw Missing(key);
     public string Type(string stage) => Str(stage + ".type");

@@ -18,6 +18,12 @@ internal sealed partial class LibraryCore : ILibrary
     internal readonly Action<string>? Log;
     FolderWatcher? _watcher;
     Timer? _pendingTimer;
+    Timer? _folderTimer;
+    /// <summary>Whether each folder could be reached at the last check (<see cref="CheckFolders"/>).</summary>
+    readonly Dictionary<long, bool> _reachable = new();
+    int _checkingFolders;
+    /// <summary>The time between two checks of the folders, in milliseconds.</summary>
+    internal const int FolderCheckMs = 2000;
     /// <summary>Completes when the open-time pass over the local context store has finished (tests wait for it).</summary>
     internal readonly TaskCompletionSource _openSettled = new(TaskCreationOptions.RunContinuationsAsynchronously);
     int _disposed;
@@ -69,7 +75,9 @@ internal sealed partial class LibraryCore : ILibrary
             core.Queue.Restore();
             if (options.WatchFolders ?? core.SettingsImpl.WatchFolders) core._watcher = new FolderWatcher(core);
             if (options.StartWorkers) core.Queue.Start(); else core.Queue.Start(paused: true);
+            core.CheckFolders();   // the first check only records which folders can be reached now
             core._watcher?.Sync();
+            core._folderTimer = new Timer(_ => core.CheckFolders(), null, FolderCheckMs, FolderCheckMs);
             // data kept in the local context store (or kept aside after a conflict): settled now — moved next to its capture where the folder
             // can be written at this open, conflicts resolved
             _ = Task.Run(() =>
@@ -127,6 +135,44 @@ internal sealed partial class LibraryCore : ILibrary
     });
 
     internal (long Id, string Path)? FolderRow(long id) => Db.Read(c => c.Rows(null, "SELECT id, path FROM folder WHERE id=$f", r => ((long, string)?)(r.GetInt64(0), r.GetString(1)), ("$f", id)).FirstOrDefault());
+
+    /// <summary>Checks which folders can be reached. A folder can go away and come back while the library is open: for example, its drive
+    /// is disconnected and connected again. A folder that comes back is watched again and scanned, so its photos stop showing as missing.
+    /// A folder that goes away loses its watcher. Both changes raise <see cref="FoldersChanged"/>. A timer calls this every
+    /// <see cref="FolderCheckMs"/> milliseconds. It never throws.</summary>
+    internal void CheckFolders()
+    {
+        if (IsDisposed || Interlocked.Exchange(ref _checkingFolders, 1) != 0) return;
+        try
+        {
+            var folders = Db.Read(c => c.Rows(null, "SELECT id, path FROM folder", r => (Id: r.GetInt64(0), Path: r.GetString(1))));
+            var back = new List<(long Id, string Path)>();
+            bool changed = false;
+            lock (_reachable)
+            {
+                foreach (var id in _reachable.Keys.Except(folders.Select(f => f.Id)).ToList()) _reachable.Remove(id);
+                foreach (var f in folders)
+                {
+                    bool now = Directory.Exists(f.Path);
+                    if (_reachable.TryGetValue(f.Id, out bool was) && was != now)
+                    {
+                        changed = true;
+                        if (now) back.Add(f);
+                    }
+                    _reachable[f.Id] = now;
+                }
+            }
+            if (!changed) return;
+            foreach (var f in back) LocalContextStore.ForgetProbes(f.Path);   // whether its folders can be written is probed afresh
+            _watcher?.Sync();
+            // with folder watching on, the scan starts by itself; with it off, the user chooses Rescan
+            if (_watcher is not null)
+                foreach (var f in back) Queue.EnqueueQuietScan(f.Id);
+            RaiseFoldersChanged();
+        }
+        catch (Exception e) when (e is not OutOfMemoryException) { if (!IsDisposed) Trace("folder check: " + e.Message); }
+        finally { Volatile.Write(ref _checkingFolders, 0); }
+    }
 
     public IReadOnlyList<SubfolderInfo> GetSubfolders(long folderId)
     {
@@ -217,6 +263,7 @@ internal sealed partial class LibraryCore : ILibrary
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         CloseSessions();   // open photos save their pending edits first
+        _folderTimer?.Dispose();
         _watcher?.Dispose();
         _pendingTimer?.Dispose();
         // running jobs stop at their next checkpoint (most within a second; a registration in progress only at its end): wait a little, then

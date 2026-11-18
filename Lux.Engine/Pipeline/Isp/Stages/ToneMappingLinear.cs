@@ -16,7 +16,7 @@ public sealed class ToneMappingLinearStage : IStage
     public void Apply(IspPayload p)
     {
         var img = p.Rgb ?? throw new InvalidOperationException("ToneMapping needs the RGB working image");
-        float ev = 0f; try { ev = (float)p.Context.Tuning.Num("tone_mapping.ev_offset"); } catch (KeyNotFoundException) { }
+        float ev = (float)p.Context.Tuning.NumOr("tone_mapping.ev_offset", 0.0);
         float g = Exp2(ev);
         var from = ColorSpace.ProPhotoD50; var to = p.Stats.OutSpace;
         bool convert = !from.SameAs(to);

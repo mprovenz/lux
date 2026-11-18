@@ -48,10 +48,10 @@ public sealed class ToneMappingAcrStage : IStage
     public void Apply(IspPayload p)
     {
         var img = p.Rgb ?? throw new InvalidOperationException("ToneMapping needs the RGB working image");
-        float ev = 0f; try { ev = (float)p.Context.Tuning.Num("tone_mapping.ev_offset"); } catch (KeyNotFoundException) { }
+        float ev = (float)p.Context.Tuning.NumOr("tone_mapping.ev_offset", 0.0);
         var lut = TmoAcrLuts.ForMode(_mode);
-        float recovery = 0f; try { recovery = (float)p.Context.Tuning.Num(HighlightRecoveryKey); } catch (KeyNotFoundException) { }
-        bool gamut = false; try { gamut = p.Context.Tuning.Num(GamutCompressKey) != 0.0; } catch (KeyNotFoundException) { }
+        float recovery = (float)p.Context.Tuning.NumOr(HighlightRecoveryKey, 0.0);
+        bool gamut = p.Context.Tuning.NumOr(GamutCompressKey, 0.0) != 0.0;
         // With highlight recovery the table is longer (it covers the inputs above Lumen's white), and its entries up to the knee are Lumen's.
         if (recovery > 0f) lut = HighlightRecovery.Curve(lut, recovery);
         float desaturation = recovery > 0f ? Math.Min(recovery, HighlightRecovery.AmountMax) / HighlightRecovery.AmountMax : 0f;

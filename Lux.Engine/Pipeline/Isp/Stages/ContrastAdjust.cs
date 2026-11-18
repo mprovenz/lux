@@ -16,7 +16,7 @@ public sealed class ContrastAdjustStage : IStage
     {
         var img = p.Rgb ?? throw new InvalidOperationException("ContrastAdjust needs the RGB working image");
         float a = 0f;
-        try { a = (float)p.Context.Tuning.Num("contrast_adjust.value"); } catch (KeyNotFoundException) { }
+        a = (float)p.Context.Tuning.NumOr("contrast_adjust.value", a);
         if ((double)MathF.Abs(a) < 1e-6) return;                       // 1e-6 as a double; a NaN does not return
         var abs = p.ToAbsolute(p.IntRect).Intersect(img.Rect);
         if (abs.IsEmpty) throw new InvalidOperationException("empty image data!");

@@ -71,9 +71,12 @@ public sealed class AppServices : IAsyncDisposable
 /// <summary>Builds the services: the fake library (<c>--fake</c>) or the real one, with the app-data folder override.</summary>
 public static class CompositionRoot
 {
+    /// <summary>The app's data folder: the override of <paramref name="o"/> when it has one, else the per-user folder.</summary>
+    public static string AppDataFolder(AppOptions o) => o.AppDataDir is { Length: > 0 } d ? Path.GetFullPath(d) : LibraryPaths.DefaultDataFolder;
+
     public static AppServices Create(AppOptions o, IPlatformServices platform, Action<string>? log = null)
     {
-        string appData = o.AppDataDir is { Length: > 0 } d ? Path.GetFullPath(d) : LibraryPaths.DefaultDataFolder;
+        string appData = AppDataFolder(o);
         if (o.Fake)
         {
             var fake = new FakeLibrary(new FakeLibraryOptions
