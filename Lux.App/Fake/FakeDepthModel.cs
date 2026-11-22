@@ -11,7 +11,7 @@ public sealed class FakeDepthModel : IDepthModelService
     Task? _running; CancellationTokenSource? _cancel;
 
     /// <summary>The size the fake reports for its download.</summary>
-    public long DownloadBytes { get; set; } = 107_370_070;
+    public long DownloadBytes { get; set; } = 107_190_566;
     /// <summary>How long a fake download takes.</summary>
     public int DownloadMs { get; set; } = 3000;
     /// <summary>When set, the next download fails with this text.</summary>

@@ -18,7 +18,7 @@ public sealed unsafe class OnnxDepthNetwork : IDepthNetwork, IDisposable
     const uint ApiVersion = 17;
 
     // positions in the OrtApi table
-    const int GetErrorMessage = 2, CreateEnv = 3, CreateSession = 7, RunSession = 9, CreateSessionOptions = 10, SetSessionGraphOptimizationLevel = 23,
+    const int GetErrorMessage = 2, CreateEnv = 3, DisableTelemetryEvents = 6, CreateSession = 7, RunSession = 9, CreateSessionOptions = 10, SetSessionGraphOptimizationLevel = 23,
               SetIntraOpNumThreads = 24, SetInterOpNumThreads = 25, CreateTensorWithDataAsOrtValue = 49, GetTensorMutableData = 51,
               GetTensorShapeElementCount = 64, GetTensorTypeAndShape = 65, CreateCpuMemoryInfo = 69, ReleaseEnv = 92, ReleaseStatus = 93,
               ReleaseMemoryInfo = 94, ReleaseSession = 95, ReleaseValue = 96, ReleaseTensorTypeAndShapeInfo = 99, ReleaseSessionOptions = 100;
@@ -65,6 +65,9 @@ public sealed unsafe class OnnxDepthNetwork : IDepthNetwork, IDisposable
             fixed (byte* logId = "lux\0"u8)
                 Check(((delegate* unmanaged<int, byte*, nint*, nint>)_api[CreateEnv])(3 /* errors only */, logId, &env));
             _env = env;
+            // The Windows builds of the runtime can send usage data to Microsoft. Lux turns that off before it makes a session.
+            // On other systems the runtime sends nothing, and the call has no effect.
+            Check(((delegate* unmanaged<nint, nint>)_api[DisableTelemetryEvents])(env));
             Check(((delegate* unmanaged<nint*, nint>)_api[CreateSessionOptions])(&options));
             try
             {

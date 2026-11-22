@@ -47,8 +47,23 @@ public interface IDepthModelService
 /// <summary>Opens a file of the manifest for reading from a byte offset. The stream may end early: the caller checks the size.</summary>
 public interface IDownloadSource
 {
+    /// <param name="length">The number of bytes the caller reads from <paramref name="offset"/>; null = to the end of the file. The
+    /// stream can hold more: the caller stops after this many bytes.</param>
     /// <returns>The stream, and the offset it really starts at (0 when the source cannot start in the middle).</returns>
-    Task<(Stream Stream, long Offset)> OpenAsync(DownloadFile file, long offset, CancellationToken cancel);
+    Task<(Stream Stream, long Offset)> OpenAsync(DownloadFile file, long offset, long? length, CancellationToken cancel);
+
+    /// <summary>The place this source reads <paramref name="file"/> from, for a message: the name of the server, or a folder.</summary>
+    string PlaceOf(DownloadFile file) => Uri.TryCreate(file.Url, UriKind.Absolute, out var url) ? url.Host : file.Name;
+}
+
+/// <summary>A source that does not answer or that refuses a file.</summary>
+public sealed class DownloadSourceException : IOException
+{
+    /// <summary>The name of the server.</summary>
+    public string Host { get; }
+    /// <summary>The HTTP status of the answer; null when there was no answer.</summary>
+    public int? Status { get; }
+    public DownloadSourceException(string host, int? status, string message, Exception? inner = null) : base(message, inner) { Host = host; Status = status; }
 }
 
 /// <summary>A download that cannot be used: the wrong size or the wrong hash, or the source failed.</summary>
@@ -62,10 +77,19 @@ public sealed class DepthModelException : Exception
 /// <para>A file is downloaded to a <c>.part</c> file, checked against the size and SHA-256 of the manifest, and only then renamed. A
 /// broken download continues from the part already received. A file that fails its check is deleted and fetched once more from the
 /// start; a second failure ends the download with an error.</para>
+/// <para>The runtime library has several sources (<see cref="RuntimePackage.Sources"/>). The manager tries them in order and goes to
+/// the next one when a source fails: it does not answer, it has no such file, it stops sending, or its file fails the check. The
+/// download fails only when every source failed. The first source is a small archive with the one library. The next one is a zip
+/// package that holds the libraries of all platforms: the manager reads the zip directory with byte range requests and downloads only
+/// the one entry, or the whole package when the server cannot send a part of it. The library is checked against its SHA-256 whatever
+/// the source.</para>
 /// </summary>
 public sealed class DepthModelManager : IDepthModelService
 {
     public const int Attempts = 3;
+
+    /// <summary>A download that receives no bytes for this long fails. The part already received stays.</summary>
+    public TimeSpan StallTimeout { get; init; } = TimeSpan.FromSeconds(60);
 
     readonly DepthModelManifest _manifest; readonly RuntimePackage? _runtime; readonly IDownloadSource _source;
     readonly object _lock = new();
@@ -96,7 +120,8 @@ public sealed class DepthModelManager : IDepthModelService
 
     public DepthModelStatus Status { get { lock (_lock) return _status; } }
     public event Action? StatusChanged;
-    public long DownloadBytes => _runtime is null ? 0 : _runtime.Archive.Size + _manifest.Model.File.Size;
+    /// <summary>The size of the download from the first source of the runtime, and the model.</summary>
+    public long DownloadBytes => _runtime is null ? 0 : _runtime.Sources[0].DownloadSize + _manifest.Model.File.Size;
 
     public string ModelPath => Path.Combine(Folder, _manifest.Model.File.Name);
     public string? LibraryPath => _runtime is null ? null : Path.Combine(Folder, $"onnxruntime-{_manifest.RuntimeVersion}-{_runtime.Rid}", _runtime.LibraryFile);
@@ -160,86 +185,255 @@ public sealed class DepthModelManager : IDepthModelService
 
     async Task RunDownload(CancellationToken cancel)
     {
-        long total = DownloadBytes;
+        var model = _manifest.Model.File;
+        long total = DownloadBytes, runtimeBytes = _runtime!.Sources[0].DownloadSize;
         Set(new DepthModelStatus(DepthModelState.Downloading, BytesTotal: total));
         try
         {
             Directory.CreateDirectory(Folder);
-            // the runtime: the archive, then the one library out of it
             string lib = LibraryPath!;
-            if (Length(lib) != _runtime!.LibrarySize)
+            if (Length(lib) != _runtime.LibrarySize)
             {
-                string archive = Path.Combine(Folder, _runtime.Archive.Name + ".part");
-                await Fetch(_runtime.Archive, archive, 0, total, cancel).ConfigureAwait(false);
                 Directory.CreateDirectory(Path.GetDirectoryName(lib)!);
                 string part = lib + ".part";
-                Extract(archive, _runtime.Entry, part);
-                if (Length(part) != _runtime.LibrarySize || Sha256(part) != _runtime.LibrarySha256)
+                var sources = _runtime.Sources;
+                if (_source is Sources.FolderSource folder)
                 {
-                    File.Delete(part); File.Delete(archive);
-                    throw new DepthModelException("The runtime library in the downloaded archive does not match its expected hash.");
+                    // a folder holds one archive of the runtime: only the sources whose archive is there count
+                    var present = sources.Where(s => folder.Has(s.Archive.Name)).ToList();
+                    if (present.Count > 0) sources = present;
+                    else if (_runtime.LocalArchive is { } local && folder.Has(local))
+                    {
+                        Extract(folder.PathOf(local), _runtime.LocalArchiveEntry!, part);
+                        CheckLibrary(part);
+                        sources = Array.Empty<RuntimeSource>();
+                    }
                 }
+                await FromSources("runtime", sources, s => s.Archive, async s =>
+                {
+                    runtimeBytes = s.DownloadSize; total = runtimeBytes + model.Size;
+                    await FetchLibrary(s, part, total, cancel).ConfigureAwait(false);
+                }).ConfigureAwait(false);
                 File.Move(part, lib, overwrite: true);
-                File.Delete(archive);
+                foreach (var s in _runtime.Sources) { File.Delete(ArchivePart(s)); }   // parts of the sources that failed
             }
-            // the model
-            if (Length(ModelPath) != _manifest.Model.File.Size)
+            if (Length(ModelPath) != model.Size)
             {
                 string part = ModelPath + ".part";
-                await Fetch(_manifest.Model.File, part, _runtime.Archive.Size, total, cancel).ConfigureAwait(false);
+                await FromSources("model", _manifest.Model.Sources.ToList(), f => f, f => Fetch(f, part, runtimeBytes, total, cancel)).ConfigureAwait(false);
                 File.Move(part, ModelPath, overwrite: true);
             }
             Set(Probe());
         }
         catch (OperationCanceledException) { Set(Probe()); }
+        catch (SourcesFailed e) { Set(new DepthModelStatus(DepthModelState.Failed, e.Message)); }
         catch (Exception e) when (e is DepthModelException or IOException or HttpRequestException or UnauthorizedAccessException or InvalidDataException)
         {
             Set(new DepthModelStatus(DepthModelState.Failed, "The download failed: " + e.Message));
         }
     }
 
+    /// <summary>One source failed. The message is short and has no place in it: "HTTP 404", "no data arrived for 60 seconds".</summary>
+    sealed class SourceFailed(string message, Exception? inner = null) : Exception(message, inner);
+
+    /// <summary>Every source of a file failed. The message is the whole reason, for the user.</summary>
+    sealed class SourcesFailed(string message) : Exception(message);
+
+    /// <summary>
+    /// Get a file from the first source that works. A source that fails is noted and the next one is tried. When all fail, the error
+    /// names the places tried and what each one did.
+    /// </summary>
+    /// <param name="what">The file in the words of a message: "runtime" or "model".</param>
+    async Task FromSources<T>(string what, IReadOnlyList<T> sources, Func<T, DownloadFile> file, Func<T, Task> fetch)
+    {
+        if (sources.Count == 0) return;
+        var failed = new List<(string Place, string Detail)>();
+        foreach (var source in sources)
+        {
+            try { await fetch(source).ConfigureAwait(false); return; }
+            catch (Exception e) when (e is SourceFailed or DepthModelException or IOException or HttpRequestException or InvalidDataException)
+            {
+                var entry = (_source.PlaceOf(file(source)), e.Message.TrimEnd('.'));
+                if (!failed.Contains(entry)) failed.Add(entry);
+            }
+        }
+        var places = failed.Select(f => f.Place).Distinct().ToList();
+        string from = places.Count == 1 ? places[0] : string.Join(", ", places.Take(places.Count - 1)) + " or " + places[^1];
+        string detail = failed.Count == 1 ? failed[0].Detail : string.Join("; ", failed.Select(f => f.Place + ": " + f.Detail));
+        throw new SourcesFailed($"The {what} could not be downloaded from {from}. Try again later. ({detail})");
+    }
+
+    /// <summary>The source has no file with this name: a client error other than "try again" (408, 429).</summary>
+    static bool Refused(Exception e) => e is DownloadSourceException { Status: >= 400 and < 500 and not (408 or 429) };
+
+    static SourceFailed Failure(DownloadFile file, Exception? last) => last switch
+    {
+        DownloadSourceException { Status: { } code } => new SourceFailed("HTTP " + code, last),
+        null => new SourceFailed($"{file.Name} could not be downloaded"),
+        _ => new SourceFailed(last.Message, last),
+    };
+
+    SourceFailed Stalled() => new(FormattableString.Invariant($"no data arrived for {StallTimeout.TotalSeconds:0.#} seconds"));
+
+    void CheckLibrary(string part)
+    {
+        if (Length(part) == _runtime!.LibrarySize && Sha256(part) == _runtime.LibrarySha256) return;
+        File.Delete(part);
+        throw new DepthModelException("The runtime library does not match its expected hash. The file was rejected.");
+    }
+
+    /// <summary>The file that holds the downloaded part of a source's archive.</summary>
+    string ArchivePart(RuntimeSource source)
+        => Path.Combine(Folder, source.Ranged ? $"{source.Archive.Name}.{_runtime!.Rid}.part" : source.Archive.Name + ".part");
+
+    /// <summary>Get the runtime library from one source to <paramref name="to"/> and check it.</summary>
+    async Task FetchLibrary(RuntimeSource source, string to, long total, CancellationToken cancel)
+    {
+        if (source.Ranged) { await FetchEntry(source, to, total, cancel).ConfigureAwait(false); return; }
+        string archive = ArchivePart(source);
+        await Fetch(source.Archive, archive, 0, total, cancel).ConfigureAwait(false);
+        try { Extract(archive, source.Entry, to); CheckLibrary(to); }
+        finally { File.Delete(archive); }
+    }
+
     /// <summary>Download one file to <paramref name="part"/> and check it. A part already there is continued. A source error is tried
     /// again; a file that fails its check is deleted and fetched once more from the start.</summary>
     async Task Fetch(DownloadFile file, string part, long doneBefore, long total, CancellationToken cancel)
     {
-        bool refetched = false; Exception? last = null;
+        for (bool refetched = false; ; refetched = true)
+        {
+            await Receive(file, 0, file.Size, part, doneBefore, total, cancel).ConfigureAwait(false);
+            if (Sha256(part) == file.Sha256) return;
+            File.Delete(part);
+            if (refetched) throw new DepthModelException($"{file.Name} does not match its expected hash. The file was rejected.");
+        }
+    }
+
+    /// <summary>
+    /// Download the runtime library as one entry of a package: read the zip directory with byte range requests, download the entry's
+    /// compressed data to a <c>.part</c> file (a part already there is continued), unpack it to <paramref name="to"/> and check it.
+    /// The source fails when it cannot send a part of the package, or when the package does not have the expected structure.
+    /// </summary>
+    async Task FetchEntry(RuntimeSource source, string to, long total, CancellationToken cancel)
+    {
+        var rt = _runtime!; var package = source.Archive;
+        string part = ArchivePart(source);
+        for (bool refetched = false; ; refetched = true)
+        {
+            try
+            {
+                var entry = await ZipRange.FindAsync((offset, length) => ReadRange(package, offset, length, cancel), package.Size, source.Entry).ConfigureAwait(false);
+                if (entry.Size != rt.LibrarySize) throw new ZipStructureException("The library in the package does not have the expected size.");
+                await Receive(package, entry.DataOffset, entry.CompressedSize, part, 0, total, cancel).ConfigureAwait(false);
+                bool good;
+                using (var data = File.OpenRead(part))
+                using (var library = File.Create(to))
+                    good = ZipRange.Unpack(entry, data, library);
+                File.Delete(part);
+                if (good && Sha256(to) == rt.LibrarySha256) return;
+                // a damaged part or another package: one more try from the start
+                File.Delete(to);
+                if (refetched) throw new DepthModelException("The runtime library does not match its expected hash. The file was rejected.");
+            }
+            catch (Exception e) when (e is ZipStructureException or RangeNotServed)
+            {
+                File.Delete(part);
+                throw new SourceFailed(e.Message, e);
+            }
+        }
+    }
+
+    /// <summary>The source answered a range request with the file from its start.</summary>
+    sealed class RangeNotServed() : Exception("the server does not send a part of a file");
+
+    /// <summary>Read a small part of a file into memory. A source error is tried again.</summary>
+    async Task<byte[]> ReadRange(DownloadFile file, long offset, int length, CancellationToken cancel)
+    {
+        Exception? last = null;
         for (int attempt = 0; attempt < Attempts; attempt++)
         {
             cancel.ThrowIfCancellationRequested();
+            using var stall = CancellationTokenSource.CreateLinkedTokenSource(cancel);
+            try
+            {
+                stall.CancelAfter(StallTimeout);
+                var (stream, start) = await _source.OpenAsync(file, offset, length, stall.Token).ConfigureAwait(false);
+                await using (stream.ConfigureAwait(false))
+                {
+                    if (start != offset) throw new RangeNotServed();
+                    var bytes = new byte[length]; int have = 0, n;
+                    while (have < length && (n = await stream.ReadAsync(bytes.AsMemory(have), stall.Token).ConfigureAwait(false)) > 0)
+                    {
+                        have += n;
+                        stall.CancelAfter(StallTimeout);
+                    }
+                    if (have == length) return bytes;
+                    throw new IOException($"the connection closed after {have} of {length} bytes of {file.Name}");
+                }
+            }
+            catch (OperationCanceledException) when (!cancel.IsCancellationRequested) { throw Stalled(); }
+            catch (Exception e) when (e is IOException or HttpRequestException)
+            {
+                last = e;
+                if (Refused(e)) break;
+            }
+        }
+        throw Failure(file, last);
+    }
+
+    /// <summary>
+    /// Download <paramref name="size"/> bytes of a file from <paramref name="start"/> to <paramref name="part"/>. A part already there
+    /// is continued. A source error is tried again. A connection that sends no bytes for <see cref="StallTimeout"/> ends the download;
+    /// the part stays.
+    /// </summary>
+    async Task Receive(DownloadFile file, long start, long size, string part, long doneBefore, long total, CancellationToken cancel)
+    {
+        bool ranged = start != 0 || size != file.Size;
+        Exception? last = null;
+        for (int attempt = 0; attempt < Attempts; attempt++)
+        {
+            cancel.ThrowIfCancellationRequested();
+            using var stall = CancellationTokenSource.CreateLinkedTokenSource(cancel);
             try
             {
                 long have = Math.Max(Length(part), 0);
-                if (have > file.Size) { File.Delete(part); have = 0; }
-                if (have < file.Size)
+                if (have > size) { File.Delete(part); have = 0; }
+                if (have == size) return;
+                stall.CancelAfter(StallTimeout);
+                var (stream, offset) = await _source.OpenAsync(file, start + have, ranged ? size - have : null, stall.Token).ConfigureAwait(false);
+                await using (stream.ConfigureAwait(false))
                 {
-                    var (stream, offset) = await _source.OpenAsync(file, have, cancel).ConfigureAwait(false);
-                    await using (stream.ConfigureAwait(false))
+                    if (offset != start + have)
                     {
-                        if (offset != have) { offset = 0; have = 0; }   // the source starts at the beginning
-                        await using var fs = new FileStream(part, offset == 0 ? FileMode.Create : FileMode.Append, FileAccess.Write, FileShare.None);
-                        var buf = new byte[1 << 16]; int n; long lastReport = 0;
-                        while ((n = await stream.ReadAsync(buf, cancel).ConfigureAwait(false)) > 0)
+                        if (ranged) throw new RangeNotServed();
+                        have = 0;   // the source starts at the beginning
+                    }
+                    await using var fs = new FileStream(part, have == 0 ? FileMode.Create : FileMode.Append, FileAccess.Write, FileShare.None);
+                    var buf = new byte[1 << 16]; int n; long lastReport = 0;
+                    while (have < size && (n = await stream.ReadAsync(buf.AsMemory(0, (int)Math.Min(buf.Length, ranged ? size - have : buf.Length)), stall.Token).ConfigureAwait(false)) > 0)
+                    {
+                        if (have + n > size) throw new DepthModelException($"{file.Name} is larger than expected.");
+                        await fs.WriteAsync(buf.AsMemory(0, n), cancel).ConfigureAwait(false);
+                        have += n;
+                        stall.CancelAfter(StallTimeout);
+                        if (have - lastReport >= 1 << 20 || have == size)
                         {
-                            if (have + n > file.Size) throw new DepthModelException($"{file.Name} is larger than expected.");
-                            await fs.WriteAsync(buf.AsMemory(0, n), cancel).ConfigureAwait(false);
-                            have += n;
-                            if (have - lastReport >= 1 << 20 || have == file.Size)
-                            {
-                                lastReport = have;
-                                Set(new DepthModelStatus(DepthModelState.Downloading, BytesDone: doneBefore + have, BytesTotal: total));
-                            }
+                            lastReport = have;
+                            Set(new DepthModelStatus(DepthModelState.Downloading, BytesDone: Math.Min(doneBefore + have, total), BytesTotal: total));
                         }
                     }
-                    if (have < file.Size) throw new IOException($"the connection closed after {have} of {file.Size} bytes of {file.Name}");
                 }
-                if (Sha256(part) == file.Sha256) return;
-                File.Delete(part);
-                if (refetched) throw new DepthModelException($"{file.Name} does not match its expected hash. The file was rejected.");
-                refetched = true; attempt--;   // one clean fetch does not count as a source error
+                if (have == size) return;
+                throw new IOException($"the connection closed after {have} of {size} bytes of {file.Name}");
             }
-            catch (Exception e) when (e is IOException or HttpRequestException && attempt + 1 < Attempts) { last = e; }
+            catch (OperationCanceledException) when (!cancel.IsCancellationRequested) { throw Stalled(); }
+            catch (Exception e) when (e is IOException or HttpRequestException)
+            {
+                last = e;
+                if (Refused(e)) break;
+            }
         }
-        throw new DepthModelException($"{file.Name} could not be downloaded" + (last is null ? "." : ": " + last.Message), last);
+        throw Failure(file, last);
     }
 
     /// <summary>Copy one entry of a <c>.zip</c> or <c>.tgz</c> archive to a file.</summary>
@@ -299,9 +493,13 @@ public static class Sources
     /// <summary>Files of a local folder, by name.</summary>
     public sealed class FolderSource(string folder) : IDownloadSource
     {
-        public Task<(Stream Stream, long Offset)> OpenAsync(DownloadFile file, long offset, CancellationToken cancel)
+        public string PathOf(string name) => Path.Combine(folder, name);
+        public string PlaceOf(DownloadFile file) => folder;
+        public bool Has(string name) => File.Exists(PathOf(name));
+
+        public Task<(Stream Stream, long Offset)> OpenAsync(DownloadFile file, long offset, long? length, CancellationToken cancel)
         {
-            var fs = new FileStream(Path.Combine(folder, file.Name), FileMode.Open, FileAccess.Read, FileShare.Read);
+            var fs = new FileStream(PathOf(file.Name), FileMode.Open, FileAccess.Read, FileShare.Read);
             if (offset > fs.Length) offset = 0;
             fs.Position = offset;
             return Task.FromResult<(Stream, long)>((fs, offset));
@@ -321,18 +519,24 @@ public static class Sources
             return c;
         }
 
-        public async Task<(Stream Stream, long Offset)> OpenAsync(DownloadFile file, long offset, CancellationToken cancel)
+        Uri UrlOf(DownloadFile file) => new(baseUrl is null ? file.Url : baseUrl + file.Name);
+        public string PlaceOf(DownloadFile file) => UrlOf(file).Host;
+
+        public async Task<(Stream Stream, long Offset)> OpenAsync(DownloadFile file, long offset, long? length, CancellationToken cancel)
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, baseUrl is null ? file.Url : baseUrl + file.Name);
-            if (offset > 0) req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(offset, null);
-            var resp = await Client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancel).ConfigureAwait(false);
+            var url = UrlOf(file);
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            if (offset > 0 || length is not null) req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(offset, length is { } n ? offset + n - 1 : null);
+            HttpResponseMessage resp;
+            try { resp = await Client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancel).ConfigureAwait(false); }
+            catch (HttpRequestException e) { throw new DownloadSourceException(url.Host, null, e.Message, e); }
             if (!resp.IsSuccessStatusCode)
             {
                 int code = (int)resp.StatusCode; resp.Dispose();
-                throw new HttpRequestException($"the server answered {code} for {file.Name}");
+                throw new DownloadSourceException(url.Host, code, $"the server answered {code} for {file.Name}");
             }
             // 206 = the range was honored; 200 = the whole file from the start
-            long start = resp.StatusCode == System.Net.HttpStatusCode.PartialContent ? offset : 0;
+            long start = resp.StatusCode == System.Net.HttpStatusCode.PartialContent ? resp.Content.Headers.ContentRange?.From ?? offset : 0;
             return (await resp.Content.ReadAsStreamAsync(cancel).ConfigureAwait(false), start);
         }
     }

@@ -44,7 +44,7 @@ own license:
 | File | Source | Copyright | License |
 |---|---|---|---|
 | Depth Anything V2 Small (the depth network), converted to the ONNX format | The `onnx-community/depth-anything-v2-small` repository on Hugging Face (https://huggingface.co/onnx-community/depth-anything-v2-small); the model is from https://github.com/DepthAnything/Depth-Anything-V2 | The Depth Anything V2 authors | Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0) |
-| ONNX Runtime 1.23.2 (the library that runs the network) | The release archives at https://github.com/microsoft/onnxruntime/releases | Copyright (c) Microsoft Corporation | MIT |
+| ONNX Runtime 1.23.2 (the library that runs the network) | The release files of the Lux project (https://github.com/mprovenz/lux-depth-support), which hold the unchanged libraries of the `Microsoft.ML.OnnxRuntime` 1.23.2 package; second source: that package on nuget.org (https://www.nuget.org/packages/Microsoft.ML.OnnxRuntime/1.23.2) | Copyright (c) Microsoft Corporation | MIT |
 
 The ONNX file is a converted form of the original model weights (a modified form in the sense of the Apache License). Lux uses
 both files unchanged, as downloaded.

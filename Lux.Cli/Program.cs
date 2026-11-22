@@ -956,18 +956,25 @@ namespace Lux.Cli
 
                 DEPTH-MODEL:
                   lux-light depth-model status|install|remove manages the files of refined depth. install downloads
-                  them once (about 110 MB; about 180 MB on Windows) into the folder models/depth of the app's data
-                  folder, and checks each file against a fixed SHA-256. remove deletes them. The desktop app uses the
-                  same files (Settings, Refined depth).
+                  them once (about 105 to 110 MB) into the folder models/depth of the app's data folder, and checks
+                  each file against a fixed SHA-256. remove deletes them. The desktop app uses the same files
+                  (Settings, Refined depth).
                   - The depth network is Depth Anything V2 Small (Apache-2.0), as an ONNX file from the
                     onnx-community/depth-anything-v2-small repository on Hugging Face.
-                  - The runtime is ONNX Runtime 1.23.2 (MIT), from its GitHub releases. There are builds for Linux,
-                    Windows and macOS on x64 and arm64 processors. On another computer the command says that refined
-                    depth is not available.
-                  - A download sends the file's address and a generic client name, nothing else.
-                  - LUX_DEPTH_MODEL_SOURCE=<folder or URL> makes install read the files from there instead, under the
-                    names onnxruntime-<platform>-1.23.2.tgz (.zip on Windows) and depth-anything-v2-small.onnx. The
-                    files must be the same: the SHA-256 check stays.
+                  - The runtime is ONNX Runtime 1.23.2 (MIT). There are builds for Linux, Windows and macOS on x64 and
+                    arm64 processors. On another computer the command says that refined depth is not available.
+                    install downloads the one library of your computer, 5 to 12 MB, from the release files of the Lux
+                    project (github.com/mprovenz/lux-depth-support). These files hold the unchanged libraries of the
+                    Microsoft.ML.OnnxRuntime 1.23.2 package. When that download fails, install takes the same library
+                    from the package on nuget.org. An error names the servers that were tried.
+                  - A download sends the file's address, the byte range and a generic client name, nothing else.
+                  - LUX_DEPTH_MODEL_SOURCE=<folder or URL> makes install read the files from there instead: the model
+                    under the name depth-anything-v2-small.onnx, and the runtime under one of the names
+                    onnxruntime-1.23.2-<platform>.zip (the Lux project's file; <platform> is linux-x64, linux-arm64,
+                    win-x64, win-arm64, osx-x64 or osx-arm64) and microsoft.ml.onnxruntime.1.23.2.nupkg (the package).
+                    A folder can also hold the ONNX Runtime release archive of your computer,
+                    onnxruntime-<platform>-1.23.2.tgz (.zip on Windows). The files must be the same: the SHA-256
+                    check stays.
                   Exit status: 0 done (status: installed), 1 status: not installed, 2 an error.
 
                 GLOBAL OPTIONS:
