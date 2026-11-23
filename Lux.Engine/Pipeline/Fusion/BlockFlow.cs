@@ -1,4 +1,5 @@
 using Lux.Engine.Imaging;
+using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using Lux.Engine.Pipeline.Isp;
@@ -315,8 +316,27 @@ public static class BlockFlow
         return (x0 + vw / 2 - B / 2, y0 + vh / 2 - B / 2);
     }
 
+    /// <summary>The sum of absolute differences of the B×B blocks at <paramref name="aOff"/> and <paramref name="bOff"/>.</summary>
     static uint Sad(ushort[] a, int aOff, int aStride, ushort[] b, int bOff, int bStride, int B)
     {
+        if ((B == 8 || B == 16) && Vector128.IsHardwareAccelerated && BlockInside(a, aOff, aStride, B) && BlockInside(b, bOff, bStride, B))
+        {
+            // eight pixels per vector: |x − y| = max − min in 16 bits, widened to 32 bits before the sum (B²·65535 < 2³²)
+            ref ushort ra = ref MemoryMarshal.GetArrayDataReference(a);
+            ref ushort rb = ref MemoryMarshal.GetArrayDataReference(b);
+            var acc = Vector128<uint>.Zero;
+            for (int y = 0; y < B; y++)
+            {
+                nuint pa = (nuint)(aOff + y * aStride), pb = (nuint)(bOff + y * bStride);
+                for (int x = 0; x < B; x += 8)
+                {
+                    var va = Vector128.LoadUnsafe(ref ra, pa + (nuint)x); var vb = Vector128.LoadUnsafe(ref rb, pb + (nuint)x);
+                    var (lo, hi) = Vector128.Widen(Vector128.Max(va, vb) - Vector128.Min(va, vb));
+                    acc += lo + hi;
+                }
+            }
+            return Vector128.Sum(acc);
+        }
         uint s = 0;
         for (int y = 0; y < B; y++)
         {
@@ -325,6 +345,10 @@ public static class BlockFlow
         }
         return s;
     }
+
+    /// <summary>True when every pixel of the B×B block at <paramref name="off"/> (row stride <paramref name="stride"/>) is an element
+    /// of <paramref name="img"/>. A block that fails this test takes the scalar code, with its bounds checks.</summary>
+    static bool BlockInside(ushort[] img, int off, int stride, int B) => off >= 0 && stride >= 0 && (long)off + (long)(B - 1) * stride + B <= img.Length;
 
     /// <summary>Top level (B = 8, refine ±8) and the B/R-generalized form of the 8×8 top level: out `(w/B, h/B)`,
     /// per block the ±R refine with sub-pixel fit, no candidate search.</summary>

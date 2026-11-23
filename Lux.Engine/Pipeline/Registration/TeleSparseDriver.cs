@@ -20,10 +20,11 @@ public static class TeleSparseDriver
     /// <summary>WarpField projection `v = ((z·col2 + col3) + X·col0) + Y·col1`, `w = 1/v2` (column-major M).</summary>
     static (float X, float Y) Proj(float[] M, float X, float Y, float z)
     {
-        var v = new float[3];
-        for (int r = 0; r < 3; r++) v[r] = ((z * M[8 + r] + M[12 + r]) + X * M[r]) + Y * M[4 + r];
-        float w = 1.0f / v[2];
-        return (v[0] * w, w * v[1]);
+        float v0 = ((z * M[8] + M[12]) + X * M[0]) + Y * M[4];
+        float v1 = ((z * M[9] + M[13]) + X * M[1]) + Y * M[5];
+        float v2 = ((z * M[10] + M[14]) + X * M[2]) + Y * M[6];
+        float w = 1.0f / v2;
+        return (v0 * w, w * v1);
     }
 
     /// <summary>Per triangulated WIDE point, its projection into the cam canvas (or (−1,−1)) gated by a 17×17 depth-consistency test.</summary>
@@ -125,11 +126,51 @@ public static class TeleSparseDriver
         for (int c = 0; c < 4; c++) sum[c] = (sum[c] * 455) >> 16;
         return sum;
     }
-    static int Zsad12(Rgba8Image tmpl, int tx, int ty, int[] tmean, Rgba8Image img, int cx, int cy, ushort[] weights)
+    /// <summary>The 12×12 zero-mean weighted SAD. The vector form reads a row of 12 pixels as three 16-byte vectors and keeps
+    /// the int16 lanes of the scalar form (even pixel c0..c3, odd pixel c0..c3). The terms are not negative, so the order of
+    /// the saturating adds does not change a lane sum.</summary>
+    static unsafe int Zsad12(Rgba8Image tmpl, int tx, int ty, int[] tmean, Rgba8Image img, int cx, int cy, ushort[] weights)
+    {
+        int to = tmpl.Offset(tx - 6, ty - 6), po = img.Offset(cx - 6, cy - 6), ts = tmpl.Stride * 4, ps = img.Stride * 4;
+        byte[] td = tmpl.Data, pd = img.Data;
+        // The vector form reads through pointers, so it needs both 12×12 blocks inside their arrays.
+        if (!Vector128.IsHardwareAccelerated || ts < 0 || ps < 0 || to < 0 || po < 0 || (long)to + 11L * ts + 48 > td.Length || (long)po + 11L * ps + 48 > pd.Length)
+            return Zsad12Scalar(tmpl, tx, ty, tmean, img, cx, cy, weights);
+        Vector128<short> acc = Vector128<short>.Zero;
+        fixed (byte* pt = td, pp = pd)
+        {
+            // patch mean: per channel (Σ·455) >> 16
+            var sum = Vector128<int>.Zero; byte* b = pp + po;
+            for (int r = 0; r < 12; r++, b += ps)
+                for (int k = 0; k < 48; k += 16)
+                {
+                    var v = Vector128.Load(b + k); var s16 = Vector128.WidenLower(v) + Vector128.WidenUpper(v);
+                    sum += Vector128.WidenLower(s16).AsInt32() + Vector128.WidenUpper(s16).AsInt32();
+                }
+            int d0 = Math.Clamp(tmean[0] - ((sum.GetElement(0) * 455) >> 16), -32768, 32767), d1 = Math.Clamp(tmean[1] - ((sum.GetElement(1) * 455) >> 16), -32768, 32767);
+            int d2 = Math.Clamp(tmean[2] - ((sum.GetElement(2) * 455) >> 16), -32768, 32767), d3 = Math.Clamp(tmean[3] - ((sum.GetElement(3) * 455) >> 16), -32768, 32767);
+            var diff = Vector128.Create((short)d0, (short)d1, (short)d2, (short)d3, (short)d0, (short)d1, (short)d2, (short)d3);
+            byte* a = pt + to; b = pp + po;
+            for (int r = 0; r < 12; r++, a += ts, b += ps)
+                for (int k = 0; k < 48; k += 16)
+                {
+                    Vector128<byte> va = Vector128.Load(a + k), vb = Vector128.Load(b + k);
+                    var lo = Vector128.Abs(Vector128.SubtractSaturate(Vector128.WidenLower(va).AsInt16() - Vector128.WidenLower(vb).AsInt16(), diff));
+                    var hi = Vector128.Abs(Vector128.SubtractSaturate(Vector128.WidenUpper(va).AsInt16() - Vector128.WidenUpper(vb).AsInt16(), diff));
+                    acc = Vector128.AddSaturate(Vector128.AddSaturate(acc, lo), hi);
+                }
+        }
+        int score = 0;
+        for (int c = 0; c < 4; c++) { int sad = Math.Min(acc.GetElement(c) + acc.GetElement(c + 4), 65535); score += (int)(((uint)weights[c] * (uint)sad) >> 8); }
+        return score;
+    }
+
+    /// <summary>The 12×12 zero-mean weighted SAD, one byte at a time.</summary>
+    static int Zsad12Scalar(Rgba8Image tmpl, int tx, int ty, int[] tmean, Rgba8Image img, int cx, int cy, ushort[] weights)
     {
         var pmean = Mean12(img, cx, cy);
-        var diff = new int[4]; for (int c = 0; c < 4; c++) diff[c] = Math.Clamp(tmean[c] - pmean[c], -32768, 32767);
-        var acc = new int[8];
+        Span<int> diff = stackalloc int[4]; for (int c = 0; c < 4; c++) diff[c] = Math.Clamp(tmean[c] - pmean[c], -32768, 32767);
+        Span<int> acc = stackalloc int[8]; acc.Clear();
         for (int r = -6; r < 6; r++)
         {
             int to = tmpl.Offset(tx - 6, ty + r), po = img.Offset(cx - 6, cy + r);

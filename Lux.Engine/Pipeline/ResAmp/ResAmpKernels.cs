@@ -419,13 +419,17 @@ internal static class ResAmpKernels
     {
         var T = bspline ? BSplineTable : CatmullTable;
         int offx = Cvtt(offX * 65536.0), scx = Cvtt(scX * 65536.0), offy = Cvtt(offY * 65536.0), scy = Cvtt(scY * 65536.0);
-        int w = dst.W, h = dst.H;
-        var cache = new Dictionary<int, float[]>();
-        float[] Row(int r)
+        int w = dst.W, h = dst.H, n = w * 4;
+        // The horizontal pass of each source row is computed once, into its own row of n floats in a pooled block.
+        int nrows = Math.Max(src.RY1 - src.RY0, 0);
+        var rows = ScratchPool.Rent<float>(nrows * n);
+        var done = new bool[nrows];
+        // the start of the horizontal pass of source row r (clamped to the source rect) in the block
+        int Row(int r)
         {
-            int sy = Math.Clamp(r, src.RY0, src.RY1 - 1);
-            if (cache.TryGetValue(sy, out var row)) return row;
-            row = new float[w * 4];
+            int sy = Math.Clamp(r, src.RY0, src.RY1 - 1), k = sy - src.RY0, start = k * n;
+            if (done[k]) return start;
+            var row = rows.AsSpan(start, n);
             int rx = offx;
             for (int x = 0; x < w; x++, rx += scx)
             {
@@ -436,22 +440,26 @@ internal static class ResAmpKernels
                 var S = src.Data;
                 var s0 = Vector128.Create((ReadOnlySpan<float>)S.AsSpan(i0, 4)); var s1 = Vector128.Create((ReadOnlySpan<float>)S.AsSpan(i1, 4));
                 var s2 = Vector128.Create((ReadOnlySpan<float>)S.AsSpan(i2, 4)); var s3 = Vector128.Create((ReadOnlySpan<float>)S.AsSpan(i3, 4));
-                ((Vector128.Create(T[ph * 4 + 1]) * s1 + Vector128.Create(T[ph * 4]) * s0) + (Vector128.Create(T[ph * 4 + 3]) * s3 + Vector128.Create(T[ph * 4 + 2]) * s2)).CopyTo(row.AsSpan(x * 4, 4));
+                ((Vector128.Create(T[ph * 4 + 1]) * s1 + Vector128.Create(T[ph * 4]) * s0) + (Vector128.Create(T[ph * 4 + 3]) * s3 + Vector128.Create(T[ph * 4 + 2]) * s2)).CopyTo(row.Slice(x * 4, 4));
             }
-            cache[sy] = row; return row;
+            done[k] = true; return start;
         }
-        for (int y = 0; y < h; y++)
+        try
         {
-            int ry = scy * y + offy; int iy = ry >> 16, ph = (ry >> 10) & 63;
-            var r0 = Row(iy - 1); var r1 = Row(iy); var r2 = Row(iy + 1); var r3 = Row(iy + 2);
-            float W0 = T[ph * 4], W1 = T[ph * 4 + 1], W2 = T[ph * 4 + 2], W3 = T[ph * 4 + 3];
-            int ob = dst.Idx(0, y), n = w * 4, i = 0;
-            var V0 = Vector256.Create(W0); var V1 = Vector256.Create(W1); var V2 = Vector256.Create(W2); var V3 = Vector256.Create(W3);
-            for (; i + 8 <= n; i += 8)
-                ((Vector256.Create((ReadOnlySpan<float>)r1.AsSpan(i, 8)) * V1 + Vector256.Create((ReadOnlySpan<float>)r0.AsSpan(i, 8)) * V0)
-                 + (Vector256.Create((ReadOnlySpan<float>)r3.AsSpan(i, 8)) * V3 + Vector256.Create((ReadOnlySpan<float>)r2.AsSpan(i, 8)) * V2)).CopyTo(dst.Data.AsSpan(ob + i, 8));
-            for (; i < n; i++) dst.Data[ob + i] = (r1[i] * W1 + r0[i] * W0) + (r3[i] * W3 + r2[i] * W2);
+            for (int y = 0; y < h; y++)
+            {
+                int ry = scy * y + offy; int iy = ry >> 16, ph = (ry >> 10) & 63;
+                int o0 = Row(iy - 1), o1 = Row(iy), o2 = Row(iy + 1), o3 = Row(iy + 2);
+                float W0 = T[ph * 4], W1 = T[ph * 4 + 1], W2 = T[ph * 4 + 2], W3 = T[ph * 4 + 3];
+                int ob = dst.Idx(0, y), i = 0;
+                var V0 = Vector256.Create(W0); var V1 = Vector256.Create(W1); var V2 = Vector256.Create(W2); var V3 = Vector256.Create(W3);
+                for (; i + 8 <= n; i += 8)
+                    ((Vector256.Create((ReadOnlySpan<float>)rows.AsSpan(o1 + i, 8)) * V1 + Vector256.Create((ReadOnlySpan<float>)rows.AsSpan(o0 + i, 8)) * V0)
+                     + (Vector256.Create((ReadOnlySpan<float>)rows.AsSpan(o3 + i, 8)) * V3 + Vector256.Create((ReadOnlySpan<float>)rows.AsSpan(o2 + i, 8)) * V2)).CopyTo(dst.Data.AsSpan(ob + i, 8));
+                for (; i < n; i++) dst.Data[ob + i] = (rows[o1 + i] * W1 + rows[o0 + i] * W0) + (rows[o3 + i] * W3 + rows[o2 + i] * W2);
+            }
         }
+        finally { ScratchPool.Return(rows); }
     }
 
     // ---------------------------------------------------------------- N×N 4-tap cubic sample

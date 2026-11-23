@@ -1,4 +1,5 @@
 using Lux.Engine.Imaging;
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using Lux.Engine.Pipeline.Color;
@@ -104,58 +105,58 @@ public static class ReferenceGuide
 /// "boundary size does match destination size!" when the size argument differs from the destination.</summary>
 public static class Rgba8Warp
 {
-    public static byte[] Warp(byte[] src, int sw, int sh, int dw, int dh, AlignedCalib ac)
+    public static unsafe byte[] Warp(byte[] src, int sw, int sh, int dw, int dh, AlignedCalib ac)
     {
         if (sw < 1 || sh < 1) throw new InvalidOperationException("empty source image!");
+        if (src.Length < (long)sw * sh * 4) throw new IndexOutOfRangeException();   // the taps are read through pointers
         var tbl = StereoImage.LanczosTable();   // identical construction (sinf, (s2·(s1·3))/((x·x)·π²), sequential sum, ×(1/sum))
         var H = ac.H; var lut = ac.Lut; float cx = ac.Cx, cy = ac.Cy, sx = ac.Sx, sy = ac.Sy;
+        float h0 = H[0], h1 = H[1], h2 = H[2], h3 = H[3], h4 = H[4], h5 = H[5], h6 = H[6], h7 = H[7], h8 = H[8];
         var dst = new byte[(long)dw * dh * 4];
-        var gather = new uint[36];
-        for (int y = 0; y < dh; y++)
-            for (int x = 0; x < dw; x++)
-            {
-                float Xn = H[2] + (H[0] * x + H[1] * y), Yn = H[5] + (H[3] * x + H[4] * y);
-                float den = (H[7] * y + H[6] * x) + H[8], w = 1.0f / den;
-                float dx = w * Xn - cx, dy = w * Yn - cy;
-                float r2 = (sy * dy) * (sy * dy) + (sx * dx) * (sx * dx);
-                float r;
-                if (r2 == 0f) r = 0f; else { float rs = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(r2)).ToScalar(); float S = r2 * rs; r = ((S * rs) + (-3.0f)) * (S * (-0.5f)); }
-                int idx = (int)r; if (idx >= 0x1000) idx = 0xfff;
-                float lu = lut[idx];
-                int px = (int)(((cx + (-2.0f)) + lu * dx) * 64.0f), py = (int)(((cy + (-2.0f)) + dy * lu) * 64.0f);
-                int i = px >> 6, fx = px & 63, j = py >> 6, fy = py & 63;
-                bool interior = i >= 0 && i <= sw - 6 && j >= 0 && j <= sh - 6;
-                // taps: interior → the 6×6 block at (i, j); else every row/column index clamped to the image
-                for (int rr = 0; rr < 6; rr++)
+        long* ro = stackalloc long[6]; int* co = stackalloc int[6];   // byte offsets of the six tap rows and the six tap columns
+        fixed (byte* ps = src, pd = dst) fixed (float* pt = tbl)
+        {
+            for (int y = 0; y < dh; y++)
+                for (int x = 0; x < dw; x++)
                 {
-                    int yy = interior ? j + rr : Math.Clamp(j + rr, 0, sh - 1);
-                    long ro = (long)yy * sw;
-                    for (int cc = 0; cc < 6; cc++)
+                    float Xn = h2 + (h0 * x + h1 * y), Yn = h5 + (h3 * x + h4 * y);
+                    float den = (h7 * y + h6 * x) + h8, w = 1.0f / den;
+                    float dx = w * Xn - cx, dy = w * Yn - cy;
+                    float r2 = (sy * dy) * (sy * dy) + (sx * dx) * (sx * dx);
+                    float r;
+                    if (r2 == 0f) r = 0f; else { float rs = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(r2)).ToScalar(); float S = r2 * rs; r = ((S * rs) + (-3.0f)) * (S * (-0.5f)); }
+                    int idx = (int)r; if (idx >= 0x1000) idx = 0xfff;
+                    float lu = lut[idx];
+                    int px = (int)(((cx + (-2.0f)) + lu * dx) * 64.0f), py = (int)(((cy + (-2.0f)) + dy * lu) * 64.0f);
+                    int i = px >> 6, fx = px & 63, j = py >> 6, fy = py & 63;
+                    bool interior = i >= 0 && i <= sw - 6 && j >= 0 && j <= sh - 6;
+                    // taps: interior → the 6×6 block at (i, j); else every row/column index clamped to the image
+                    if (interior) for (int k = 0; k < 6; k++) { ro[k] = (long)(j + k) * sw * 4; co[k] = (i + k) * 4; }
+                    else for (int k = 0; k < 6; k++) { ro[k] = (long)Math.Clamp(j + k, 0, sh - 1) * sw * 4; co[k] = Math.Clamp(i + k, 0, sw - 1) * 4; }
+                    // column sums, row by row: bytes to float, times the broadcast y-tap, then added
+                    float* ty = pt + fy * 6, tx = pt + fx * 6;
+                    byte* p = ps + ro[0]; var t = Vector128.Create(ty[0]);
+                    Vector128<float> c0 = Lanes(p + co[0]) * t, c1 = Lanes(p + co[1]) * t, c2 = Lanes(p + co[2]) * t, c3 = Lanes(p + co[3]) * t, c4 = Lanes(p + co[4]) * t, c5 = Lanes(p + co[5]) * t;
+                    for (int rr = 1; rr < 6; rr++)
                     {
-                        int xx = interior ? i + cc : Math.Clamp(i + cc, 0, sw - 1);
-                        long o = (ro + xx) * 4;
-                        gather[rr * 6 + cc] = (uint)(src[o] | (src[o + 1] << 8) | (src[o + 2] << 16) | (src[o + 3] << 24));
+                        p = ps + ro[rr]; t = Vector128.Create(ty[rr]);
+                        c0 = c0 + Lanes(p + co[0]) * t; c1 = c1 + Lanes(p + co[1]) * t; c2 = c2 + Lanes(p + co[2]) * t;
+                        c3 = c3 + Lanes(p + co[3]) * t; c4 = c4 + Lanes(p + co[4]) * t; c5 = c5 + Lanes(p + co[5]) * t;
                     }
+                    var acc = (c5 * Vector128.Create(tx[5]) + c4 * Vector128.Create(tx[4]))
+                            + ((c3 * Vector128.Create(tx[3]) + c2 * Vector128.Create(tx[2]))
+                               + (c1 * Vector128.Create(tx[1]) + c0 * Vector128.Create(tx[0])));
+                    var q = Simd.ConvertToVector128Int32(acc);
+                    var w16 = Simd.PackSignedSaturate(q, q);
+                    var b8 = Simd.PackUnsignedSaturate(w16, w16);
+                    Unsafe.WriteUnaligned(pd + ((long)y * dw + x) * 4, b8.AsUInt32().ToScalar());
                 }
-                // column sums, row by row: bytes to float, times the broadcast y-tap, then added
-                var C = new Vector128<float>[6];
-                for (int cc = 0; cc < 6; cc++) C[cc] = Lanes(gather[cc]) * Vector128.Create(tbl[fy * 6]);
-                for (int rr = 1; rr < 6; rr++)
-                {
-                    var ty = Vector128.Create(tbl[fy * 6 + rr]);
-                    for (int cc = 0; cc < 6; cc++) C[cc] = C[cc] + Lanes(gather[rr * 6 + cc]) * ty;
-                }
-                var acc = (C[5] * Vector128.Create(tbl[fx * 6 + 5]) + C[4] * Vector128.Create(tbl[fx * 6 + 4]))
-                        + ((C[3] * Vector128.Create(tbl[fx * 6 + 3]) + C[2] * Vector128.Create(tbl[fx * 6 + 2]))
-                           + (C[1] * Vector128.Create(tbl[fx * 6 + 1]) + C[0] * Vector128.Create(tbl[fx * 6])));
-                var q = Simd.ConvertToVector128Int32(acc);
-                var w16 = Simd.PackSignedSaturate(q, q);
-                var b8 = Simd.PackUnsignedSaturate(w16, w16);
-                long d = ((long)y * dw + x) * 4;
-                dst[d] = b8.GetElement(0); dst[d + 1] = b8.GetElement(1); dst[d + 2] = b8.GetElement(2); dst[d + 3] = b8.GetElement(3);
-            }
+        }
         return dst;
     }
 
-    static Vector128<float> Lanes(uint p) => Vector128.Create((float)(p & 0xff), (float)((p >> 8) & 0xff), (float)((p >> 16) & 0xff), (float)(p >> 24));
+    /// <summary>The four bytes of a pixel as four floats.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static unsafe Vector128<float> Lanes(byte* p)
+        => Vector128.ConvertToSingle(Vector128.WidenLower(Vector128.WidenLower(Vector128.CreateScalarUnsafe(Unsafe.ReadUnaligned<uint>(p)).AsByte())).AsInt32());
 }

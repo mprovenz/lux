@@ -185,7 +185,7 @@ public sealed class StereoAsyncApi
         if (depthOverride is null)
         {
             var images = cams.Select(c => c.Image).ToArray(); var gray = cams.Select(c => c.Gray).ToArray(); var calibs = cams.Select(c => c.View().Basic()).ToList();
-            Dense = DenseStereoPyramid.Run(images, gray, calibs, Cdp.ZRange.Min, Cdp.ZRange.Max, Log, Threads);
+            Dense = DenseStereoPyramid.Run(images, gray, calibs, Cdp.ZRange.Min, Cdp.ZRange.Max, Log, Threads, keepPass1: DumpPrefix is not null);
             var top = Dense[^1]; Cdp.Depth = top.Depth; Cdp.DepthW = top.W; Cdp.DepthH = top.H;
             if (DumpPrefix is string dp)   // per-layer depth dumps `<out>_dense_L<i>_depth.f32` (after the WTA of each layer)
             {

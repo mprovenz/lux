@@ -49,10 +49,40 @@ public static class SparseLnrMatch
     const float StdMin = 4.0f;
     const double RatioEps = 1e-7;
 
-    /// <summary>Weighted SAD of the 8×8 template at (tx−4..tx+3, ty−4..ty+3) of `tmplImg` against the patch at (px, py) of `img`.</summary>
-    public static int Sad8(Rgba8Image tmplImg, int tx, int ty, Rgba8Image img, int px, int py, ushort[] weights)
+    /// <summary>Weighted SAD of the 8×8 template at (tx−4..tx+3, ty−4..ty+3) of `tmplImg` against the patch at (px, py) of `img`.
+    /// The vector form reads a row of 8 pixels as two 16-byte vectors and widens the byte differences into the u16 lanes of
+    /// the scalar form (even pixel c0..c3, odd pixel c0..c3). A lane holds at most 8·4·255, so no add saturates.</summary>
+    public static unsafe int Sad8(Rgba8Image tmplImg, int tx, int ty, Rgba8Image img, int px, int py, ushort[] weights)
     {
-        var acc = new int[8];   // (even px c0..c3, odd px c0..c3) — u16 lanes with saturating add (never reached here)
+        int to = tmplImg.Offset(tx - 4, ty - 4), po = img.Offset(px - 4, py - 4), ts = tmplImg.Stride * 4, ps = img.Stride * 4;
+        byte[] td = tmplImg.Data, pd = img.Data;
+        // The vector form reads through pointers, so it needs both 8×8 blocks inside their arrays.
+        if (!Vector128.IsHardwareAccelerated || ts < 0 || ps < 0 || to < 0 || po < 0 || (long)to + 7L * ts + 32 > td.Length || (long)po + 7L * ps + 32 > pd.Length)
+            return Sad8Scalar(tmplImg, tx, ty, img, px, py, weights);
+        var acc = Vector128<ushort>.Zero;
+        fixed (byte* pt = td, pp = pd)
+        {
+            byte* a = pt + to, b = pp + po;
+            for (int r = 0; r < 8; r++, a += ts, b += ps)
+            {
+                Vector128<byte> a0 = Vector128.Load(a), a1 = Vector128.Load(a + 16), b0 = Vector128.Load(b), b1 = Vector128.Load(b + 16);
+                var d0 = Vector128.Max(a0, b0) - Vector128.Min(a0, b0); var d1 = Vector128.Max(a1, b1) - Vector128.Min(a1, b1);
+                acc += Vector128.WidenLower(d0) + Vector128.WidenUpper(d0) + Vector128.WidenLower(d1) + Vector128.WidenUpper(d1);
+            }
+        }
+        int score = 0;
+        for (int c = 0; c < 4; c++)
+        {
+            int sad = Math.Min(acc.GetElement(c) + acc.GetElement(c + 4), 65535);
+            score += (int)(((uint)weights[c] * (uint)sad) >> 8);
+        }
+        return score;
+    }
+
+    /// <summary>The weighted 8×8 SAD, one byte at a time.</summary>
+    static int Sad8Scalar(Rgba8Image tmplImg, int tx, int ty, Rgba8Image img, int px, int py, ushort[] weights)
+    {
+        Span<int> acc = stackalloc int[8]; acc.Clear();   // (even px c0..c3, odd px c0..c3) — u16 lanes with saturating add (never reached here)
         for (int r = 0; r < 8; r++)
         {
             int to = tmplImg.Offset(tx - 4, ty - 4 + r), po = img.Offset(px - 4, py - 4 + r);
@@ -127,16 +157,28 @@ public static class SparseLnrMatch
     {
         public float Sx, Sy, D1x, D1y, D2x, D2y; public int N1, N2;
         public static Region Rect(int x0, int y0, int x1, int y1) => new() { Sx = x0, Sy = y0, D1x = 1, D1y = 0, D2x = 0, D2y = 1, N1 = x1 - 1 - x0, N2 = y1 - 1 - y0 };
-        public IEnumerable<(int X, int Y)> Walk()
+        /// <summary>The positions of the region in walk order, for `foreach`.</summary>
+        public Walker Walk() => new(this);
+
+        /// <summary>The walk of a region as a value-type enumerator. The walk stops at the first position that equals the end position.</summary>
+        public struct Walker
         {
-            int endX = (int)(D2x * (N2 + 1) + Sx), endY = (int)(D2y * (N2 + 1) + Sy);
-            int i = 0, j = 0;
-            while (true)
+            readonly Region _r; readonly int _endX, _endY; int _i, _j; bool _started;
+            public Walker(Region r)
             {
-                int cx = (int)(D2x * j + (D1x * i + Sx)), cy = (int)(D2y * j + (D1y * i + Sy));
-                if (cx == endX && cy == endY) yield break;
-                yield return (cx, cy);
-                if (i >= N1) { i = 0; j++; } else i++;
+                _r = r; _endX = (int)(r.D2x * (r.N2 + 1) + r.Sx); _endY = (int)(r.D2y * (r.N2 + 1) + r.Sy);
+                _i = 0; _j = 0; _started = false; Current = default;
+            }
+            public readonly Walker GetEnumerator() => this;
+            public (int X, int Y) Current { get; private set; }
+            public bool MoveNext()
+            {
+                if (!_started) _started = true;
+                else if (_i >= _r.N1) { _i = 0; _j++; }
+                else _i++;
+                int cx = (int)(_r.D2x * _j + (_r.D1x * _i + _r.Sx)), cy = (int)(_r.D2y * _j + (_r.D1y * _i + _r.Sy));
+                if (cx == _endX && cy == _endY) return false;
+                Current = (cx, cy); return true;
             }
         }
     }

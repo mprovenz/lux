@@ -250,10 +250,11 @@ public static class MirrorAngleOptimizerCoarse
 
     static (float U, float V) Proj(float[] M, float p0, float p1, float p2, float p3)
     {
-        var q = new float[3];
-        for (int l = 0; l < 3; l++) q[l] = ((p3 * M[12 + l] + p2 * M[8 + l]) + (p1 * M[4 + l] + p0 * M[l]));
-        float w = 1.0f / q[2];
-        return (w * q[0], w * q[1]);
+        float q0 = (p3 * M[12] + p2 * M[8]) + (p1 * M[4] + p0 * M[0]);
+        float q1 = (p3 * M[13] + p2 * M[9]) + (p1 * M[5] + p0 * M[1]);
+        float q2 = (p3 * M[14] + p2 * M[10]) + (p1 * M[6] + p0 * M[2]);
+        float w = 1.0f / q2;
+        return (w * q0, w * q1);
     }
 
     public sealed class Result { public double Theta; public float Cx, Cy; public int Sel, Best; public float[] Cost = null!; public CalibData Written = null!; }
@@ -306,20 +307,31 @@ public static class MirrorAngleOptimizerCoarse
     public static float Score(Context ctx, float[] Mm, float[] Mc, float[] colourMod, float[] scalarMod, int Wm8, int Hm8)
     {
         int W8 = ctx.W8, H8 = ctx.H8;
-        var mask = new byte[W8 * H8]; Array.Fill(mask, (byte)0xff);
-        var zb = new float[Wm8 * Hm8 * 4]; for (int i = 0; i < zb.Length; i++) zb[i] = -1f;
+        var mask = ScratchPool.Rent<byte>(W8 * H8); mask.AsSpan(0, W8 * H8).Fill(0xff);
+        var zb = ScratchPool.Rent<float>(Wm8 * Hm8 * 4); zb.AsSpan(0, Wm8 * Hm8 * 4).Fill(-1f);
+        float[] depth8 = ctx.Depth8, colour8 = ctx.Colour8, scalar8 = ctx.Scalar8;
+        int frameW = ctx.FrameW - 40, frameH = ctx.FrameH - 40;
+        // the columns of the two flow matrices (the fourth row is not used)
+        float m0 = Mm[0], m1 = Mm[1], m2 = Mm[2], m4 = Mm[4], m5 = Mm[5], m6 = Mm[6], m8 = Mm[8], m9 = Mm[9], m10 = Mm[10], m12 = Mm[12], m13 = Mm[13], m14 = Mm[14];
+        float c0 = Mc[0], c1 = Mc[1], c2 = Mc[2], c4 = Mc[4], c5 = Mc[5], c6 = Mc[6], c8 = Mc[8], c9 = Mc[9], c10 = Mc[10], c12 = Mc[12], c13 = Mc[13], c14 = Mc[14];
         for (int y = 0; y < H8; y++)
             for (int x = 0; x < W8; x++)
             {
-                float d = ctx.Depth8[y * W8 + x];
+                float d = depth8[y * W8 + x];
                 float px = (1f * (float)x) * d, py = (1f * (float)y) * d;
-                var (u, v) = Proj(Mm, px, py, d, 1f);
-                int ui = (int)u, vi = (int)v;
-                bool ok = ui >= 40 && ui < ctx.FrameW - 40 && vi >= 40 && vi < ctx.FrameH - 40;
+                float q0 = (1f * m12 + d * m8) + (py * m4 + px * m0);
+                float q1 = (1f * m13 + d * m9) + (py * m5 + px * m1);
+                float q2 = (1f * m14 + d * m10) + (py * m6 + px * m2);
+                float w = 1.0f / q2;
+                int ui = (int)(w * q0), vi = (int)(w * q1);
+                bool ok = ui >= 40 && ui < frameW && vi >= 40 && vi < frameH;
                 if (ok)
                 {
-                    var (u2, v2) = Proj(Mc, px, py, d, 1f);
-                    int u2i = (int)u2, v2i = (int)v2;
+                    float r0 = (1f * c12 + d * c8) + (py * c4 + px * c0);
+                    float r1 = (1f * c13 + d * c9) + (py * c5 + px * c1);
+                    float r2 = (1f * c14 + d * c10) + (py * c6 + px * c2);
+                    float w2 = 1.0f / r2;
+                    int u2i = (int)(w2 * r0), v2i = (int)(w2 * r1);
                     if (u2i >= 5 && u2i < Wm8 - 5 && v2i >= 5 && v2i < Hm8 - 5)
                     {
                         float z = d; int e = (v2i * Wm8 + u2i) * 4;
@@ -336,15 +348,17 @@ public static class MirrorAngleOptimizerCoarse
             for (int x = 0; x < W8; x++)
             {
                 if (mask[y * W8 + x] == 0) continue;
-                float d = ctx.Depth8[y * W8 + x], xs = (float)x, ys = (float)y;
-                var q = new float[3];
-                for (int l = 0; l < 3; l++) q[l] = ((d * Mc[8 + l] + Mc[12 + l]) + (xs * d) * Mc[l]) + (ys * d) * Mc[4 + l];
-                float w = 1.0f / q[2]; int u2 = (int)(w * q[0]), v2 = (int)(w * q[1]);
+                float d = depth8[y * W8 + x], xs = (float)x, ys = (float)y;
+                float q0 = ((d * c8 + c12) + (xs * d) * c0) + (ys * d) * c4;
+                float q1 = ((d * c9 + c13) + (xs * d) * c1) + (ys * d) * c5;
+                float q2 = ((d * c10 + c14) + (xs * d) * c2) + (ys * d) * c6;
+                float w = 1.0f / q2; int u2 = (int)(w * q0), v2 = (int)(w * q1);
                 int ir = (y * W8 + x) * 4, im = (v2 * Wm8 + u2) * 4;
-                a0 += MathF.Abs(ctx.Colour8[ir] - colourMod[im]); a1 += MathF.Abs(ctx.Colour8[ir + 1] - colourMod[im + 1]);
-                a2 += MathF.Abs(ctx.Colour8[ir + 2] - colourMod[im + 2]); a3 += MathF.Abs(ctx.Colour8[ir + 3] - colourMod[im + 3]);
-                acc1 += MathF.Abs(ctx.Scalar8[y * W8 + x] - scalarMod[v2 * Wm8 + u2]); N++;
+                a0 += MathF.Abs(colour8[ir] - colourMod[im]); a1 += MathF.Abs(colour8[ir + 1] - colourMod[im + 1]);
+                a2 += MathF.Abs(colour8[ir + 2] - colourMod[im + 2]); a3 += MathF.Abs(colour8[ir + 3] - colourMod[im + 3]);
+                acc1 += MathF.Abs(scalar8[y * W8 + x] - scalarMod[v2 * Wm8 + u2]); N++;
             }
+        ScratchPool.Return(mask); ScratchPool.Return(zb);
         if (N <= 100) return float.MaxValue;
         float h = (0.5f * a1) + ((0.5f * a2) + (2.0f * a0));
         return ((acc1 * 0.25f) + (h * 0.75f)) / (float)N;

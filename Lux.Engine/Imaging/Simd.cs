@@ -388,4 +388,15 @@ public static class Simd
         public static unsafe Vector128<uint> GatherVector128(uint* p, Vector128<int> i, byte scale) => Vector128.Create(
             At<uint>(p, i.GetElement(0), scale), At<uint>(p, i.GetElement(1), scale), At<uint>(p, i.GetElement(2), scale), At<uint>(p, i.GetElement(3), scale));
     }
+
+    // ---- byte average ----
+
+    /// <summary>`pavgb`: the rounded average `(a + b + 1) >> 1` of each pair of bytes, without overflow.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Vector128<byte> Average(Vector128<byte> a, Vector128<byte> b)
+    {
+        if (X86 && Sse2.IsSupported) return Sse2.Average(a, b);
+        if (Arm && AdvSimd.IsSupported) return AdvSimd.FusedAddRoundedHalving(a, b);
+        return (a | b) - ((a ^ b) >>> 1);
+    }
 }

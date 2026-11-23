@@ -1,4 +1,5 @@
 using Lux.Engine.Imaging;
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using Lux.Engine.Pipeline.Geometry;
@@ -179,16 +180,18 @@ public static class StereoImage
     /// <summary>`ConvertToYUV` on an RGBA float image in place: (Y, 128+U, 128+V, 1).</summary>
     public static void ConvertToYuv(float[] rgba, int w, int h, float[][] M)
     {
-        for (int p = 0; p < w * h; p++)
+        float[] M0 = M[0], M1 = M[1], M2 = M[2];
+        float y0 = M0[0], y1 = M0[1], y2 = M0[2], y3 = M0[3];
+        float u0 = M1[0], u1 = M1[1], u2 = M1[2], u3 = M1[3];
+        float v0 = M2[0], v1 = M2[1], v2 = M2[2], v3 = M2[3];
+        var px = rgba.AsSpan(0, w * h * 4);
+        for (int o = 0; o < px.Length; o += 4)
         {
-            int o = p * 4; float x = rgba[o], y = rgba[o + 1], z = rgba[o + 2], ww = rgba[o + 3];
-            var outv = new float[4];
-            for (int k = 0; k < 3; k++)
-            {
-                float m = (ww * M[k][3] + z * M[k][2]) + (y * M[k][1] + x * M[k][0]);
-                outv[k] = GammaEncode(m) + (k == 0 ? 0f : 128.0f);
-            }
-            rgba[o] = outv[0]; rgba[o + 1] = outv[1]; rgba[o + 2] = outv[2]; rgba[o + 3] = 1.0f;
+            float x = px[o], y = px[o + 1], z = px[o + 2], ww = px[o + 3];
+            float my = (ww * y3 + z * y2) + (y * y1 + x * y0);
+            float mu = (ww * u3 + z * u2) + (y * u1 + x * u0);
+            float mv = (ww * v3 + z * v2) + (y * v1 + x * v0);
+            px[o] = GammaEncode(my) + 0f; px[o + 1] = GammaEncode(mu) + 128.0f; px[o + 2] = GammaEncode(mv) + 128.0f; px[o + 3] = 1.0f;
         }
     }
 
@@ -235,8 +238,77 @@ public static class StereoImage
         return tbl;
     }
 
-    /// <summary>`ImageWarp&lt;5,0,vec4x32f,LensUndistortCRA&gt;`: dst (w×h) from src via `H` (row-major), CRA LUT, 6-tap Lanczos, fill 0.</summary>
-    public static float[] Warp(float[] src, int sw, int sh, int dw, int dh, float[] H, float[] lut, float cx, float cy, float sx, float sy)
+    /// <summary>The tap orders of the warp. `Cols` is the default order. The other orders are diagnostic.</summary>
+    enum TapOrder { Cols, Rows, Swap, Prod }
+
+    /// <summary>The tap order from `LUX_WARP_ORDER`, read one time.</summary>
+    static readonly TapOrder WarpOrder = Environment.GetEnvironmentVariable("LUX_WARP_ORDER") switch
+    {
+        "rows" => TapOrder.Rows, "swap" => TapOrder.Swap, "prod" => TapOrder.Prod, _ => TapOrder.Cols,
+    };
+
+    /// <summary>`ImageWarp&lt;5,0,vec4x32f,LensUndistortCRA&gt;`: dst (w×h) from src via `H` (row-major), CRA LUT, 6-tap Lanczos, fill 0.
+    /// The vector form puts the four channels of a pixel in one vector. Each lane has the products and the sum order of the
+    /// scalar form.</summary>
+    public static unsafe float[] Warp(float[] src, int sw, int sh, int dw, int dh, float[] H, float[] lut, float cx, float cy, float sx, float sy)
+    {
+        // The vector form reads through pointers, so it needs a source that holds the whole sw×sh image.
+        if (!Vector128.IsHardwareAccelerated || WarpOrder != TapOrder.Cols || sw < 1 || sh < 1 || src.Length < (long)sw * sh * 4)
+            return WarpScalar(src, sw, sh, dw, dh, H, lut, cx, cy, sx, sy);
+        var tbl = LanczosTable(); var dst = new float[dw * dh * 4];
+        float h0 = H[0], h1 = H[1], h2 = H[2], h3 = H[3], h4 = H[4], h5 = H[5], h6 = H[6], h7 = H[7], h8 = H[8];
+        int* ro = stackalloc int[6]; int* co = stackalloc int[6];
+        fixed (float* ps = src, pd = dst, pt = tbl)
+        {
+            for (int y = 0; y < dh; y++)
+                for (int x = 0; x < dw; x++)
+                {
+                    float Xn = h2 + (h0 * x + h1 * y), Yn = h5 + (h3 * x + h4 * y);
+                    float den = (h7 * y + h6 * x) + h8, w = 1.0f / den;
+                    float dx = w * Xn - cx, dy = w * Yn - cy;
+                    float r2 = (sy * dy) * (sy * dy) + (sx * dx) * (sx * dx);
+                    float r;
+                    if (r2 == 0f) r = 0f; else { float rs = IntelApprox.ReciprocalSqrtScalar(Vector128.CreateScalar(r2)).ToScalar(); float S = r2 * rs; r = ((S * rs) + (-3.0f)) * (S * (-0.5f)); }
+                    int idx = (int)r; if (idx >= 0x1000) idx = 0xfff;
+                    float lu = lut[idx];
+                    int px = (int)(((cx + (-2.0f)) + lu * dx) * 64.0f), py = (int)(((cy + (-2.0f)) + dy * lu) * 64.0f);
+                    int i = px >> 6, fx = px & 63, j = py >> 6, fy = py & 63;
+                    bool interior = i >= 0 && i <= sw - 6 && j >= 0 && j <= sh - 6;
+                    if (!interior && !(j < sh && j + 6 > 0 && i < sw && i + 6 > 0)) continue;   // fill (0,0,0,0)
+                    float* ty = pt + fy * 6, tx = pt + fx * 6;
+                    Vector128<float> ty0 = Vector128.Create(ty[0]), ty1 = Vector128.Create(ty[1]), ty2 = Vector128.Create(ty[2]), ty3 = Vector128.Create(ty[3]), ty4 = Vector128.Create(ty[4]), ty5 = Vector128.Create(ty[5]);
+                    Vector128<float> c0, c1, c2, c3, c4, c5;
+                    if (interior)
+                    {
+                        long stride = (long)sw * 4; float* p0 = ps + ((long)j * sw + i) * 4;
+                        float* p1 = p0 + stride, p2 = p1 + stride, p3 = p2 + stride, p4 = p3 + stride, p5 = p4 + stride;
+                        c0 = WarpColumn(p0, p1, p2, p3, p4, p5, 0, ty0, ty1, ty2, ty3, ty4, ty5);
+                        c1 = WarpColumn(p0, p1, p2, p3, p4, p5, 4, ty0, ty1, ty2, ty3, ty4, ty5);
+                        c2 = WarpColumn(p0, p1, p2, p3, p4, p5, 8, ty0, ty1, ty2, ty3, ty4, ty5);
+                        c3 = WarpColumn(p0, p1, p2, p3, p4, p5, 12, ty0, ty1, ty2, ty3, ty4, ty5);
+                        c4 = WarpColumn(p0, p1, p2, p3, p4, p5, 16, ty0, ty1, ty2, ty3, ty4, ty5);
+                        c5 = WarpColumn(p0, p1, p2, p3, p4, p5, 20, ty0, ty1, ty2, ty3, ty4, ty5);
+                    }
+                    else
+                    {   // every row and column index clamped to the image
+                        for (int k = 0; k < 6; k++) { ro[k] = Math.Clamp(j + k, 0, sh - 1) * sw * 4; co[k] = Math.Clamp(i + k, 0, sw - 1) * 4; }
+                        float* p0 = ps + ro[0], p1 = ps + ro[1], p2 = ps + ro[2], p3 = ps + ro[3], p4 = ps + ro[4], p5 = ps + ro[5];
+                        c0 = WarpColumn(p0, p1, p2, p3, p4, p5, co[0], ty0, ty1, ty2, ty3, ty4, ty5);
+                        c1 = WarpColumn(p0, p1, p2, p3, p4, p5, co[1], ty0, ty1, ty2, ty3, ty4, ty5);
+                        c2 = WarpColumn(p0, p1, p2, p3, p4, p5, co[2], ty0, ty1, ty2, ty3, ty4, ty5);
+                        c3 = WarpColumn(p0, p1, p2, p3, p4, p5, co[3], ty0, ty1, ty2, ty3, ty4, ty5);
+                        c4 = WarpColumn(p0, p1, p2, p3, p4, p5, co[4], ty0, ty1, ty2, ty3, ty4, ty5);
+                        c5 = WarpColumn(p0, p1, p2, p3, p4, p5, co[5], ty0, ty1, ty2, ty3, ty4, ty5);
+                    }
+                    var acc = (c5 * Vector128.Create(tx[5]) + c4 * Vector128.Create(tx[4])) + ((c3 * Vector128.Create(tx[3]) + c2 * Vector128.Create(tx[2])) + (c1 * Vector128.Create(tx[1]) + c0 * Vector128.Create(tx[0])));
+                    acc.Store(pd + ((long)y * dw + x) * 4);
+                }
+        }
+        return dst;
+    }
+
+    /// <summary>The warp in scalar form, one channel at a time, for every tap order.</summary>
+    static float[] WarpScalar(float[] src, int sw, int sh, int dw, int dh, float[] H, float[] lut, float cx, float cy, float sx, float sy)
     {
         var tbl = LanczosTable(); var dst = new float[dw * dh * 4];
         for (int y = 0; y < dh; y++)
@@ -252,37 +324,60 @@ public static class StereoImage
                 float lu = lut[idx];
                 int px = (int)(((cx + (-2.0f)) + lu * dx) * 64.0f), py = (int)(((cy + (-2.0f)) + dy * lu) * 64.0f);
                 int i = px >> 6, fx = px & 63, j = py >> 6, fy = py & 63;
-                int o = (y * dw + x) * 4;
                 bool interior = i >= 0 && i <= sw - 6 && j >= 0 && j <= sh - 6;
                 bool partial = !interior && j < sh && j + 6 > 0 && i < sw && i + 6 > 0;
                 if (!interior && !partial) continue;   // fill (0,0,0,0)
-                string order = Environment.GetEnvironmentVariable("LUX_WARP_ORDER") ?? "cols"; bool rowsFirst = order == "rows";
-                if (order == "swap") { (fx, fy) = (fy, fx); }
-                for (int c = 0; c < 4; c++)
-                {
-                    var C = new float[6];
-                    float Px(int rr, int cc) => src[(interior ? j + rr : Math.Clamp(j + rr, 0, sh - 1)) * sw * 4 + (interior ? i + cc : Math.Clamp(i + cc, 0, sw - 1)) * 4 + c];
-                    if (order == "prod")
-                    {
-                        float acc = 0f;
-                        for (int rr = 0; rr < 6; rr++) for (int cc = 0; cc < 6; cc++) acc += Px(rr, cc) * (tbl[fy * 6 + rr] * tbl[fx * 6 + cc]);
-                        dst[o + c] = acc;
-                    }
-                    else if (!rowsFirst)
-                    {
-                        for (int cc = 0; cc < 6; cc++)
-                            C[cc] = (Px(5, cc) * tbl[fy * 6 + 5] + Px(4, cc) * tbl[fy * 6 + 4]) + ((Px(3, cc) * tbl[fy * 6 + 3] + Px(2, cc) * tbl[fy * 6 + 2]) + (Px(1, cc) * tbl[fy * 6 + 1] + Px(0, cc) * tbl[fy * 6]));
-                        dst[o + c] = (C[5] * tbl[fx * 6 + 5] + C[4] * tbl[fx * 6 + 4]) + ((C[3] * tbl[fx * 6 + 3] + C[2] * tbl[fx * 6 + 2]) + (C[1] * tbl[fx * 6 + 1] + C[0] * tbl[fx * 6]));
-                    }
-                    else
-                    {
-                        for (int rr = 0; rr < 6; rr++)
-                            C[rr] = (Px(rr, 5) * tbl[fx * 6 + 5] + Px(rr, 4) * tbl[fx * 6 + 4]) + ((Px(rr, 3) * tbl[fx * 6 + 3] + Px(rr, 2) * tbl[fx * 6 + 2]) + (Px(rr, 1) * tbl[fx * 6 + 1] + Px(rr, 0) * tbl[fx * 6]));
-                        dst[o + c] = (C[5] * tbl[fy * 6 + 5] + C[4] * tbl[fy * 6 + 4]) + ((C[3] * tbl[fy * 6 + 3] + C[2] * tbl[fy * 6 + 2]) + (C[1] * tbl[fy * 6 + 1] + C[0] * tbl[fy * 6]));
-                    }
-                }
+                WarpPixelScalar(src, sw, sh, i, j, fx, fy, interior, tbl, dst, (y * dw + x) * 4);
             }
         return dst;
+    }
+
+    /// <summary>The y-tap sum of one source column for the four channels: `(P5·ty5 + P4·ty4) + ((P3·ty3 + P2·ty2) + (P1·ty1 + P0·ty0))`.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static unsafe Vector128<float> WarpColumn(float* p0, float* p1, float* p2, float* p3, float* p4, float* p5, int o,
+        Vector128<float> ty0, Vector128<float> ty1, Vector128<float> ty2, Vector128<float> ty3, Vector128<float> ty4, Vector128<float> ty5)
+        => (Vector128.Load(p5 + o) * ty5 + Vector128.Load(p4 + o) * ty4) + ((Vector128.Load(p3 + o) * ty3 + Vector128.Load(p2 + o) * ty2) + (Vector128.Load(p1 + o) * ty1 + Vector128.Load(p0 + o) * ty0));
+
+    /// <summary>One warp pixel in scalar form, for every tap order.</summary>
+    static void WarpPixelScalar(float[] src, int sw, int sh, int i, int j, int fx, int fy, bool interior, float[] tbl, float[] dst, int o)
+    {
+        var order = WarpOrder;
+        if (order == TapOrder.Swap) (fx, fy) = (fy, fx);
+        Span<int> ro = stackalloc int[6], co = stackalloc int[6];
+        for (int k = 0; k < 6; k++)
+        {
+            ro[k] = (interior ? j + k : Math.Clamp(j + k, 0, sh - 1)) * sw * 4;
+            co[k] = (interior ? i + k : Math.Clamp(i + k, 0, sw - 1)) * 4;
+        }
+        var ty = tbl.AsSpan(fy * 6, 6); var tx = tbl.AsSpan(fx * 6, 6);
+        Span<float> C = stackalloc float[6];
+        for (int c = 0; c < 4; c++)
+        {
+            if (order == TapOrder.Prod)
+            {
+                float acc = 0f;
+                for (int rr = 0; rr < 6; rr++) for (int cc = 0; cc < 6; cc++) acc += src[ro[rr] + co[cc] + c] * (ty[rr] * tx[cc]);
+                dst[o + c] = acc;
+            }
+            else if (order != TapOrder.Rows)
+            {
+                for (int cc = 0; cc < 6; cc++)
+                {
+                    int k = co[cc] + c;
+                    C[cc] = (src[ro[5] + k] * ty[5] + src[ro[4] + k] * ty[4]) + ((src[ro[3] + k] * ty[3] + src[ro[2] + k] * ty[2]) + (src[ro[1] + k] * ty[1] + src[ro[0] + k] * ty[0]));
+                }
+                dst[o + c] = (C[5] * tx[5] + C[4] * tx[4]) + ((C[3] * tx[3] + C[2] * tx[2]) + (C[1] * tx[1] + C[0] * tx[0]));
+            }
+            else
+            {
+                for (int rr = 0; rr < 6; rr++)
+                {
+                    int k = ro[rr] + c;
+                    C[rr] = (src[k + co[5]] * tx[5] + src[k + co[4]] * tx[4]) + ((src[k + co[3]] * tx[3] + src[k + co[2]] * tx[2]) + (src[k + co[1]] * tx[1] + src[k + co[0]] * tx[0]));
+                }
+                dst[o + c] = (C[5] * ty[5] + C[4] * ty[4]) + ((C[3] * ty[3] + C[2] * ty[2]) + (C[1] * ty[1] + C[0] * ty[0]));
+            }
+        }
     }
 
     /// <summary>Rotation homography `H = (K_B · inv(M)) · inv(K_A)` with `M = R_A·R_Bᵀ` (product association `(a0·b0 + a1·b1) + a2·b2`).</summary>

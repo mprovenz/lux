@@ -24,9 +24,11 @@ public static class CrossTalkKernel
         float fx, float fy, float invH, float invV, int[] par, float[] t, float[] guard, int srcOffset = 0, int dstOffset = 0)
     {
         int w = x1 - x0;
-        float[] Row(int rel)   // cache row for source row y0 + rel, indices −2 … w+1 (offset 2)
+        // the four source rows of a row pair; each row pair rewrites all four in full
+        var rows = new float[4][];
+        for (int k = 0; k < 4; k++) rows[k] = new float[w + 4];
+        void Row(int rel, float[] r)   // source row y0 + rel into r, indices −2 … w+1 (offset 2)
         {
-            var r = new float[w + 4];
             int ry = rel + y0;
             int half = Math.Clamp(ry >> 1, srcRect.Y0 >> 1, (srcRect.Y1 >> 1) - 1);
             int row = (ry & 1) + half * 2;
@@ -41,7 +43,6 @@ public static class CrossTalkKernel
                 float q0 = src[baseIdx + b - 2], q1 = src[baseIdx + b - 1];
                 for (int i = b; i < w + 2; i++) r[i + 2] = ((i - b) & 1) == 0 ? q0 : q1;
             }
-            return r;
         }
         for (int py = 0; py < y1 - y0; py += 2)
         {
@@ -50,7 +51,7 @@ public static class CrossTalkKernel
             float lRR = L(0), lRG = L(1), lG1R = L(4), lG1G1 = L(5), lG1B = L(7), lG2R = L(8), lG2G2 = L(10), lG2B = L(11), lBG2 = L(13), lBB = L(15);
             float S(int i, float left) => ((t[48 + i] - t[32 + i]) * fyy - left) + t[32 + i];   // slope to the right column
             float sRR = S(0, lRR), sRG = S(1, lRG), sG1R = S(4, lG1R), sG1G1 = S(5, lG1G1), sG1B = S(7, lG1B), sG2R = S(8, lG2R), sG2G2 = S(10, lG2G2), sG2B = S(11, lG2B), sBG2 = S(13, lBG2), sBB = S(15, lBB);
-            var rows = new float[4][]; for (int k = 0; k < 4; k++) rows[k] = Row(py - 1 + k);
+            for (int k = 0; k < 4; k++) Row(py - 1 + k, rows[k]);
             for (int px = 0; px < w; px += 2)
             {
                 float fxx = ((float)px + fx) * invH;

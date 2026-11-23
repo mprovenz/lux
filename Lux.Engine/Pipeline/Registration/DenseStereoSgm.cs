@@ -1,4 +1,5 @@
 using Lux.Engine.Imaging;
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -19,7 +20,7 @@ public sealed class DenseLayer
     public byte[] Skip = null!;                     // 0 = computed, 0xff = skipped
     public ushort[] Start = null!, Count = null!, Cap = null!;
     public ushort[][] Agg = null!; public byte[][] Raw = null!;   // per pixel: agg[cap]; raw[cap] (computed pixels only)
-    public ushort[][]? AggPass1;                     // diagnostic copy after the first pass
+    public ushort[][]? AggPass1;                     // diagnostic copy after the first pass (with KeepPass1)
     public int MinLo, MaxHi;                        // rounded
     public float[] Depth = null!;
     public DenseStereo.CostContext Ctx = null!;
@@ -164,10 +165,13 @@ public sealed class DenseLayer
     }
     int LIdx(int half, int slot, int path) => half * _halfL + slot * _slotStride + 1 + path * (MaxHi + 1);
 
-    static readonly float[] ExpPoly = { BitConverter.Int32BitsToSingle(0x3d9fcb52), BitConverter.Int32BitsToSingle(0x3e677e26), BitConverter.Int32BitsToSingle(0x3f322226), BitConverter.Int32BitsToSingle(0x3f7ffb19) };
+    // The cubic of the fast exp2, highest power first.
+    static readonly float ExpPoly3 = BitConverter.Int32BitsToSingle(0x3d9fcb52), ExpPoly2 = BitConverter.Int32BitsToSingle(0x3e677e26), ExpPoly1 = BitConverter.Int32BitsToSingle(0x3f322226), ExpPoly0 = BitConverter.Int32BitsToSingle(0x3f7ffb19);
 
     /// <summary>Workers for the raw matching costs (see <see cref="Compute"/>); the aggregation sweep is serial whatever the value.</summary>
     public int Threads = 1;
+    /// <summary>Keep a copy of the aggregates after the first pass in <see cref="AggPass1"/>. It is for diagnostic dumps.</summary>
+    public bool KeepPass1;
     bool _rawReady;
 
     /// <summary>`compute`: `runPass(+1)`, `runPass(−1)` (each = raster order over the sheared wavefront tiles), then WTA.
@@ -216,7 +220,7 @@ public sealed class DenseLayer
                         for (int x = xs; x != xe; x += dir) Pixel(x, y, dir, cur, other, gw, costTmp, raw);
                     }
                 }
-            if (dir > 0) { AggPass1 = new ushort[Agg.Length][]; for (int i = 0; i < Agg.Length; i++) AggPass1[i] = (ushort[])Agg[i].Clone(); }
+            if (dir > 0 && KeepPass1) { AggPass1 = new ushort[Agg.Length][]; for (int i = 0; i < Agg.Length; i++) AggPass1[i] = (ushort[])Agg[i].Clone(); }
         }
         Depth = new float[W * H];
         for (int i = 0; i < W * H; i++)
@@ -227,14 +231,14 @@ public sealed class DenseLayer
         }
     }
 
-    void Pixel(int x, int y, int dir, int cur, int other, Vector128<float> gw, ushort[] costTmp, byte[] raw)
+    unsafe void Pixel(int x, int y, int dir, int cur, int other, Vector128<float> gw, ushort[] costTmp, byte[] raw)
     {
         int pi = y * W + x, slot = x + 1;
         var gb = Guidance.Data.AsSpan(Guidance.Offset(x, y), 4);
         var g = Vector128.Create((float)gb[0], (float)gb[1], (float)gb[2], (float)gb[3]);
         _Pix[cur * _halfR + slot] = g;
         int start = Start[pi], count = Count[pi], cap = Cap[pi];
-        // raw costs for this pixel: pass 1 computes and stores the u8 copy, pass 2 reloads it; skipped pixels are 0
+        // raw costs for this pixel: pass 1 computes and stores the u8 copy, pass 2 reads it; skipped pixels are 0
         if (Skip[pi] != 0) { Array.Clear(raw, 0, cap); for (int k = count; k < cap; k++) raw[k] = 255; }
         else if (dir > 0 && !_rawReady)
         {
@@ -244,41 +248,68 @@ public sealed class DenseLayer
             DenseStereo.Normalise(costTmp, count, cap, Ctx.Others.Length, raw);
             Array.Copy(raw, Raw[pi], cap);
         }
+        else if ((cap & 7) == 0) raw = Raw[pi];   // whole 8-lane blocks: read the stored costs in place
         else Array.Copy(Raw[pi], raw, cap);
         // stale cleanup of the current half's slot for the previously stored range, then the four paths
         int sp = _RangeS[cur * _halfR + slot], cp = _RangeC[cur * _halfR + slot];
-        int[] off = { -dir, -dir, 0, dir };
         var agg = Agg[pi];
+        ushort[] L = _L; int P1 = P.P1; float p2Base = (float)P.P1 * P.P2Scale;
+        fixed (ushort* pL = L, pAgg = agg) fixed (byte* pRaw = raw)
         for (int p = 0; p < 4; p++)
         {
             int baseCur = LIdx(cur, slot, p);
-            for (int k = 0; k < cp; k++) { int q = sp - MinLo + k; if (q >= 0 && baseCur + q < _L.Length) _L[baseCur + q] = 2000; }
-            int ns = slot + off[p]; int half = p == 0 ? cur : other;
+            {
+                int q0 = sp - MinLo, k0 = Math.Max(0, -q0), k1 = Math.Min(cp, L.Length - baseCur - q0);
+                if (k1 > k0) L.AsSpan(baseCur + q0 + k0, k1 - k0).Fill(2000);
+            }
+            int ns = slot + (p == 2 ? 0 : p == 3 ? dir : -dir); int half = p == 0 ? cur : other;   // the neighbor slot of the path
             int minPrev = _Min[half * _halfM + ns * 4 + p];
             var d = (g - _Pix[half * _halfR + ns]) * gw;
             float S = (MathF.Abs(d.GetElement(0)) + MathF.Abs(d.GetElement(2))) + MathF.Abs(d.GetElement(1));
             float e = MathF.Max(MathF.Min(-S, 128.0f), -126.0f);
             int ei = (int)e + (e < 0f ? -1 : 0); float f = e - (float)ei;
-            float poly = ((ExpPoly[0] * f + ExpPoly[1]) * f + ExpPoly[2]) * f + ExpPoly[3];
+            float poly = ((ExpPoly3 * f + ExpPoly2) * f + ExpPoly1) * f + ExpPoly0;
             float E = BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(poly) + (ei << 23));
-            int P2 = (int)(((float)P.P1 * P.P2Scale) * E);
+            int P2 = (int)(p2Base * E);
             int P2p = Math.Min(P2 + minPrev, 65535);
-            int P1 = P.P1;
             if (cap == 0) { _Min[cur * _halfM + slot * 4 + p] = 0xffff; continue; }
             int nb = LIdx(half, ns, p); int runMin = 0xffff;
-            for (int b = 0; b < cap; b += 8)
+            int q = start - MinLo;
+            // The vector form does eight lanes in one step. It needs whole blocks, every neighbor read and every write inside
+            // the buffer, a written range that does not touch the range read, and a P2 term that fits 16 bits.
+            bool vector = Vector128.IsHardwareAccelerated && (cap & 7) == 0 && P2p >= 0
+                && nb + q - 1 >= 0 && nb + q + cap + 1 <= L.Length && baseCur + q >= 0 && baseCur + q + cap <= L.Length
+                && Math.Abs(baseCur - nb) >= cap + 16;
+            if (vector)
             {
-                int q = b + (start - MinLo);
-                for (int l = 0; l < 8; l++)
+                var vP1 = Vector128.Create((ushort)P1); var vP2 = Vector128.Create((ushort)P2p); var vMinPrev = Vector128.Create((ushort)minPrev);
+                var vRun = Vector128.Create((ushort)0xffff);
+                ushort* pn = pL + nb + q, pw = pL + baseCur + q;
+                for (int b = 0; b < cap; b += 8)
                 {
-                    int qi = q + l;
-                    int Lm = Rd(nb + qi - 1), Lp = Rd(nb + qi + 1), L0 = Rd(nb + qi);
-                    int m = Math.Min(Math.Min(Math.Min(Lm + P1, 65535), L0), Math.Min(Math.Min(Lp + P1, 65535), P2p));
-                    int lc = Math.Min(raw[b + l] + m, 65535) - minPrev; if (lc < 0) lc = 0;
-                    _L[baseCur + qi] = (ushort)lc;
-                    if (lc < runMin) runMin = lc;
-                    agg[b + l] = (ushort)Math.Min(agg[b + l] + lc, 65535);
+                    var Lm = Vector128.Load(pn + b - 1); var L0 = Vector128.Load(pn + b); var Lp = Vector128.Load(pn + b + 1);
+                    var m = Vector128.Min(Vector128.Min(Vector128.AddSaturate(Lm, vP1), L0), Vector128.Min(Vector128.AddSaturate(Lp, vP1), vP2));
+                    var r16 = Vector128.WidenLower(Vector128.CreateScalarUnsafe(Unsafe.ReadUnaligned<ulong>(pRaw + b)).AsByte());
+                    var lc = Vector128.SubtractSaturate(Vector128.AddSaturate(r16, m), vMinPrev);
+                    lc.Store(pw + b);
+                    vRun = Vector128.Min(vRun, lc);
+                    Vector128.AddSaturate(Vector128.Load(pAgg + b), lc).Store(pAgg + b);
                 }
+                for (int l = 0; l < 8; l++) runMin = Math.Min(runMin, vRun.GetElement(l));
+            }
+            else
+            {
+                for (int b = 0; b < cap; b += 8)
+                    for (int l = 0; l < 8; l++)
+                    {
+                        int qi = q + b + l;
+                        int Lm = Rd(nb + qi - 1), Lp = Rd(nb + qi + 1), L0 = Rd(nb + qi);
+                        int m = Math.Min(Math.Min(Math.Min(Lm + P1, 65535), L0), Math.Min(Math.Min(Lp + P1, 65535), P2p));
+                        int lc = Math.Min(raw[b + l] + m, 65535) - minPrev; if (lc < 0) lc = 0;
+                        L[baseCur + qi] = (ushort)lc;
+                        if (lc < runMin) runMin = lc;
+                        agg[b + l] = (ushort)Math.Min(agg[b + l] + lc, 65535);
+                    }
             }
             _Min[cur * _halfM + slot * 4 + p] = (ushort)runMin;
         }
@@ -297,7 +328,7 @@ public sealed class DenseLayer
 public static class DenseStereoPyramid
 {
     public const long Budget = 0x40000000;   // 1 GiB
-    public static DenseLayer[] Run(Rgba8Image[] images, bool[] gray, IReadOnlyList<CalibData> calibs, float near = DenseStereo.Near, float far = DenseStereo.Far, Action<string>? log = null, int threads = 1)
+    public static DenseLayer[] Run(Rgba8Image[] images, bool[] gray, IReadOnlyList<CalibData> calibs, float near = DenseStereo.Near, float far = DenseStereo.Far, Action<string>? log = null, int threads = 1, bool keepPass1 = false)
     {
         var pars = StereoParams.L16Pyramid();
         var filtered = new Rgba8Image[images.Length];
@@ -312,7 +343,7 @@ public static class DenseStereoPyramid
                 if (est8 >= Budget) { long est2 = DenseLayer.MemoryEstimate(pars[i], filtered, calibs, near, far, 2, prev); if (est2 >= Budget) throw new NotSupportedException("StereoLayer memory budget exceeded: the BilateralUpsample fallback (mode 0) is not ported"); align = 2; }
             }
             var L = DenseLayer.Init(pars[i], i, filtered, gray, calibs, near, far, align, prev);
-            L.Threads = threads;
+            L.Threads = threads; L.KeepPass1 = keepPass1;
             var sw = System.Diagnostics.Stopwatch.StartNew();
             L.Compute();
             log?.Invoke($"layer {i}: {L.W}x{L.H}, {L.Planes.Length} planes, align {align}, minLo {L.MinLo} maxHi {L.MaxHi}, {sw.Elapsed.TotalSeconds:F1}s");
