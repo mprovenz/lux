@@ -1,5 +1,7 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
+using Lux.Engine.Imaging;
 using static Lux.Engine.Pipeline.ResAmp.SseOps;
 
 namespace Lux.Engine.Pipeline.ResAmp;
@@ -13,11 +15,24 @@ internal static class ResAmpKernels
     /// <summary>Dst = √max(src, 0) per lane (alpha included). MAXPS order: NaN gives 0.</summary>
     public static void SqrtDomain(float[] data)
     {
-        for (int i = 0; i < data.Length; i++) data[i] = MathF.Sqrt(Max(data[i], 0f));
+        int i = 0;
+        if (Vector128.IsHardwareAccelerated)
+        {
+            var v = MemoryMarshal.Cast<float, Vector128<float>>(data.AsSpan()); var zero = Vector128<float>.Zero;
+            for (int k = 0; k < v.Length; k++) v[k] = Simd.Sqrt(Simd.Max(v[k], zero));
+            i = v.Length * 4;
+        }
+        for (; i < data.Length; i++) data[i] = MathF.Sqrt(Max(data[i], 0f));
     }
     /// <summary>Dst = √max(src·(g,g,g,1), 0) per lane. MAXPS order: NaN gives 0.</summary>
     public static void GainSqrtDomain(float[] data, float g)
     {
+        if (Vector128.IsHardwareAccelerated && (data.Length & 3) == 0)
+        {
+            var v = MemoryMarshal.Cast<float, Vector128<float>>(data.AsSpan()); var zero = Vector128<float>.Zero; var gv = Vector128.Create(g, g, g, 1.0f);
+            for (int k = 0; k < v.Length; k++) v[k] = Simd.Sqrt(Simd.Max(v[k] * gv, zero));
+            return;
+        }
         for (int i = 0; i < data.Length; i += 4)
         {
             data[i] = MathF.Sqrt(Max(data[i] * g, 0f)); data[i + 1] = MathF.Sqrt(Max(data[i + 1] * g, 0f));
@@ -273,6 +288,7 @@ internal static class ResAmpKernels
     /// then horizontal. Output = src view size, rect (0,0,w,h).</summary>
     public static ResImage Conv9(ResImage src, ReadOnlySpan<float> wV, ReadOnlySpan<float> wH)
     {
+        if (Vector128.IsHardwareAccelerated && Conv9Inside(src)) return Conv9Lanes(src, wV, wH);
         int w = src.W, h = src.H; var outp = new ResImage(w, h);
         int minc = Math.Max(src.RX0, -4), maxc = Math.Min(src.RX1, w + 4);
         var tmp = new float[(maxc - minc) * 4]; int tb = -minc;   // tmp[(c + tb)*4]
@@ -336,6 +352,120 @@ internal static class ResAmpKernels
             }
         }
         return outp;
+    }
+
+    /// <summary>True when <see cref="Conv9"/> reads only elements of the source data: the image has four floats per pixel and the
+    /// columns [minc, maxc) of all rows of the rect are inside the array. An image that fails this test takes the code with
+    /// index checks.</summary>
+    static bool Conv9Inside(ResImage src)
+    {
+        int minc = Math.Max(src.RX0, -4), maxc = Math.Min(src.RX1, src.W + 4);
+        if (src.Elems != 4 || src.W <= 0 || src.H <= 0 || maxc <= minc || src.RY1 <= src.RY0 || src.Stride < 0) return false;
+        long first = src.Off + ((long)src.RY0 * src.Stride + minc) * 4, last = src.Off + ((long)(src.RY1 - 1) * src.Stride + (maxc - 1)) * 4 + 3;
+        return first >= 0 && last < src.Data.Length;
+    }
+
+    /// <summary><see cref="Conv9"/> with the four lanes of a pixel in one vector, and two pixels in one 256-bit vector where both
+    /// take the same expression. Each lane does the operations of the scalar code in the same order. The caller checked the source
+    /// with <see cref="Conv9Inside"/>.</summary>
+    static ResImage Conv9Lanes(ResImage src, ReadOnlySpan<float> wV, ReadOnlySpan<float> wH)
+    {
+        int w = src.W, h = src.H; var outp = new ResImage(w, h);
+        int minc = Math.Max(src.RX0, -4), maxc = Math.Min(src.RX1, w + 4);
+        int nf = (maxc - minc) * 4; var tmp = new float[nf]; int tb = -minc;   // tmp[(c + tb)*4]
+        int leftEnd = Math.Clamp(minc + 4, 0, w), interiorEnd = Math.Clamp(maxc - 4, 0, w);
+        bool wide = Vector256.IsHardwareAccelerated;
+        var v0 = Vector128.Create(wV[0]); var v1 = Vector128.Create(wV[1]); var v2 = Vector128.Create(wV[2]); var v3 = Vector128.Create(wV[3]); var v4 = Vector128.Create(wV[4]);
+        var v5 = Vector128.Create(wV[5]); var v6 = Vector128.Create(wV[6]); var v7 = Vector128.Create(wV[7]); var v8 = Vector128.Create(wV[8]);
+        var h0 = Vector128.Create(wH[0]); var h1 = Vector128.Create(wH[1]); var h2 = Vector128.Create(wH[2]); var h3 = Vector128.Create(wH[3]); var h4 = Vector128.Create(wH[4]);
+        var h5 = Vector128.Create(wH[5]); var h6 = Vector128.Create(wH[6]); var h7 = Vector128.Create(wH[7]); var h8 = Vector128.Create(wH[8]);
+        var V0 = Vector256.Create(v0, v0); var V1 = Vector256.Create(v1, v1); var V2 = Vector256.Create(v2, v2); var V3 = Vector256.Create(v3, v3); var V4 = Vector256.Create(v4, v4);
+        var V5 = Vector256.Create(v5, v5); var V6 = Vector256.Create(v6, v6); var V7 = Vector256.Create(v7, v7); var V8 = Vector256.Create(v8, v8);
+        var H0 = Vector256.Create(h0, h0); var H1 = Vector256.Create(h1, h1); var H2 = Vector256.Create(h2, h2); var H3 = Vector256.Create(h3, h3); var H4 = Vector256.Create(h4, h4);
+        var H5 = Vector256.Create(h5, h5); var H6 = Vector256.Create(h6, h6); var H7 = Vector256.Create(h7, h7); var H8 = Vector256.Create(h8, h8);
+        ref float d = ref MemoryMarshal.GetArrayDataReference(src.Data);
+        ref float t = ref MemoryMarshal.GetArrayDataReference(tmp);
+        ref float o = ref MemoryMarshal.GetArrayDataReference(outp.Data);
+        Span<nint> rows = stackalloc nint[9];
+        for (int y = 0; y < h; y++)
+        {
+            // vertical pass: columns [minc, maxc) of the nine rows into tmp
+            bool fast = y >= src.RY0 + 4 && y < src.RY1 - 4;
+            for (int k = 0; k < 9; k++) rows[k] = src.Idx(minc, fast ? y - 4 + k : Math.Clamp(y - 4 + k, src.RY0, src.RY1 - 1));
+            ref float r0 = ref Unsafe.Add(ref d, rows[0]); ref float r1 = ref Unsafe.Add(ref d, rows[1]); ref float r2 = ref Unsafe.Add(ref d, rows[2]);
+            ref float r3 = ref Unsafe.Add(ref d, rows[3]); ref float r4 = ref Unsafe.Add(ref d, rows[4]); ref float r5 = ref Unsafe.Add(ref d, rows[5]);
+            ref float r6 = ref Unsafe.Add(ref d, rows[6]); ref float r7 = ref Unsafe.Add(ref d, rows[7]); ref float r8 = ref Unsafe.Add(ref d, rows[8]);
+            nuint i = 0, n = (nuint)nf;
+            if (fast)
+            {
+                if (wide)
+                    for (; i + 8 <= n; i += 8)
+                    {
+                        var a = V1 * Vector256.LoadUnsafe(ref r1, i) + V0 * Vector256.LoadUnsafe(ref r0, i); var b = V3 * Vector256.LoadUnsafe(ref r3, i) + V2 * Vector256.LoadUnsafe(ref r2, i);
+                        a = V4 * Vector256.LoadUnsafe(ref r4, i) + a; b = V5 * Vector256.LoadUnsafe(ref r5, i) + b; a = V6 * Vector256.LoadUnsafe(ref r6, i) + a;
+                        b = V7 * Vector256.LoadUnsafe(ref r7, i) + b; a = V8 * Vector256.LoadUnsafe(ref r8, i) + a;
+                        (a + b).StoreUnsafe(ref t, i);
+                    }
+                for (; i < n; i += 4)
+                {
+                    var a = v1 * Vector128.LoadUnsafe(ref r1, i) + v0 * Vector128.LoadUnsafe(ref r0, i); var b = v3 * Vector128.LoadUnsafe(ref r3, i) + v2 * Vector128.LoadUnsafe(ref r2, i);
+                    a = v4 * Vector128.LoadUnsafe(ref r4, i) + a; b = v5 * Vector128.LoadUnsafe(ref r5, i) + b; a = v6 * Vector128.LoadUnsafe(ref r6, i) + a;
+                    b = v7 * Vector128.LoadUnsafe(ref r7, i) + b; a = v8 * Vector128.LoadUnsafe(ref r8, i) + a;
+                    (a + b).StoreUnsafe(ref t, i);
+                }
+            }
+            else
+                for (; i < n; i += 4)
+                {
+                    var a = v1 * Vector128.LoadUnsafe(ref r1, i) + v0 * Vector128.LoadUnsafe(ref r0, i); var b = v3 * Vector128.LoadUnsafe(ref r3, i) + v2 * Vector128.LoadUnsafe(ref r2, i); b = b + a;
+                    var c5 = v5 * Vector128.LoadUnsafe(ref r5, i) + v4 * Vector128.LoadUnsafe(ref r4, i); var c6 = v6 * Vector128.LoadUnsafe(ref r6, i) + c5; c6 = c6 + b;
+                    var c8 = v8 * Vector128.LoadUnsafe(ref r8, i) + v7 * Vector128.LoadUnsafe(ref r7, i);
+                    (c8 + c6).StoreUnsafe(ref t, i);
+                }
+            // horizontal pass: the nine taps of tmp around each pixel
+            ref float po = ref Unsafe.Add(ref o, outp.Idx(0, y));
+            int x = 0;
+            while (x < w)
+            {
+                if (x >= leftEnd && x < interiorEnd)
+                {
+                    // the interior run [leftEnd, interiorEnd): nine adjacent taps, the first at column x − 4
+                    if (wide)
+                        for (; x + 2 <= interiorEnd; x += 2)
+                        {
+                            ref float tp = ref Unsafe.Add(ref t, (x - 4 + tb) * 4);
+                            var a = H1 * Vector256.LoadUnsafe(ref tp, 4) + H0 * Vector256.LoadUnsafe(ref tp); var bb = H3 * Vector256.LoadUnsafe(ref tp, 12) + H2 * Vector256.LoadUnsafe(ref tp, 8); bb = bb + a;
+                            var c5 = H5 * Vector256.LoadUnsafe(ref tp, 20) + H4 * Vector256.LoadUnsafe(ref tp, 16); var c6 = H6 * Vector256.LoadUnsafe(ref tp, 24) + c5; var c7 = H7 * Vector256.LoadUnsafe(ref tp, 28) + c6;
+                            var c8 = H8 * Vector256.LoadUnsafe(ref tp, 32) + bb;
+                            (c8 + c7).StoreUnsafe(ref po, (nuint)(x * 4));
+                        }
+                    for (; x < interiorEnd; x++)
+                    {
+                        ref float tp = ref Unsafe.Add(ref t, (x - 4 + tb) * 4);
+                        var a = h1 * Vector128.LoadUnsafe(ref tp, 4) + h0 * Vector128.LoadUnsafe(ref tp); var bb = h3 * Vector128.LoadUnsafe(ref tp, 12) + h2 * Vector128.LoadUnsafe(ref tp, 8); bb = bb + a;
+                        var c5 = h5 * Vector128.LoadUnsafe(ref tp, 20) + h4 * Vector128.LoadUnsafe(ref tp, 16); var c6 = h6 * Vector128.LoadUnsafe(ref tp, 24) + c5; var c7 = h7 * Vector128.LoadUnsafe(ref tp, 28) + c6;
+                        var c8 = h8 * Vector128.LoadUnsafe(ref tp, 32) + bb;
+                        (c8 + c7).StoreUnsafe(ref po, (nuint)(x * 4));
+                    }
+                }
+                else
+                {
+                    // an edge pixel: each tap column clamped to [minc, maxc − 1]
+                    var t0 = Tap(ref t, x - 4, minc, maxc, tb); var t1 = Tap(ref t, x - 3, minc, maxc, tb); var t2 = Tap(ref t, x - 2, minc, maxc, tb);
+                    var t3 = Tap(ref t, x - 1, minc, maxc, tb); var t4 = Tap(ref t, x, minc, maxc, tb); var t5 = Tap(ref t, x + 1, minc, maxc, tb);
+                    var t6 = Tap(ref t, x + 2, minc, maxc, tb); var t7 = Tap(ref t, x + 3, minc, maxc, tb); var t8 = Tap(ref t, x + 4, minc, maxc, tb);
+                    var a = h1 * t1 + h0 * t0; var bb = h3 * t3 + h2 * t2; bb = bb + a;
+                    var c5 = h5 * t5 + h4 * t4; var c6 = h6 * t6 + c5; c6 = c6 + bb;
+                    var c8 = h8 * t8 + h7 * t7;
+                    (c8 + c6).StoreUnsafe(ref po, (nuint)(x * 4));
+                    x++;
+                }
+            }
+        }
+        return outp;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static Vector128<float> Tap(ref float t, int c, int minc, int maxc, int tb) => Vector128.LoadUnsafe(ref t, (nuint)((Math.Clamp(c, minc, maxc - 1) + tb) * 4));
     }
 
     // ---------------------------------------------------------------- A::BilinearResample<vec4x32f>

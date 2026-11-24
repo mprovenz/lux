@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 using static Lux.Engine.Pipeline.ResAmp.SseOps;
 
 namespace Lux.Engine.Pipeline.ResAmp;
@@ -14,6 +16,32 @@ internal static class ModulePrep
         F(0x3f350529), 0f,            F(0xbf350529),
         F(0x3ed10625), F(0xbf510625), F(0x3ed10625),
     };
+
+    /// <summary>The color decorrelation of every pixel of <paramref name="d"/> in place: `out_k = (G·M[k][1] + R·M[k][0]) + B·M[k][2]`
+    /// for k = 0..2. Alpha stays.</summary>
+    public static void Decorrelate(float[] d)
+    {
+        if (Vector128.IsHardwareAccelerated && (d.Length & 3) == 0)
+        {
+            // the three results of a pixel are three lanes of one vector
+            var cR = Vector128.Create(Mrow[0], Mrow[3], Mrow[6], 0f); var cG = Vector128.Create(Mrow[1], Mrow[4], Mrow[7], 0f); var cB = Vector128.Create(Mrow[2], Mrow[5], Mrow[8], 0f);
+            var v = MemoryMarshal.Cast<float, Vector128<float>>(d.AsSpan());
+            for (int k = 0; k < v.Length; k++)
+            {
+                var p = v[k];
+                var q = (Vector128.Create(p.GetElement(1)) * cG + Vector128.Create(p.GetElement(0)) * cR) + Vector128.Create(p.GetElement(2)) * cB;
+                v[k] = q.WithElement(3, p.GetElement(3));
+            }
+            return;
+        }
+        for (int i = 0; i < d.Length; i += 4)
+        {
+            float R = d[i], G = d[i + 1], B = d[i + 2];
+            d[i] = (G * Mrow[1] + R * Mrow[0]) + B * Mrow[2];
+            d[i + 1] = (G * Mrow[4] + R * Mrow[3]) + B * Mrow[5];
+            d[i + 2] = (G * Mrow[7] + R * Mrow[6]) + B * Mrow[8];
+        }
+    }
 
     /// <summary>Project the coarse grid through the WarpField. Returns false (module skipped) unless bw &gt; 0 &amp;&amp; bh &gt; 0.</summary>
     public static bool Project(int[] grid, int gw, int gh, WarpField wf, int refW, int refH, int Wm, int Hm, int[] proj, out int minx, out int miny, out int maxx, out int maxy)
@@ -58,17 +86,7 @@ internal static class ModulePrep
         var render = ResAmpKernels.RenderGen(gen, minx - m2, miny - m2, maxx + 4 + m1, maxy + 4 + m1);
         trace?.Emit(tp + "render", render);
         int boxSize = s32i | 1;
-        // color decorrelation in place: out_k = (G·M[k][1] + R·M[k][0]) + B·M[k][2]
-        {
-            var d = render.Data;
-            for (int i = 0; i < d.Length; i += 4)
-            {
-                float R = d[i], G = d[i + 1], B = d[i + 2];
-                d[i] = (G * Mrow[1] + R * Mrow[0]) + B * Mrow[2];
-                d[i + 1] = (G * Mrow[4] + R * Mrow[3]) + B * Mrow[5];
-                d[i + 2] = (G * Mrow[7] + R * Mrow[6]) + B * Mrow[8];
-            }
-        }
+        Decorrelate(render.Data);   // in place
         // Lanczos-2 taps
         float invS = 1.0f / scale; var wk = new float[9]; float sum = 0f;
         float pi = F(0x40490fdb), pi2 = F(0x3fc90fdb), pisq = F(0x411de9e7);

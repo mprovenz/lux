@@ -287,6 +287,10 @@ public sealed class ToneAdjustLaplacianStage : IStage
         int nb = levels - 1;   // levels 0 … levels − 2 are blended
         int hiI = ns - 1; float hiF = (float)hiI;
         var idx = new byte[nb][]; var A = new Image<float>[nb]; var B = new Image<float>[nb];
+        // The samples that the blend reads (with at most 64 samples): bit si is set when some pixel has i0 = si or i1 = si, for level 0
+        // per row (rowUse) and in all (usedL0), and for the coarser levels together (usedCoarse).
+        bool masks = ns <= 64;
+        ulong usedL0 = 0, usedCoarse = 0; var rowUse = masks ? new ulong[src.Height] : null;
         for (int level = 0; level < nb; level++)
         {
             var guide = level != 0 ? gauss[level - 1] : src; int gw = guide.Width, gh = guide.Height;
@@ -294,13 +298,18 @@ public sealed class ToneAdjustLaplacianStage : IStage
             for (int y = 0; y < gh; y++)
             {
                 var gr = guide.Row(y);
+                ulong use = 0;
                 for (int x = 0; x < gw; x++)
                 {
                     float t = (gr[x] - samples[0]) * invSpacing;
                     t = t > 0.0f ? t : 0.0f;
                     t = hiF < t ? hiF : t;
-                    ix[y * gw + x] = (byte)(int)t;
+                    int i0 = (int)t;
+                    ix[y * gw + x] = (byte)i0;
+                    if (masks) use |= (1UL << i0) | (1UL << (i0 + 1 <= hiI ? i0 + 1 : hiI));
                 }
+                if (level == 0) { if (masks) { rowUse![y] = use; usedL0 |= use; } }
+                else usedCoarse |= use;
             }
             A[level] = own.Image(gw, gh); B[level] = own.Image(gw, gh);
         }
@@ -310,15 +319,36 @@ public sealed class ToneAdjustLaplacianStage : IStage
         // Each sample's pyramid without its full-resolution images: the remapped rows are made as the first decimation reads them (a ring of
         // rows), the levels from 1 down are built as before, and the level-0 Laplacian PyrUp(g1) − remap(src) goes row segment by row segment
         // straight into A / B. Every value is the one BuildLaplacian(remap(src)) gives (the same functions on the same inputs, row by row).
+        // Work that no pixel reads is left out: a sample that no level reads, the coarse levels of a sample that only level 0 reads,
+        // level 0 of a sample that only the coarse levels read, and the remapped rows that only feed level-0 rows no pixel reads. A row
+        // left out is computed from zeros or old values and then not used, so every value that is used is the same.
         void Sample(int si)
         {
             float g = samples[si];
             int W = src.Width, H = src.Height;
+            ulong bit = masks ? 1UL << si : 0;
+            bool needL0 = !masks || (usedL0 & bit) != 0, needCoarse = !masks || (usedCoarse & bit) != 0;
+            if (!needL0 && !needCoarse) return;
+            // With only level 0 needed: the rows of g1 that its needed rows read (EvenRow: r − 1 … r + 1, OddRow: r, r + 1 with r = y >> 1),
+            // then the remapped rows that those g1 rows read (PyrDown: 2R − 2 … 2R + 2), each clamped to the image.
+            bool[]? rowNeeded = null;
+            if (masks && !needCoarse)
+            {
+                int gh1 = (H + 1) >> 1;
+                var g1Needed = new bool[gh1];
+                for (int y = 0; y < H; y++)
+                    if ((rowUse![y] & bit) != 0) for (int r = (y >> 1) - 1; r <= (y >> 1) + 1; r++) g1Needed[Math.Clamp(r, 0, gh1 - 1)] = true;
+                rowNeeded = new bool[H];
+                for (int r = 0; r < gh1; r++)
+                    if (g1Needed[r]) for (int y = 2 * r - 2; y <= 2 * r + 2; y++) rowNeeded[Math.Clamp(y, 0, H - 1)] = true;
+            }
             var sal = new LaplacianPyramid.Alloc();
             const int Ring = 64;   // a decimation band reads at most 36 consecutive rows
             var ring = ScratchPool.Rent<float>(Ring * W); var tag = new int[Ring]; Array.Fill(tag, -1);
+            var zeros = rowNeeded is null ? null : new float[W];
             ReadOnlySpan<float> RowOf(int y)
             {
+                if (zeros is not null && !rowNeeded![y]) return zeros;
                 int k = y & (Ring - 1);
                 var span = ring.AsSpan(k * W, W);
                 if (tag[k] != y) { RemapRow(src.Row(y), span, g, lut, lo, hi, invRange); tag[k] = y; }
@@ -326,23 +356,34 @@ public sealed class ToneAdjustLaplacianStage : IStage
             }
             var g1 = sal.Image((W + 1) >> 1, (H + 1) >> 1);
             LaplacianPyramid.PyrDown(g1, W, H, RowOf);
-            var rest = new Image<float>[levels - 1];
-            LaplacianPyramid.BuildLaplacian(rest, g1, sal);
-            for (int level = 1; level < nb; level++) Scatter(rest[level - 1], idx[level], A[level], B[level], si, hiI);
-            var seg = new float[W]; var ix0 = idx[0]; var a0 = A[0]; var b0 = B[0];
-            LaplacianPyramid.PyrUpSub(W, H, g1,
-                (y, x0, x1) => { RemapRow(src.Row(y).Slice(x0, x1 - x0), seg.AsSpan(x0, x1 - x0), g, lut, lo, hi, invRange); return seg; },
-                (y, x0, x1, row) =>
-                {
-                    var ar = a0.Row(y); var br = b0.Row(y); int o = y * W;
-                    for (int x = x0; x < x1; x++)
+            if (needCoarse)
+            {
+                var rest = new Image<float>[levels - 1];
+                LaplacianPyramid.BuildLaplacian(rest, g1, sal);
+                for (int level = 1; level < nb; level++) Scatter(rest[level - 1], idx[level], A[level], B[level], si, hiI);
+            }
+            if (needL0)
+            {
+                var seg = new float[W]; var ix0 = idx[0]; var a0 = A[0]; var b0 = B[0];
+                LaplacianPyramid.PyrUpSub(W, H, g1,
+                    (y, x0, x1) =>
                     {
-                        int i0 = ix0[o + x];
-                        if (i0 == si) ar[x] = row[x];
-                        int i1 = i0 + 1 <= hiI ? i0 + 1 : hiI;
-                        if (i1 == si) br[x] = row[x];
-                    }
-                });
+                        if (!masks || (rowUse![y] & bit) != 0) RemapRow(src.Row(y).Slice(x0, x1 - x0), seg.AsSpan(x0, x1 - x0), g, lut, lo, hi, invRange);
+                        return seg;
+                    },
+                    (y, x0, x1, row) =>
+                    {
+                        if (masks && (rowUse![y] & bit) == 0) return;   // no pixel of this row reads sample si
+                        var ar = a0.Row(y); var br = b0.Row(y); int o = y * W;
+                        for (int x = x0; x < x1; x++)
+                        {
+                            int i0 = ix0[o + x];
+                            if (i0 == si) ar[x] = row[x];
+                            int i1 = i0 + 1 <= hiI ? i0 + 1 : hiI;
+                            if (i1 == si) br[x] = row[x];
+                        }
+                    });
+            }
             ScratchPool.Return(ring); sal.ReturnAll();
         }
         using (Diagnostics.PhaseLog.Time("ta.samples"))

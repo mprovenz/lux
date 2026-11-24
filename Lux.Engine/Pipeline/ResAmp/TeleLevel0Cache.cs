@@ -191,7 +191,7 @@ public sealed class TeleLevel0Cache
         var (w, h) = TileDims(tx, ty);
         var f = LensUndistort(new RectI(tx * TileSize, ty * TileSize, tx * TileSize + w, ty * TileSize + h));
         var t = new ushort[f.Length];
-        for (int i = 0; i < f.Length; i++) t[i] = Half16.FromFloat(f[i]);
+        Half16.FromFloat(f, t);
         return t;
     }
 
@@ -213,12 +213,10 @@ public sealed class TeleLevel0Cache
             {
                 var t = Tile(tx, ty); var (tw, th) = TileDims(tx, ty);
                 int x0 = Math.Max(rect.X0, tx * TileSize), y0 = Math.Max(rect.Y0, ty * TileSize), x1 = Math.Min(rect.X1, tx * TileSize + tw), y1 = Math.Min(rect.Y1, ty * TileSize + th);
+                int n = (x1 - x0) * 4;   // one run of halves per row
+                if (n <= 0) continue;
                 for (int y = y0; y < y1; y++)
-                    for (int x = x0; x < x1; x++)
-                    {
-                        int si = ((y - ty * TileSize) * tw + (x - tx * TileSize)) * 4, di = ((y - rect.Y0) * rw + (x - rect.X0)) * 4;
-                        outp[di] = Half16.ToFloat(t[si]); outp[di + 1] = Half16.ToFloat(t[si + 1]); outp[di + 2] = Half16.ToFloat(t[si + 2]); outp[di + 3] = Half16.ToFloat(t[si + 3]);
-                    }
+                    Half16.ToFloat(t.AsSpan(((y - ty * TileSize) * tw + (x0 - tx * TileSize)) * 4, n), outp.AsSpan(((y - rect.Y0) * rw + (x0 - rect.X0)) * 4, n));
             }
         return outp;
     }

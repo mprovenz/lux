@@ -62,16 +62,9 @@ public sealed class PipelineCache
             var amp = Level0(rect);
             if (amp.W != w || amp.H != h) throw new InvalidOperationException("ImageResolutionAmp did not create image of correct size!");
             ResAmp.ImageResolutionAmp.Square(amp);                       // the √ decode, every lane squared
-            var t0 = new ushort[w * h * 3]; float r0 = Neutral[0], g0 = Neutral[1], b0 = Neutral[2];
-            for (int y = 0; y < h; y++)
-            {
-                int b = amp.Idx(0, y);
-                for (int x = 0; x < w; x++)
-                {
-                    int o = (y * w + x) * 3, i = b + x * 4;
-                    t0[o] = Half16.FromFloat(amp.Data[i] * r0); t0[o + 1] = Half16.FromFloat(amp.Data[i + 1] * g0); t0[o + 2] = Half16.FromFloat(amp.Data[i + 2] * b0);
-                }
-            }
+            var t0 = new ushort[w * h * 3];
+            var neutral = System.Runtime.Intrinsics.Vector128.Create(Neutral[0], Neutral[1], Neutral[2], 0f);
+            for (int y = 0; y < h; y++) Half16.FromFloatRgb(amp.Data.AsSpan(amp.Idx(0, y), w * 4), neutral, t0.AsSpan(y * w * 3, w * 3), w);
             Log?.Invoke($"pcache: generated L0 tile ({tx},{ty}) {w}x{h}");
             return t0;
         }
@@ -175,12 +168,10 @@ public sealed class PipelineCache
             {
                 var t = Tile(level, tx, ty); var (tw, th) = TileDims(level, tx, ty);
                 int x0 = Math.Max(rect.X0, tx * TileSize), y0 = Math.Max(rect.Y0, ty * TileSize), x1 = Math.Min(rect.X1, tx * TileSize + tw), y1 = Math.Min(rect.Y1, ty * TileSize + th);
+                int n = x1 - x0;   // one run of pixels per row
+                if (n <= 0) continue;
                 for (int y = y0; y < y1; y++)
-                    for (int x = x0; x < x1; x++)
-                    {
-                        int si = ((y - ty * TileSize) * tw + (x - tx * TileSize)) * 3, di = ((y - rect.Y0) * rw + (x - rect.X0)) * 4;
-                        outp[di] = Half16.ToFloat(t[si]); outp[di + 1] = Half16.ToFloat(t[si + 1]); outp[di + 2] = Half16.ToFloat(t[si + 2]); outp[di + 3] = 1.0f;
-                    }
+                    Half16.ToFloatRgb1(t.AsSpan(((y - ty * TileSize) * tw + (x0 - tx * TileSize)) * 3, n * 3), outp.AsSpan(((y - rect.Y0) * rw + (x0 - rect.X0)) * 4, n * 4), n);
             }
         return outp;
     }

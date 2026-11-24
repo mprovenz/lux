@@ -48,79 +48,91 @@ public static partial class IntelApprox
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static float Rsqrt(float x) => BitConverter.UInt32BitsToSingle(RsqrtBits(BitConverter.SingleToUInt32Bits(x)));
 
-    static readonly Vector128<uint> SignMask = Vector128.Create(0x80000000u), ExpMask = Vector128.Create(0xffu), ManMask = Vector128.Create(0x7fffffu),
-        Inf = Vector128.Create(0x7f800000u), Quiet = Vector128.Create(0x400000u), Ff = Vector128.Create(0xffu), One = Vector128.Create(1u),
-        Indefinite = Vector128.Create(0xffc00000u);
-    static readonly Vector128<int> Bias = Vector128.Create(127);
+    // The vector forms write their lane constants as Vector128.Create / Vector256.Create calls at each use. The JIT turns these
+    // into constant loads; a static readonly vector field is read from memory on every call, which costs several times more here.
+    //
+    // The reciprocal: a table entry holds the result for an input exponent of 127, with exponent 126 and the sign bit clear. Adding
+    // 127 << 23 and subtracting the input's exponent field gives the result's exponent field in place. For a normal input (exponent
+    // field 1 to 254) this value is the result when its exponent field is at least 1; a smaller result would be denormal and gives ±0.
 
     /// <summary>`rcpps`: all four lanes. With fast gathers (<see cref="Simd.IsWideSupported"/>) the table lookup is a gather and the special cases are lane masks;
-    /// otherwise four scalar lookups.</summary>
+    /// otherwise four scalar lookups. When all four lanes are normal inputs with normal results, the special cases are skipped.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static unsafe Vector128<float> Reciprocal(Vector128<float> v)
     {
         var u = v.AsUInt32();
         if (!Simd.IsWideSupported)
             return Vector128.Create(RcpBits(u.GetElement(0)), RcpBits(u.GetElement(1)), RcpBits(u.GetElement(2)), RcpBits(u.GetElement(3))).AsSingle();
-        var sign = u & SignMask; var e = (u >> 23) & ExpMask; var m = u & ManMask;
+        var expField = Vector128.Create(0x7f800000u); var man = Vector128.Create(0x7fffffu);
+        var sign = u & Vector128.Create(0x80000000u); var ef = u & expField; var m = u & man;
         Vector128<uint> r;
         fixed (uint* t = RcpTable) r = Simd.GatherVector128(t, (m >> 11).AsInt32(), 4);
-        var re = ((r >> 23) & Ff).AsInt32() + Bias - e.AsInt32();
-        var res = sign | (re.AsUInt32() << 23) | (r & ManMask);
-        res = Vector128.ConditionalSelect(Vector128.LessThanOrEqual(re, Vector128<int>.Zero).AsUInt32(), sign, res);   // denormal result → ±0
-        res = Vector128.ConditionalSelect(Vector128.Equals(e, Vector128<uint>.Zero), sign | Inf, res);                  // ±0, denormal → ±inf
-        res = Vector128.ConditionalSelect(Vector128.Equals(e, Ff),
-            Vector128.ConditionalSelect(Vector128.Equals(m, Vector128<uint>.Zero), sign, u | Quiet), res);              // ±inf → ±0, NaN → quiet
+        var res = r + Vector128.Create(0x3f800000u) - ef;
+        var normalOut = Vector128.GreaterThan(res.AsInt32(), Vector128.Create(0x7fffff)).AsUInt32();                // result exponent field ≥ 1
+        var normalIn = Vector128.GreaterThan(ef.AsInt32(), Vector128<int>.Zero) & Vector128.LessThan(ef.AsInt32(), expField.AsInt32());
+        if ((normalOut & normalIn.AsUInt32()) == Vector128<uint>.AllBitsSet) return (sign | res).AsSingle();
+        res = Vector128.ConditionalSelect(normalOut, sign | res, sign);                                               // denormal result → ±0
+        res = Vector128.ConditionalSelect(Vector128.Equals(ef, Vector128<uint>.Zero), sign | expField, res);           // ±0, denormal → ±inf
+        res = Vector128.ConditionalSelect(Vector128.Equals(ef, expField),
+            Vector128.ConditionalSelect(Vector128.Equals(m, Vector128<uint>.Zero), sign, u | Vector128.Create(0x400000u)), res);   // ±inf → ±0, NaN → quiet
         return res.AsSingle();
     }
     /// <summary>`rcpss`: lane 0 approximated, lanes 1–3 passed through unchanged.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Vector128<float> ReciprocalScalar(Vector128<float> v) => v.AsUInt32().WithElement(0, RcpBits(v.AsUInt32().GetElement(0))).AsSingle();
-
-    static readonly Vector256<uint> SignMask8 = Vector256.Create(0x80000000u), ManMask8 = Vector256.Create(0x7fffffu), Inf8 = Vector256.Create(0x7f800000u),
-        Quiet8 = Vector256.Create(0x400000u), Ff8 = Vector256.Create(0xffu);
-    static readonly Vector256<int> Bias8 = Vector256.Create(127);
 
     /// <summary>`rcpps` on eight lanes: each lane = <see cref="RcpBits"/> of that lane (the same table and special cases as
     /// the four-lane form, so the same bits for all 2³² inputs). Without fast gathers, two four-lane halves.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static unsafe Vector256<float> Reciprocal(Vector256<float> v)
     {
         var u = v.AsUInt32();
         if (!Simd.IsWideSupported)
             return Vector256.Create(Reciprocal(v.GetLower()), Reciprocal(v.GetUpper()));
-        var sign = u & SignMask8; var e = (u >> 23) & Ff8; var m = u & ManMask8;
+        var expField = Vector256.Create(0x7f800000u); var man = Vector256.Create(0x7fffffu);
+        var sign = u & Vector256.Create(0x80000000u); var ef = u & expField; var m = u & man;
         Vector256<uint> r;
         fixed (uint* t = RcpTable) r = Simd.GatherVector256(t, (m >> 11).AsInt32(), 4);
-        var re = ((r >> 23) & Ff8).AsInt32() + Bias8 - e.AsInt32();
-        var res = sign | (re.AsUInt32() << 23) | (r & ManMask8);
-        res = Vector256.ConditionalSelect(Vector256.LessThanOrEqual(re, Vector256<int>.Zero).AsUInt32(), sign, res);   // denormal result → ±0
-        res = Vector256.ConditionalSelect(Vector256.Equals(e, Vector256<uint>.Zero), sign | Inf8, res);                  // ±0, denormal → ±inf
-        res = Vector256.ConditionalSelect(Vector256.Equals(e, Ff8),
-            Vector256.ConditionalSelect(Vector256.Equals(m, Vector256<uint>.Zero), sign, u | Quiet8), res);              // ±inf → ±0, NaN → quiet
+        var res = r + Vector256.Create(0x3f800000u) - ef;
+        var normalOut = Vector256.GreaterThan(res.AsInt32(), Vector256.Create(0x7fffff)).AsUInt32();                // result exponent field ≥ 1
+        var normalIn = Vector256.GreaterThan(ef.AsInt32(), Vector256<int>.Zero) & Vector256.LessThan(ef.AsInt32(), expField.AsInt32());
+        if ((normalOut & normalIn.AsUInt32()) == Vector256<uint>.AllBitsSet) return (sign | res).AsSingle();
+        res = Vector256.ConditionalSelect(normalOut, sign | res, sign);                                               // denormal result → ±0
+        res = Vector256.ConditionalSelect(Vector256.Equals(ef, Vector256<uint>.Zero), sign | expField, res);           // ±0, denormal → ±inf
+        res = Vector256.ConditionalSelect(Vector256.Equals(ef, expField),
+            Vector256.ConditionalSelect(Vector256.Equals(m, Vector256<uint>.Zero), sign, u | Vector256.Create(0x400000u)), res);   // ±inf → ±0, NaN → quiet
         return res.AsSingle();
     }
     /// <summary>`rsqrtps`: all four lanes (gathers from both parity tables when they are fast, else four scalar lookups).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static unsafe Vector128<float> ReciprocalSqrt(Vector128<float> v)
     {
         var u = v.AsUInt32();
         if (!Simd.IsWideSupported)
             return Vector128.Create(RsqrtBits(u.GetElement(0)), RsqrtBits(u.GetElement(1)), RsqrtBits(u.GetElement(2)), RsqrtBits(u.GetElement(3))).AsSingle();
-        var sign = u & SignMask; var e = (u >> 23) & ExpMask; var m = u & ManMask; var idx = (m >> 11).AsInt32();
+        var ff = Vector128.Create(0xffu); var man = Vector128.Create(0x7fffffu); var signMask = Vector128.Create(0x80000000u);
+        var sign = u & signMask; var e = (u >> 23) & ff; var m = u & man; var idx = (m >> 11).AsInt32();
         Vector128<uint> rOdd, rEven;
         fixed (uint* t = RsqrtOddTable) rOdd = Simd.GatherVector128(t, idx, 4);
         fixed (uint* t = RsqrtEvenTable) rEven = Simd.GatherVector128(t, idx, 4);
-        var k = e.AsInt32() - Bias;
-        var r = Vector128.ConditionalSelect(Vector128.Equals(e & One, One), rOdd, rEven);   // e odd ⇔ k even ⇔ the e=127-parity table
-        var re = ((r >> 23) & Ff).AsInt32() - Vector128.ShiftRightArithmetic(k, 1);         // k/2 for even k, (k−1)/2 for odd k
-        var res = (re.AsUInt32() << 23) | (r & ManMask);
+        var k = e.AsInt32() - Vector128.Create(127);
+        var one = Vector128.Create(1u);
+        var r = Vector128.ConditionalSelect(Vector128.Equals(e & one, one), rOdd, rEven);   // e odd ⇔ k even ⇔ the e=127-parity table
+        var re = ((r >> 23) & ff).AsInt32() - Vector128.ShiftRightArithmetic(k, 1);         // k/2 for even k, (k−1)/2 for odd k
+        var res = (re.AsUInt32() << 23) | (r & man);
         res = Vector128.ConditionalSelect(Vector128.LessThanOrEqual(re, Vector128<int>.Zero).AsUInt32(), Vector128<uint>.Zero, res);
-        res = Vector128.ConditionalSelect(Vector128.Equals(e, Ff), Vector128<uint>.Zero, res);                   // +inf → +0
-        res = Vector128.ConditionalSelect(Vector128.Equals(sign, SignMask), Indefinite, res);                    // negative → 0xffc00000
-        res = Vector128.ConditionalSelect(Vector128.Equals(e, Vector128<uint>.Zero), sign | Inf, res);          // ±0, denormal → ±inf
-        var nan = Vector128.Equals(e, Ff) & Vector128.GreaterThan(m, Vector128<uint>.Zero);
-        res = Vector128.ConditionalSelect(nan, u | Quiet, res);                                                   // NaN → quiet NaN
+        res = Vector128.ConditionalSelect(Vector128.Equals(e, ff), Vector128<uint>.Zero, res);                                  // +inf → +0
+        res = Vector128.ConditionalSelect(Vector128.Equals(sign, signMask), Vector128.Create(0xffc00000u), res);                // negative → 0xffc00000
+        res = Vector128.ConditionalSelect(Vector128.Equals(e, Vector128<uint>.Zero), sign | Vector128.Create(0x7f800000u), res);   // ±0, denormal → ±inf
+        var nan = Vector128.Equals(e, ff) & Vector128.GreaterThan(m, Vector128<uint>.Zero);
+        res = Vector128.ConditionalSelect(nan, u | Vector128.Create(0x400000u), res);                                          // NaN → quiet NaN
         return res.AsSingle();
     }
     /// <summary>`rsqrtps` on eight lanes (two four-lane halves of <see cref="ReciprocalSqrt(Vector128{float})"/>).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Vector256<float> ReciprocalSqrt(Vector256<float> v) => Vector256.Create(ReciprocalSqrt(v.GetLower()), ReciprocalSqrt(v.GetUpper()));
 
     /// <summary>`rsqrtss`: lane 0 approximated, lanes 1–3 passed through unchanged.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Vector128<float> ReciprocalSqrtScalar(Vector128<float> v) => v.AsUInt32().WithElement(0, RsqrtBits(v.AsUInt32().GetElement(0))).AsSingle();
 }

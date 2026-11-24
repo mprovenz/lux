@@ -193,7 +193,9 @@ public static class ExportBuild
                     // ReferenceImageCache::processLevel takes its stacked branch at EVERY level, level 0 included
                     var img = Lux.Engine.Pipeline.Geometry.AlignedWarp.ProcessLevel(Isp(0), frame, calib, 0, rect, new float[4], null, stacked?.Value);
                     var hbuf = new ushort[rect.Width * rect.Height * 3];
-                    for (int y = 0; y < rect.Height; y++) { var row = img.Row(y); for (int x = 0; x < rect.Width; x++) { var q = row[x]; int i = (y * rect.Width + x) * 3; hbuf[i] = Lux.Engine.Imaging.Half16.FromFloat(q.R); hbuf[i + 1] = Lux.Engine.Imaging.Half16.FromFloat(q.G); hbuf[i + 2] = Lux.Engine.Imaging.Half16.FromFloat(q.B); } }
+                    var one = System.Runtime.Intrinsics.Vector128<float>.One;
+                    for (int y = 0; y < rect.Height; y++)
+                        Lux.Engine.Imaging.Half16.FromFloatRgb(System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, float>(img.Row(y)[..rect.Width]), one, hbuf.AsSpan(y * rect.Width * 3, rect.Width * 3), rect.Width);
                     log?.Invoke($"ref cache: level-0 tile ({tx},{ty}) {rect.Width}x{rect.Height}");
                     return (rect, hbuf);
                 });
@@ -214,11 +216,10 @@ public static class ExportBuild
                         for (int ty = ty0; ty <= ty1; ty++) for (int tx = tx0; tx <= tx1; tx++)
                         {
                             var (rect, hb) = RefTile(tx, ty); var c = rect.Intersect(r);
-                            for (int y = c.Y0; y < c.Y1; y++) for (int x = c.X0; x < c.X1; x++)
-                            {
-                                int si = ((y - rect.Y0) * rect.Width + (x - rect.X0)) * 3, di = ((y - r.Y0) * r.Width + (x - r.X0)) * 4;
-                                o[di] = Lux.Engine.Imaging.Half16.ToFloat(hb[si]); o[di + 1] = Lux.Engine.Imaging.Half16.ToFloat(hb[si + 1]); o[di + 2] = Lux.Engine.Imaging.Half16.ToFloat(hb[si + 2]); o[di + 3] = 1f;
-                            }
+                            int n = c.X1 - c.X0;   // one run of pixels per row
+                            if (n <= 0) continue;
+                            for (int y = c.Y0; y < c.Y1; y++)
+                                Lux.Engine.Imaging.Half16.ToFloatRgb1(hb.AsSpan(((y - rect.Y0) * rect.Width + (c.X0 - rect.X0)) * 3, n * 3), o.AsSpan(((y - r.Y0) * r.Width + (c.X0 - r.X0)) * 4, n * 4), n);
                         }
                         return o;
                     });

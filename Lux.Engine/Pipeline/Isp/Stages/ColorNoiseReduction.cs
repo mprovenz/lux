@@ -1,4 +1,6 @@
 using Lux.Engine.Imaging;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -17,10 +19,6 @@ public static class CnrPyramid
     const float K0 = 0.05f, K1 = 0.25f, K2 = 0.4f;
     const float W64 = 0.64000004f, W08 = 0.080000006f, W01 = 0.010000001f;
 
-    static Vec4F Mul(float k, Vec4F v) => new(k * v.R, k * v.G, k * v.B, k * v.A);
-    static Vec4F Add(Vec4F a, Vec4F b) => new(a.R + b.R, a.G + b.G, a.B + b.B, a.A + b.A);
-    static Vec4F Sub(Vec4F a, Vec4F b) => new(a.R - b.R, a.G - b.G, a.B - b.B, a.A - b.A);
-
     /// <summary>Down-sampled size ((w+1)/2, (h+1)/2) image of the 5-tap filtered even sites.</summary>
     public static Vec4F[] Downsample(Vec4F[] src, int w, int h, out int w2, out int h2) => Downsample(src, w, h, 0, 0, w, h, out w2, out h2);
 
@@ -30,11 +28,12 @@ public static class CnrPyramid
     /// to the parent rect `[rect.y0, rect.y1)`, i.e. real data up to 2 px beyond the view is used when the
     /// parent image has it; the clamped ("edge") association applies only where the extent actually ends
     /// (`x &lt; xlo+2 || x ≥ xhi−2`, `y &lt; y0+2 || y ≥ y1−2`). The caller passes the extent = parent ∩ (view ± 2).
+    /// The result is a <see cref="ScratchPool"/> array of at least w2·h2 pixels; the caller may give it back.
     /// </summary>
     public static Vec4F[] Downsample(Vec4F[] ext, int ew, int eh, int vx, int vy, int w, int h, out int w2, out int h2)
     {
         w2 = (w + 1) >> 1; h2 = (h + 1) >> 1;
-        var dst = new Vec4F[w2 * h2];
+        var dst = ScratchPool.Rent<Vec4F>(w2 * h2);
         var tmp = new Vec4F[ew];
         int xlo = -vx, xhi = ew - vx, ylo = -vy, yhi = eh - vy;   // extent bounds in view coordinates
         // the same per-lane operations, a pixel's four lanes as one Vector128 (the vertical pass two pixels per Vector256)
@@ -75,64 +74,67 @@ public static class CnrPyramid
         return dst;
     }
 
-    /// <summary>out(x,y) = upscale(small)(x,y) − target(x,y) for a w×h target (small is ((w+1)/2)×((h+1)/2)).</summary>
+    /// <summary>out(x,y) = upscale(small)(x,y) − target(x,y) for a w×h target (small is ((w+1)/2)×((h+1)/2)).
+    /// A pixel's four lanes are one vector, and each lane does the scalar operations in the same order.
+    /// The result is a <see cref="ScratchPool"/> array of at least w·h pixels; the caller may give it back.</summary>
     public static Vec4F[] UpscaleSubtract(Vec4F[] small, int ws, int hs, Vec4F[] target, int w, int h)
     {
-        var dst = new Vec4F[w * h];
+        var dst = ScratchPool.Rent<Vec4F>(w * h);
         // interior column range of the pair loop (x0 = 0, x1 = w, small.x0 = 0, small.x1 = ws)
         int lo = ((0 + 1) & ~1) + 2 * (0 - Math.Min(((0 + 1) >> 1) - 1, 0));
         int hi = (w & ~1) + 2 * (ws - Math.Max((w >> 1) + 1, ws));
         if (w < lo) lo = w; if (hi < lo) hi = lo;
+        var S = System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, Vector128<float>>(small.AsSpan());
+        var T = System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, Vector128<float>>(target.AsSpan());
+        var D = System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, Vector128<float>>(dst.AsSpan());
+        var w64 = Vector128.Create(W64); var w08 = Vector128.Create(W08); var w01 = Vector128.Create(W01);
+        var k0 = Vector128.Create(K0); var k1 = Vector128.Create(K1); var k2 = Vector128.Create(K2);
         for (int y = 0; y < h; y++)
         {
             int r = y >> 1;
             bool oddRow = (y & 1) != 0;
             int rm = Math.Max(r - 1, 0), rp = Math.Min(r + 1, hs - 1);
-            int ra = oddRow ? r : rm, rb = oddRow ? rp : r, rc = rp;   // odd rows: r0 = r, r1 = r+1; even rows: rm, r, rp
+            int bm = rm * ws, b0 = r * ws, bp = rp * ws, o = y * w;   // even rows use small rows rm, r, rp; odd rows use r and rp
             for (int x = 0; x < w; x++)
             {
                 int c = x >> 1; bool oddCol = (x & 1) != 0;
                 int cm = Math.Max(c - 1, 0), cp = Math.Min(c + 1, ws - 1);
                 bool interior = x >= lo && x < hi;
-                Vec4F t = target[y * w + x], v;
+                var t = T[o + x]; Vector128<float> v;
                 if (!oddRow)
                 {
-                    Vec4F Rm(int cc) => small[rm * ws + cc]; Vec4F R0(int cc) => small[r * ws + cc]; Vec4F Rp(int cc) => small[rp * ws + cc];
                     if (!oddCol)
                     {
-                        var diag = Add(Add(Add(Rm(cp), Rm(cm)), Rp(cm)), Rp(cp));
-                        var cross = Add(Add(Add(Rp(c), Rm(c)), R0(cm)), R0(cp));
-                        v = Sub(Add(Mul(W64, R0(c)), Add(Mul(W08, cross), Mul(W01, diag))), t);
+                        var diag = ((S[bm + cp] + S[bm + cm]) + S[bp + cm]) + S[bp + cp];
+                        var cross = ((S[bp + c] + S[bm + c]) + S[b0 + cm]) + S[b0 + cp];
+                        v = (w64 * S[b0 + c] + (w08 * cross + w01 * diag)) - t;
                     }
                     else
                     {
-                        var four = Add(Add(Add(Rm(cp), Rm(c)), Rp(c)), Rp(cp));
-                        var pair = Add(R0(cp), R0(c));
-                        v = interior ? Add(Sub(Mul(K0, four), t), Mul(K2, pair)) : Sub(Add(Mul(K2, pair), Mul(K0, four)), t);
+                        var four = ((S[bm + cp] + S[bm + c]) + S[bp + c]) + S[bp + cp];
+                        var pair = S[b0 + cp] + S[b0 + c];
+                        v = interior ? (k0 * four - t) + k2 * pair : (k2 * pair + k0 * four) - t;
                     }
                 }
                 else
                 {
-                    Vec4F R0(int cc) => small[r * ws + cc]; Vec4F R1(int cc) => small[rp * ws + cc];
                     if (!oddCol)
                     {
-                        var four = Add(Add(Add(R0(cp), R0(cm)), R1(cm)), R1(cp));
-                        var pair = Add(R1(c), R0(c));
-                        v = interior ? Add(Sub(Mul(K0, four), t), Mul(K2, pair)) : Sub(Add(Mul(K2, pair), Mul(K0, four)), t);
+                        var four = ((S[b0 + cp] + S[b0 + cm]) + S[bp + cm]) + S[bp + cp];
+                        var pair = S[bp + c] + S[b0 + c];
+                        v = interior ? (k0 * four - t) + k2 * pair : (k2 * pair + k0 * four) - t;
                     }
                     else
                     {
-                        var four = Add(Add(Add(R0(cp), R0(c)), R1(c)), R1(cp));
-                        v = Sub(Mul(K1, four), t);
+                        var four = ((S[b0 + cp] + S[b0 + c]) + S[bp + c]) + S[bp + cp];
+                        v = k1 * four - t;
                     }
                 }
-                dst[y * w + x] = v;
+                D[o + x] = v;
             }
         }
         return dst;
     }
-
-    static Vec4F Mul(float k, in Vec4F v, int _ = 0) => Mul(k, v);
 }
 
 /// <summary>Eigen 3.3 `JacobiSVD&lt;Matrix3d&gt;(ComputeFullU|ComputeFullV)` as compiled into Lumen
@@ -269,25 +271,35 @@ public static class ColorNoiseReductionKernel
     }
 
     static float MaxSs(float a, float b) => a > b ? a : b;   // MAXSS semantics: NaN gives b
+    static readonly bool DebugOn = Environment.GetEnvironmentVariable("LUX_CNR_DEBUG") is not null;
+
+    /// <summary>Lane <paramref name="lane"/> of <paramref name="v"/> in all four lanes.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector128<float> Broadcast(Vector128<float> v, [ConstantExpected(Max = 3)] int lane) => Vector128.Shuffle(v, Vector128.Create(lane));
 
     /// <summary>The tile lambda: statistics from <paramref name="stats"/> (the Gaussian image of the level:
     /// the source copy at level 0, else the sub-sampled image), the 3×3 remap applied to
-    /// <paramref name="img"/> (the residual level) in place; both share the tile rect and stride.</summary>
+    /// <paramref name="img"/> (the residual level) in place; both share the tile rect and stride.
+    /// A pixel's four lanes are one vector: the sums of the products are three vectors, and each lane adds its own products in
+    /// pixel order, as the scalar sums do.</summary>
     public static void ProcessTile(Vec4F[] img, int stride, RectI t, Args a) => ProcessTile(img, img, stride, t, a);
     public static void ProcessTile(Vec4F[] img, Vec4F[] stats, int stride, RectI t, Args a)
     {
         int n = (t.Y1 - t.Y0) * (t.X1 - t.X0);
         float invN = 1f / (float)n;
-        float sRR = 0, sGG = 0, sBB = 0, sAA = 0, sRG = 0, sBR = 0, sGB = 0, sAR = 0, sAG = 0, sAB = 0, sAA2 = 0, sA = 0;
+        var sumSq = Vector128<float>.Zero; var sumX = Vector128<float>.Zero; var sumA = Vector128<float>.Zero; float sA = 0;
+        var SV = System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, Vector128<float>>(stats.AsSpan());
         for (int y = t.Y0; y < t.Y1; y++)
             for (int x = t.X0; x < t.X1; x++)
             {
-                var p = stats[y * stride + x];
-                sRR += p.R * p.R; sGG += p.G * p.G; sBB += p.B * p.B; sAA += p.A * p.A;
-                sRG += p.R * p.G; sBR += p.B * p.R; sGB += p.G * p.B;
-                sAR += p.A * p.R; sAG += p.A * p.G; sAB += p.A * p.B; sAA2 += p.A * p.A;
-                sA += p.A;
+                var p = SV[y * stride + x];
+                sumSq += p * p;                                                                                       // RR, GG, BB, AA
+                sumX += Vector128.Shuffle(p, Vector128.Create(0, 2, 1, 3)) * Vector128.Shuffle(p, Vector128.Create(1, 0, 2, 3));   // RG, BR, GB, ·
+                sumA += Broadcast(p, 3) * p;                                                                          // AR, AG, AB, AA
+                sA += p.GetElement(3);
             }
+        float sRR = sumSq.GetElement(0), sGG = sumSq.GetElement(1), sBB = sumSq.GetElement(2), sRG = sumX.GetElement(0), sBR = sumX.GetElement(1), sGB = sumX.GetElement(2);
+        float sAR = sumA.GetElement(0), sAG = sumA.GetElement(1), sAB = sumA.GetElement(2), sAA2 = sumA.GetElement(3);
         float mRR = sRR * invN, mGG = sGG * invN, mBB = sBB * invN;
         float mRG = invN * sRG, mBR = invN * sBR, mGB = invN * sGB;
         float meanA = sA * invN;
@@ -312,7 +324,7 @@ public static class ColorNoiseReductionKernel
         float s0 = (float)S[0], s1 = (float)S[1], s2 = (float)S[2];
         float w0 = MaxSs(s0 + -1f, 0f) / s0, w1 = MaxSs(s1 + -1f, 0f) / s1, w2 = MaxSs(-1f + s2, 0f) / s2;
         var Wd = Diag(w0, w1, w2);
-        if (Environment.GetEnvironmentVariable("LUX_CNR_DEBUG") is not null && t.X0 == 0 && t.Y0 == 0) Console.Error.WriteLine($"tile {t} n={n} meanA={meanA} ratio={a.Ratio} varScale={a.VarScale} invN2=[{string.Join(',', a.InvN2)}] A=[{string.Join(',', a.A)}] B=[{string.Join(',', a.B)}] var=[{string.Join(',', var)}] s=[{s0},{s1},{s2}] w=[{w0},{w1},{w2}] C=[{string.Join(',', C)}] M2=[{string.Join(',', M2)}]");
+        if (DebugOn && t.X0 == 0 && t.Y0 == 0) Console.Error.WriteLine($"tile {t} n={n} meanA={meanA} ratio={a.Ratio} varScale={a.VarScale} invN2=[{string.Join(',', a.InvN2)}] A=[{string.Join(',', a.A)}] B=[{string.Join(',', a.B)}] var=[{string.Join(',', var)}] s=[{s0},{s1},{s2}] w=[{w0},{w1},{w2}] C=[{string.Join(',', C)}] M2=[{string.Join(',', M2)}]");
         var Uf = new float[9]; for (int i = 0; i < 9; i++) Uf[i] = (float)U[i];
         var Ut = new float[9]; for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) Ut[i + 3 * j] = Uf[j + 3 * i];
         var P = Mul3(Wd, Ut); var Q = Mul3(Uf, P);
@@ -320,12 +332,13 @@ public static class ColorNoiseReductionKernel
         var H = Mul3(G, Dinv); var DH = Mul3(D, H);
         var F = new float[9]; for (int i = 0; i < 9; i++) F[i] = i % 4 == 0 ? 1f - DH[i] : -DH[i];
         // apply: out = (B·col2 + R·col0) + G·col1, alpha lane of the columns = 0
+        var IV = System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, Vector128<float>>(img.AsSpan());
+        var col0 = Vector128.Create(F[0], F[1], F[2], 0f); var col1 = Vector128.Create(F[3], F[4], F[5], 0f); var col2 = Vector128.Create(F[6], F[7], F[8], 0f);
         for (int y = t.Y0; y < t.Y1; y++)
             for (int x = t.X0; x < t.X1; x++)
             {
-                ref var p = ref img[y * stride + x];
-                float R = p.R, Gc = p.G, B = p.B;
-                p = new Vec4F((B * F[6] + R * F[0]) + Gc * F[3], (B * F[7] + R * F[1]) + Gc * F[4], (B * F[8] + R * F[2]) + Gc * F[5], (B * 0f + R * 0f) + Gc * 0f);
+                ref var p = ref IV[y * stride + x];
+                p = (Broadcast(p, 2) * col2 + Broadcast(p, 0) * col0) + Broadcast(p, 1) * col1;
             }
     }
 
@@ -352,7 +365,8 @@ public static class ColorNoiseReductionKernel
     { var (lv, top, _) = BuildPyramidFull(src, w, h, levels); return (lv, top); }
 
     /// <summary>The full pyramid: the residual levels (`[0..n)`), the coarsest Gaussian (`[n]`) and the
-    /// Gaussian images of each level (`Gauss[0]` = the source, `Gauss[i]` = the sub-sampled image of level i−1).</summary>
+    /// Gaussian images of each level (`Gauss[0]` = the source, `Gauss[i]` = the sub-sampled image of level i−1).
+    /// `Top` is the same array as the last `Gauss` entry. All images except the source are <see cref="ScratchPool"/> arrays.</summary>
     public static (List<(Vec4F[] Data, int W, int H)> Levels, (Vec4F[] Data, int W, int H) Top, List<(Vec4F[] Data, int W, int H)> Gauss) BuildPyramidFull(Vec4F[] src, int w, int h, int levels, (Vec4F[] Data, int W, int H, int VX, int VY)? ext = null)
     {
         var list = new List<(Vec4F[], int, int)>(); var gauss = new List<(Vec4F[], int, int)> { (src, w, h) };
@@ -366,16 +380,20 @@ public static class ColorNoiseReductionKernel
             if (DumpPrefix is not null) { Dump($"{DumpPrefix}_cnr_ds{i}.f32", sub, sw, sh); Dump($"{DumpPrefix}_cnr_us{i}.f32", res, gw, gh); }
             g = sub; gw = sw; gh = sh; gauss.Add((sub, sw, sh));
         }
-        return (list, ((Vec4F[])g.Clone(), gw, gh), gauss);
+        return (list, (g, gw, gh), gauss);
     }
 
+    /// <summary>Collapse the pyramid. The result is a new <see cref="ScratchPool"/> array; the intermediate images go back to
+    /// the pool, the inputs stay as they are.</summary>
     public static Vec4F[] Reconstruct(List<(Vec4F[] Data, int W, int H)> levels, (Vec4F[] Data, int W, int H) top)
     {
         var cur = top;
         for (int i = levels.Count - 1; i >= 0; i--)
         {
             var l = levels[i];
-            cur = (CnrPyramid.UpscaleSubtract(cur.Data, cur.W, cur.H, l.Data, l.W, l.H), l.W, l.H);
+            var next = (CnrPyramid.UpscaleSubtract(cur.Data, cur.W, cur.H, l.Data, l.W, l.H), l.W, l.H);
+            if (cur.Data != top.Data) ScratchPool.Return(cur.Data);
+            cur = next;
         }
         return cur.Data;
     }
@@ -385,11 +403,12 @@ public static class ColorNoiseReductionKernel
         => Run(input, w, h, std, neutral, a3, b3, black, white, paramScale, multiplier, null);
 
     /// <summary><paramref name="ext"/>: the source's extent image (parent ∩ view±2, alpha already set) with the view's origin inside it — the
-    /// level-0 down-sample reads it beyond the view (see <see cref="CnrPyramid.Downsample(Vec4F[], int, int, int, int, int, int, out int, out int)"/>).</summary>
+    /// level-0 down-sample reads it beyond the view (see <see cref="CnrPyramid.Downsample(Vec4F[], int, int, int, int, int, int, out int, out int)"/>).
+    /// The result is a <see cref="ScratchPool"/> array of at least w·h pixels; the caller may give it back.</summary>
     public static Vec4F[] Run(Vec4F[] input, int w, int h, float[]? std, ReadOnlySpan<float> neutral, float[] a3, float[] b3, int black, int white, float paramScale, float multiplier, (Vec4F[] Data, int W, int H, int VX, int VY)? ext)
     {
-        var src = new Vec4F[w * h];
-        for (int i = 0; i < src.Length; i++) { var p = input[i]; src[i] = new Vec4F(p.R, p.G, p.B, std is null ? 1f : std[i] * std[i]); }
+        var src = ScratchPool.Rent<Vec4F>(w * h);
+        for (int i = 0; i < w * h; i++) { var p = input[i]; src[i] = new Vec4F(p.R, p.G, p.B, std is null ? 1f : std[i] * std[i]); }
         int levels = Levels(paramScale);
         if (levels == 0) return src;
         var (lv, top, gauss) = BuildPyramidFull(src, w, h, levels, ext);
@@ -400,7 +419,10 @@ public static class ColorNoiseReductionKernel
             var stats = gauss[level].Data;
             foreach (var tile in Tiler.Rects(new RectI(0, 0, lw, lh), 32, 32)) ProcessTile(data, stats, lw, tile, args);
         }
-        return Reconstruct(lv, top);
+        var outp = Reconstruct(lv, top);
+        foreach (var l in lv) ScratchPool.Return(l.Data);
+        foreach (var g in gauss) ScratchPool.Return(g.Data);   // the source and the sub-sampled images (the last one is the top)
+        return outp;
     }
 }
 
@@ -419,7 +441,7 @@ public sealed class ColorNoiseReductionStage : IStage
         float ps = (float)t.Num("pipeline.parameter_scale"), mult = (float)t.Num("color_noise_reduction.color_denoise_multiplier");
         var abs = p.ToAbsolute(p.IntRect).Intersect(img.Rect);
         var view = img.View(abs); int w = abs.Width, h = abs.Height;
-        var src = new Vec4F[w * h]; for (int y = 0; y < h; y++) view.Row(y).CopyTo(src.AsSpan(y * w, w));
+        var src = ScratchPool.Rent<Vec4F>(w * h); for (int y = 0; y < h; y++) view.Row(y).CopyTo(src.AsSpan(y * w, w));
         float[]? std = null;
         if (p.Std is not null && !p.Std.Rect.Intersect(abs).IsEmpty)
         {
@@ -437,7 +459,7 @@ public sealed class ColorNoiseReductionStage : IStage
         if (Environment.GetEnvironmentVariable("LUX_CNR_NOEXT") == "1") er = abs;   // diagnostic: no reads beyond the region
         if (er != abs)
         {
-            var ev = img.View(er); var ed = new Vec4F[er.Width * er.Height];
+            var ev = img.View(er); var ed = ScratchPool.Rent<Vec4F>(er.Width * er.Height);
             for (int y = 0; y < er.Height; y++) ev.Row(y).CopyTo(ed.AsSpan(y * er.Width, er.Width));
             int vx = abs.X0 - er.X0, vy = abs.Y0 - er.Y0;
             for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) { ref var q = ref ed[(y + vy) * er.Width + x + vx]; q = new Vec4F(q.R, q.G, q.B, std is null ? 1f : std[y * w + x] * std[y * w + x]); }
@@ -445,7 +467,7 @@ public sealed class ColorNoiseReductionStage : IStage
         }
         if (Environment.GetEnvironmentVariable("LUX_CNR_DUMP") is string cd)   // diagnostic: the kernel input region (+ext) and args, 16-byte header f32 images
         {
-            void W(string tag, Vec4F[] d, int ww, int hh) { using var fo = File.Create($"{cd}_cnr_{tag}.f32"); fo.Write(BitConverter.GetBytes(ww)); fo.Write(BitConverter.GetBytes(hh)); fo.Write(BitConverter.GetBytes(ww)); fo.Write(BitConverter.GetBytes(16)); fo.Write(System.Runtime.InteropServices.MemoryMarshal.AsBytes(d.AsSpan())); }
+            void W(string tag, Vec4F[] d, int ww, int hh) { using var fo = File.Create($"{cd}_cnr_{tag}.f32"); fo.Write(BitConverter.GetBytes(ww)); fo.Write(BitConverter.GetBytes(hh)); fo.Write(BitConverter.GetBytes(ww)); fo.Write(BitConverter.GetBytes(16)); fo.Write(System.Runtime.InteropServices.MemoryMarshal.AsBytes(d.AsSpan(0, ww * hh))); }
             W("src", src, w, h); if (ext is not null) W("ext", ext.Value.Data, ext.Value.W, ext.Value.H);
             File.WriteAllText($"{cd}_cnr_args.txt", $"region ({abs.X0} {abs.Y0} {abs.X1} {abs.Y1}) ext ({er.X0} {er.Y0} {er.X1} {er.Y1}) neutral {string.Join(" ", p.Stats.Neutral.Select(v => v.ToString("R")))} a3 {model.R.A:R} {model.G.A:R} {model.Bl.A:R} b3 {model.R.B:R} {model.G.B:R} {model.Bl.B:R} black {(int)(float.IsNaN(p.Frame.FrameBlack) ? noise.Black : p.Frame.FrameBlack)} white {(int)noise.White} paramScale {ps:R} multiplier {mult:R} gain {p.Frame.AnalogGain:R}\n");
         }
@@ -455,5 +477,6 @@ public sealed class ColorNoiseReductionStage : IStage
         var dst = new Image<Vec4F>(abs);
         for (int y = 0; y < h; y++) outp.AsSpan(y * w, w).CopyTo(dst.Row(y));
         p.Rgb = dst;
+        ScratchPool.Return(outp); ScratchPool.Return(src); if (ext is { } e) ScratchPool.Return(e.Data);
     }
 }

@@ -1,4 +1,6 @@
 using Lux.Engine.Imaging;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -174,9 +176,32 @@ public static class HighlightRestoreKernel
         }
         int P(int x, int y) => src[srcOffset + Row(y) * srcStride + Col(x)];
         int rx = redX & 1, ry = redY & 1;
+        ref ushort sb = ref MemoryMarshal.GetArrayDataReference(src); ref ushort db = ref MemoryMarshal.GetArrayDataReference(dst);
         for (int y = rect.Y0; y < rect.Y1; y++)
+        {
+            // Groups of 16 pixels whose 3×3 neighborhoods need no clamping: when every 3×3 maximum is below the threshold, the group is
+            // copied, which is the per-pixel result for each of its pixels. Otherwise the per-pixel code does the 16 pixels.
+            // [v0, v1) is the column range with unclamped taps; the index range of the rows y − 1 … y + 1 and of the destination row
+            // is checked once, so the unchecked loads stay inside the arrays.
+            int v0 = Math.Max(rect.X0, srcRect.X0 + 1), v1 = Math.Min(rect.X1, srcRect.X1 - 1);
+            long top = (long)srcOffset + (long)(y - 1) * srcStride, dRow = (long)dstOffset + (long)y * dstStride;
+            bool groups = Vector128.IsHardwareAccelerated && v1 - v0 >= 16 && srcStride > 0 && Row(y - 1) == y - 1 && Row(y) == y && Row(y + 1) == y + 1
+                && top + v0 - 1 >= 0 && top + 2L * srcStride + v1 < src.Length && dRow + v0 >= 0 && dRow + v1 <= dst.Length;
+            int nextGroup = v0;
             for (int x = rect.X0; x < rect.X1; x++)
             {
+                if (groups && x >= nextGroup && x + 16 <= v1)
+                {
+                    nuint tl = (nuint)(top + x - 1);   // the top-left tap of pixel x
+                    if (Below16(ref Unsafe.Add(ref sb, tl), ref Unsafe.Add(ref sb, tl + (nuint)srcStride), ref Unsafe.Add(ref sb, tl + 2 * (nuint)srcStride), f.Thr))
+                    {
+                        ref ushort from = ref Unsafe.Add(ref sb, tl + (nuint)srcStride + 1); ref ushort to = ref Unsafe.Add(ref db, (nuint)(dRow + x));
+                        Vector128.LoadUnsafe(ref from).StoreUnsafe(ref to); Vector128.LoadUnsafe(ref from, 8).StoreUnsafe(ref to, 8);
+                        x += 15;
+                        continue;
+                    }
+                    nextGroup = x + 16;
+                }
                 int raw = P(x, y);
                 int m = 0;
                 for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) { int v = P(x + i, y + j); if (v > m) m = v; }
@@ -191,6 +216,31 @@ public static class HighlightRestoreKernel
                 }
                 dst[dstOffset + y * dstStride + x] = o;
             }
+        }
+    }
+
+    /// <summary>True when the 3×3 maximum of each of 16 pixels is below <paramref name="thr"/>. <paramref name="r0"/>,
+    /// <paramref name="r1"/> and <paramref name="r2"/> are the rows above, at and below the pixels, each at the column left of the first pixel.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static bool Below16(ref ushort r0, ref ushort r1, ref ushort r2, ushort thr)
+    {
+        if (Vector256.IsHardwareAccelerated)
+        {
+            var m = Vector256.Max(Vector256.Max(Vector256.LoadUnsafe(ref r0), Vector256.LoadUnsafe(ref r0, 1)), Vector256.LoadUnsafe(ref r0, 2));
+            m = Vector256.Max(m, Vector256.Max(Vector256.Max(Vector256.LoadUnsafe(ref r1), Vector256.LoadUnsafe(ref r1, 1)), Vector256.LoadUnsafe(ref r1, 2)));
+            m = Vector256.Max(m, Vector256.Max(Vector256.Max(Vector256.LoadUnsafe(ref r2), Vector256.LoadUnsafe(ref r2, 1)), Vector256.LoadUnsafe(ref r2, 2)));
+            return Vector256.LessThanAll(m, Vector256.Create(thr));
+        }
+        return Below8(ref r0, ref r1, ref r2, thr) && Below8(ref Unsafe.Add(ref r0, 8), ref Unsafe.Add(ref r1, 8), ref Unsafe.Add(ref r2, 8), thr);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static bool Below8(ref ushort r0, ref ushort r1, ref ushort r2, ushort thr)
+    {
+        var m = Vector128.Max(Vector128.Max(Vector128.LoadUnsafe(ref r0), Vector128.LoadUnsafe(ref r0, 1)), Vector128.LoadUnsafe(ref r0, 2));
+        m = Vector128.Max(m, Vector128.Max(Vector128.Max(Vector128.LoadUnsafe(ref r1), Vector128.LoadUnsafe(ref r1, 1)), Vector128.LoadUnsafe(ref r1, 2)));
+        m = Vector128.Max(m, Vector128.Max(Vector128.Max(Vector128.LoadUnsafe(ref r2), Vector128.LoadUnsafe(ref r2, 1)), Vector128.LoadUnsafe(ref r2, 2)));
+        return Vector128.LessThanAll(m, Vector128.Create(thr));
     }
 }
 

@@ -1,3 +1,6 @@
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 using Lux.Engine.Pipeline.Cache;
 using Lux.Engine.Pipeline.Geometry;
 using Lux.Engine.Pipeline.Isp.Stages;
@@ -221,6 +224,11 @@ public sealed class ExportRenderer
         var src = RenderSource(to.Level, to.Source);
         int sw = to.Source.Width, sh = to.Source.Height, dw = rect.Width, dh = rect.Height;
         BlockHook?.Invoke("rsin", rect, sw, sh, src);
+        // A whole-pixel shift of finite values: the warp and the ×16384 in one pass, with the same values (ExportResample.ShiftScaled).
+        // A block hook takes the general path, because it receives the warped block before the ×16384.
+        if (BlockHook is null && !(1.5f < to.ScaleX || 1.5f < to.ScaleY) && ExportResample.IntegerShift(to, sw, sh, dw, dh, out int cx, out int cy)
+            && src.Length == sw * sh * 4 && ExportResample.AllFinite(src, Threads))
+            return (rect, ExportResample.ShiftScaled(src, sw, sh, cx, cy, dw, dh, to, 16384f, Threads));
         float[] outp;
         if (1.5f < to.ScaleX || 1.5f < to.ScaleY)
         {
@@ -232,8 +240,15 @@ public sealed class ExportRenderer
         }
         else outp = ExportResample.WarpClamped2(src, sw, sh, dw, dh, to, Threads);
         BlockHook?.Invoke("rsout", rect, dw, dh, outp);
-        var scaled = new float[outp.Length];
-        for (int i = 0; i < outp.Length; i++) scaled[i] = outp[i] * 16384f;   // ×(16384,16384,16384,16384)
+        // ×(16384,16384,16384,16384), row by row; in place unless a hook holds the warped block
+        var scaled = BlockHook is null ? outp : new float[outp.Length];
+        void ScaleRow(int y)
+        {
+            var s = outp.AsSpan(y * dw * 4, dw * 4); var d = scaled.AsSpan(y * dw * 4, dw * 4);
+            for (int i = 0; i < s.Length; i++) d[i] = s[i] * 16384f;
+        }
+        if (Threads > 1 && dh > 1) Parallel.For(0, dh, new ParallelOptions { MaxDegreeOfParallelism = Threads }, ScaleRow);
+        else for (int y = 0; y < dh; y++) ScaleRow(y);
         BlockHook?.Invoke("x16384", rect, dw, dh, scaled);
         return (rect, scaled);
     }
@@ -318,15 +333,27 @@ public sealed class ExportRenderer
                                               : _cache.Render(_lv.BaseLevel + level, shifted, pd);   // … or on the PipelineCache
             int tw = tile.Width, th = tile.Height;
             if (TilePreHook is not null) lock (_hookLock) TilePreHook(level, tile, shifted, px);
-            var img = new Image<Vec4F>(tw, th);
-            System.Runtime.InteropServices.MemoryMarshal.Cast<float, Vec4F>(px.AsSpan()).CopyTo(img.Data);
-            var floatRect = new RectF(fx * (float)shifted.X0, fy * (float)shifted.Y0, fx * (float)shifted.X1, fy * (float)shifted.Y1);
-            LensShadingKernel.Apply(img, new RectI(0, 0, tw, th), floatRect, tw, th, _lv.CacheDims.W, _lv.CacheDims.H, _cols, _rows, g);
-            System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, float>(img.Data.AsSpan()).CopyTo(px);
-            if (TileHook is not null) lock (_hookLock) TileHook(level, tile, shifted, px);
-            var c = tile.Intersect(src);   // this tile's own region of the output — disjoint across tiles, so the copies need no lock
-            for (int y = c.Y0; y < c.Y1; y++)
-                Array.Copy(px, ((y - tile.Y0) * tw + (c.X0 - tile.X0)) * 4, outp, ((y - src.Y0) * src.Width + (c.X0 - src.X0)) * 4, c.Width * 4);
+            if (px.Length != tw * th * 4) throw new ArgumentException("the tile source gave a tile of the wrong size");
+            // the vignetting on a pooled copy of the tile (every pixel is written before the kernel reads it)
+            var buf = ScratchPool.Rent<Vec4F>(tw * th);
+            try
+            {
+                var img = new Image<Vec4F>(new RectI(0, 0, tw, th), buf, tw, 0);
+                var tilePixels = MemoryMarshal.Cast<float, Vec4F>(px.AsSpan());
+                tilePixels.CopyTo(buf);
+                var floatRect = new RectF(fx * (float)shifted.X0, fy * (float)shifted.Y0, fx * (float)shifted.X1, fy * (float)shifted.Y1);
+                LensShadingKernel.Apply(img, new RectI(0, 0, tw, th), floatRect, tw, th, _lv.CacheDims.W, _lv.CacheDims.H, _cols, _rows, g);
+                if (TileHook is not null)
+                {
+                    buf.AsSpan(0, tw * th).CopyTo(tilePixels);
+                    lock (_hookLock) TileHook(level, tile, shifted, px);
+                }
+                var c = tile.Intersect(src);   // this tile's own region of the output — disjoint across tiles, so the copies need no lock
+                for (int y = c.Y0; y < c.Y1; y++)
+                    MemoryMarshal.Cast<Vec4F, float>(buf.AsSpan((y - tile.Y0) * tw + (c.X0 - tile.X0), c.Width))
+                        .CopyTo(outp.AsSpan(((y - src.Y0) * src.Width + (c.X0 - src.X0)) * 4, c.Width * 4));
+            }
+            finally { ScratchPool.Return(buf); }
             Log?.Invoke($"  tile L{level} ({tx},{ty}) export ({tile.X0},{tile.Y0},{tile.X1},{tile.Y1}) pipeline ({shifted.X0},{shifted.Y0}) m {m:R}");
             if (report) Progress.Tick();
         });
@@ -338,6 +365,98 @@ public sealed class ExportRenderer
 public static class ExportResample
 {
     static readonly float[] Table = WarpResample.BuildTable();
+
+    /// <summary>True when <paramref name="to"/> moves the output by whole pixels: A = E = 1, B = D = 0, and C, F whole numbers from 0 to
+    /// 65535, with the output rectangle (<paramref name="dw"/> × <paramref name="dh"/> at (<paramref name="cx"/>, <paramref name="cy"/>))
+    /// inside the source. Then the map of output pixel (x, y) is exactly (x + C, y + F), every sample position has phase 0, no pixel
+    /// takes the fill, and the Catmull-Rom weights are (0, 1, 0, 0) on both axes.</summary>
+    public static bool IntegerShift(in TransformOutput to, int sw, int sh, int dw, int dh, out int cx, out int cy)
+    {
+        cx = cy = 0;
+        if (to.A != 1f || to.B != 0f || to.D != 0f || to.E != 1f) return false;
+        if (!(to.C >= 0f && to.C < 65536f && to.F >= 0f && to.F < 65536f) || to.C != MathF.Floor(to.C) || to.F != MathF.Floor(to.F)) return false;
+        cx = (int)to.C; cy = (int)to.F;
+        return dw > 0 && dh > 0 && sw < (1 << 20) && sh < (1 << 20) && cx + dw <= sw && cy + dh <= sh;
+    }
+
+    /// <summary>True when every value of <paramref name="a"/> is finite (no NaN, no infinity). Parts of the array are checked on up to
+    /// <paramref name="threads"/> threads.</summary>
+    public static bool AllFinite(float[] a, int threads = 1)
+    {
+        const int Chunk = 1 << 20;
+        int chunks = (a.Length + Chunk - 1) / Chunk;
+        if (threads <= 1 || chunks <= 1) return AllFinite(a.AsSpan());
+        int bad = 0;
+        Parallel.For(0, chunks, new ParallelOptions { MaxDegreeOfParallelism = threads }, k =>
+        {
+            int i0 = k * Chunk;
+            if (!AllFinite(a.AsSpan(i0, Math.Min(Chunk, a.Length - i0)))) Volatile.Write(ref bad, 1);
+        });
+        return bad == 0;
+    }
+
+    static bool AllFinite(ReadOnlySpan<float> a)
+    {
+        var bits = MemoryMarshal.Cast<float, int>(a);
+        int i = 0;
+        if (Vector128.IsHardwareAccelerated)
+        {
+            var exp = Vector128.Create(0x7f800000); var any = Vector128<int>.Zero;
+            var v = MemoryMarshal.Cast<int, Vector128<int>>(bits);
+            for (int k = 0; k < v.Length; k++) any |= Vector128.Equals(v[k] & exp, exp);
+            if (any != Vector128<int>.Zero) return false;
+            i = v.Length * 4;
+        }
+        for (; i < bits.Length; i++) if ((bits[i] & 0x7f800000) == 0x7f800000) return false;
+        return true;
+    }
+
+    /// <summary><see cref="WarpClamped2"/> for a whole-pixel shift (<see cref="IntegerShift"/>), times <paramref name="scale"/>, for a source
+    /// of finite values. With the weights (0, 1, 0, 0) the warp of a nonzero value v gives v when v &gt; 0 and (v·−0.25) + v when v &lt; 0
+    /// (the recombination max(−0.25·P, N) + P with P = v and N = ±0); this pass computes those two expressions. A pixel with a zero value
+    /// takes the warp itself, so zeros and their signs need no separate argument. Each result is then multiplied by
+    /// <paramref name="scale"/>, as the caller's own pass did.</summary>
+    public static float[] ShiftScaled(float[] src, int sw, int sh, int cx, int cy, int dw, int dh, TransformOutput to, float scale, int threads = 1)
+    {
+        if ((long)sw * sh * 4 > src.Length) throw new ArgumentException("source too short");
+        var dst = new float[dw * dh * 4];
+        void Row(int y)
+        {
+            var s = src.AsSpan(((y + cy) * sw + cx) * 4, dw * 4); var d = dst.AsSpan(y * dw * 4, dw * 4);
+            int x = 0;
+            if (Vector128.IsHardwareAccelerated)
+            {
+                var sv = MemoryMarshal.Cast<float, Vector128<float>>(s);
+                var dv = MemoryMarshal.Cast<float, Vector128<float>>(d);
+                var zero = Vector128<float>.Zero; var quarter = Vector128.Create(-0.25f);
+                var sc = Vector128.Create(scale);
+                for (; x < dw; x++)
+                {
+                    var v = sv[x];   // one pixel: R, G, B, A
+                    if (Vector128.EqualsAny(v, zero)) { WarpPixel(src, sw, sh, x, y, to, dst, (y * dw + x) * 4, scale); continue; }
+                    dv[x] = Vector128.ConditionalSelect(Vector128.GreaterThan(v, zero), v, v * quarter + v) * sc;
+                }
+                return;
+            }
+            for (; x < dw; x++)
+            {
+                int i = x * 4;
+                if (s[i] == 0f || s[i + 1] == 0f || s[i + 2] == 0f || s[i + 3] == 0f) { WarpPixel(src, sw, sh, x, y, to, dst, (y * dw + x) * 4, scale); continue; }
+                for (int c = 0; c < 4; c++) { float v = s[i + c]; d[i + c] = (v > 0f ? v : v * -0.25f + v) * scale; }
+            }
+        }
+        if (threads > 1 && dh > 1) Parallel.For(0, dh, new ParallelOptions { MaxDegreeOfParallelism = threads }, Row); else for (int y = 0; y < dh; y++) Row(y);
+        return dst;
+    }
+
+    /// <summary>Output pixel (<paramref name="x"/>, <paramref name="y"/>) of <see cref="WarpClamped2"/> for a whole-pixel shift, times
+    /// <paramref name="scale"/>: the warp of one pixel with C + x and F + y as the offsets, which maps to exactly the same sample position
+    /// (whole numbers far below 2²⁴).</summary>
+    static void WarpPixel(float[] src, int sw, int sh, int x, int y, in TransformOutput to, float[] dst, int o, float scale)
+    {
+        var one = WarpClamped2(src, sw, sh, 1, 1, to with { C = to.C + (float)x, F = to.F + (float)y });
+        for (int c = 0; c < 4; c++) dst[o + c] = one[c] * scale;
+    }
 
     /// <summary>Lanczos-2 taps (n, scale): `x = (i − n/2)/scale`; `w = 1` at 0, `2·sin(πx)·sin(πx/2)/(x²·π²)` for |x| &lt; 2, else 0; normalized by the sum.</summary>
     public static float[] LanczosKernel(int n, float scale)

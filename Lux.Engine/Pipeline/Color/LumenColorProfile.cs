@@ -12,7 +12,42 @@ public sealed record IlluminantEntry(ColorCalibration.Types.IlluminantType Proto
 /// module with their DNG-facing matrices and HSV maps.</summary>
 public sealed record LumenProfile(IlluminantEntry Low, IlluminantEntry High, IReadOnlyList<IlluminantEntry> All)
 {
+    /// <summary>The profile of the capture. The fits depend on the capture header alone, so they run once per open
+    /// <see cref="LriFile"/> (on first use, by one thread); every call gets its own copy of the arrays. With
+    /// <paramref name="log"/> the fits run again, so that their log lines appear.</summary>
     public static LumenProfile Compute(LriFile lri, Action<string>? log = null)
+    {
+        if (log is not null) return Fit(lri, log);
+        var made = Volatile.Read(ref lri.ColorProfileFit);
+        if (made is null)
+        {
+            Interlocked.CompareExchange(ref lri.ColorProfileFit, new Lazy<LumenProfile>(() => Fit(lri, null), LazyThreadSafetyMode.ExecutionAndPublication), null);
+            made = lri.ColorProfileFit!;
+        }
+        return made.Value.Copy();
+    }
+
+    /// <summary>A deep copy: no array is shared with this profile, and Low and High are entries of the copied list.</summary>
+    LumenProfile Copy()
+    {
+        var all = new List<IlluminantEntry>(All.Count);
+        IlluminantEntry? lo = null, hi = null;
+        foreach (var e in All)
+        {
+            var f = e.Fit;
+            var c = e with
+            {
+                ColorMatrix = (float[])e.ColorMatrix.Clone(), ProtoForwardMatrix = (float[])e.ProtoForwardMatrix.Clone(),
+                Fit = f with { Matrix = (float[])f.Matrix.Clone(), InitialMatrix = (float[])f.InitialMatrix.Clone(), ForwardMatrix = (float[])f.ForwardMatrix.Clone(), Grid = (float[])f.Grid.Clone() },
+            };
+            all.Add(c);
+            if (ReferenceEquals(e, Low)) lo = c;
+            if (ReferenceEquals(e, High)) hi = c;
+        }
+        return new LumenProfile(lo!, hi!, all);
+    }
+
+    static LumenProfile Fit(LriFile lri, Action<string>? log)
     {
         var h = lri.Header;
         var entries = new List<IlluminantEntry>();

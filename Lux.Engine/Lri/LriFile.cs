@@ -48,6 +48,10 @@ public sealed class LriFile
 
     public readonly record struct ModuleRef(CameraModule Module, long BlockBase);
 
+    /// <summary>The color profile fit of this capture, made on first use by <see cref="Pipeline.Color.LumenProfile.Compute"/>. The fit
+    /// depends on <see cref="Header"/> alone, which does not change after the load.</summary>
+    internal Lazy<Pipeline.Color.LumenProfile>? ColorProfileFit;
+
     private LriFile(byte[] data, LightHeader header, IReadOnlyDictionary<string, ModuleRef> modules, IReadOnlyDictionary<string, IReadOnlyList<ModuleRef>> frames,
                     IReadOnlyList<ModuleRef> blocks, ViewPreferences? vp, GPSData? gps, int stackFrames)
         => (Data, Header, Modules, Frames, ModuleBlocks, ViewPreferencesBlock, GpsBlock, StackFrames) = (data, header, modules, frames, blocks, vp, gps, stackFrames);

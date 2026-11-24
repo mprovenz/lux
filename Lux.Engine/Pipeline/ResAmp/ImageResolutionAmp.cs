@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
+using Lux.Engine.Imaging;
 using static Lux.Engine.Pipeline.ResAmp.SseOps;
 
 namespace Lux.Engine.Pipeline.ResAmp;
@@ -60,7 +61,17 @@ public sealed class ImageResolutionAmp
     /// <summary>The caller's √ decode — every lane squared (alpha too).</summary>
     public static void Square(ResImage img)
     {
-        for (int y = 0; y < img.H; y++) { int b = img.Idx(0, y); for (int i = 0; i < img.W * 4; i++) img.Data[b + i] = img.Data[b + i] * img.Data[b + i]; }
+        for (int y = 0; y < img.H; y++)
+        {
+            var row = img.Data.AsSpan(img.Idx(0, y), img.W * 4);
+            if (Vector128.IsHardwareAccelerated)
+            {
+                var v = MemoryMarshal.Cast<float, Vector128<float>>(row);
+                for (int i = 0; i < v.Length; i++) v[i] = v[i] * v[i];
+            }
+            else
+                for (int i = 0; i < row.Length; i++) row[i] = row[i] * row[i];
+        }
     }
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -111,16 +122,7 @@ public sealed class ImageResolutionAmp
         // After the module loop the L1 view is expanded back to its whole allocation, color-decorrelated IN PLACE (M·p, alpha
         // kept, the same operation as in the module preparation) over all (w+16)×(h+16) px, then cropped
         // again to (8,8,w+8,h+8). The 8-px halo the ImageResample<2> taps read is therefore transformed too.
-        {
-            var Mr = ModulePrep.Mrow; var d = l1.Data;
-            for (int o = 0; o < d.Length; o += 4)
-            {
-                float R = d[o], G = d[o + 1], B = d[o + 2];
-                d[o] = (G * Mr[1] + R * Mr[0]) + B * Mr[2];
-                d[o + 1] = (G * Mr[4] + R * Mr[3]) + B * Mr[5];
-                d[o + 2] = (G * Mr[7] + R * Mr[6]) + B * Mr[8];
-            }
-        }
+        ModulePrep.Decorrelate(l1.Data);
 
         // coarse per-grid-point alignment + wavelet merge
         bool prof = Diagnostics.PhaseLog.On; long tRef = 0, tAlign = 0, tMerge = 0, tInv = 0, tStart = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -168,6 +170,15 @@ public sealed class ImageResolutionAmp
                 for (int j = 0; j < 16; j++)
                 {
                     int ab = acc.Idx(gx_l - 8, gy_l - 8 + j);
+                    if (Vector128.IsHardwareAccelerated)
+                    {
+                        // one row of 16 pixels, the four lanes of a pixel in one vector
+                        var arow = MemoryMarshal.Cast<float, Vector128<float>>(acc.Data.AsSpan(ab, 64));
+                        var wrow = MemoryMarshal.Cast<float, Vector128<float>>(ws.AsSpan(o + j * 64, 64));
+                        float hj = hann16[j];
+                        for (int i = 0; i < 16; i++) arow[i] = Vector128.Create(hann16[i] * hj) * wrow[i] + arow[i];
+                        continue;
+                    }
                     for (int i = 0; i < 16; i++)
                     {
                         float wgt = hann16[i] * hann16[j];
@@ -211,7 +222,8 @@ public sealed class ImageResolutionAmp
         int Wg = FloorI((float)x1c * s) - X0, Hg = FloorI((float)y1c * s) - Y0;
         var accFAlloc = new ResImage(Wg + N - 1, Hg + N - 1);
         var accF = accFAlloc.Crop(Math.Max(0, half), Math.Max(0, half), Math.Min(Wg + half, accFAlloc.W), Math.Min(Hg + half, accFAlloc.H));
-        var fpatch = new float[N * N * 4]; var render = new float[N * N * 4];
+        int nn = N * N * 4;
+        var fpatch = new float[nn]; var render = new float[nn];
 
         // per-grid-point merge
         Span<uint> S = stackalloc uint[4];
@@ -248,31 +260,42 @@ public sealed class ImageResolutionAmp
                     {
                         float m = Max(conf + -0.5f, 0f); float wv0 = (m + m) + conf;
                         var wv = Vector128.Create(wv0, conf, conf, conf);   // a pixel's four lanes at once (lane 0 by wv0, the rest by conf)
-                        for (int p = 0; p < N * N; p++)
+                        int p = 0;
+                        if (Vector256.IsHardwareAccelerated)
                         {
-                            int po = p * 4;
-                            (Vector128.Create((ReadOnlySpan<float>)render.AsSpan(po, 4)) * wv + Vector128.Create((ReadOnlySpan<float>)fpatch.AsSpan(po, 4))).CopyTo(fpatch.AsSpan(po, 4));
+                            // two pixels in one vector
+                            var wv2 = Vector256.Create(wv, wv);
+                            var r2 = MemoryMarshal.Cast<float, Vector256<float>>(render.AsSpan(0, nn)); var f2 = MemoryMarshal.Cast<float, Vector256<float>>(fpatch.AsSpan(0, nn));
+                            for (int k = 0; k < f2.Length; k++) f2[k] = r2[k] * wv2 + f2[k];
+                            p = f2.Length * 2;
                         }
+                        var r1 = MemoryMarshal.Cast<float, Vector128<float>>(render.AsSpan(0, nn)); var f1 = MemoryMarshal.Cast<float, Vector128<float>>(fpatch.AsSpan(0, nn));
+                        for (; p < f1.Length; p++) f1[p] = r1[p] * wv + f1[p];
                     }
                     W = W + conf;
                 }
                 float rW = Rcpss(W);
-                for (int p = 0; p < N * N * 4; p++) fpatch[p] = fpatch[p] * rW;
+                {
+                    int p = 0;
+                    if (Vector256.IsHardwareAccelerated)
+                    {
+                        var f2 = MemoryMarshal.Cast<float, Vector256<float>>(fpatch.AsSpan(0, nn)); var rv = Vector256.Create(rW);
+                        for (int k = 0; k < f2.Length; k++) f2[k] = f2[k] * rv;
+                        p = f2.Length * 8;
+                    }
+                    for (; p < nn; p++) fpatch[p] = fpatch[p] * rW;
+                }
                 if (N > 0)
                 {
                     float a = rW * c02;
                     int bx = (gx - X0) - half, by = (gy - Y0) - half;
                     for (int y = 0; y < N; y++)
                     {
-                        int ab = accF.Idx(bx, by + y);
-                        for (int x = 0; x < N; x++)
-                        {
-                            int po = (y * N + x) * 4, ao = ab + x * 4;
-                            float wgt = Window[x] * Window[y];
-                            // the four lanes at once (lane 3 takes a in place of the patch value)
-                            var fp = Vector128.Create((ReadOnlySpan<float>)fpatch.AsSpan(po, 4)).WithElement(3, a);
-                            (Vector128.Create(wgt) * fp + Vector128.Create((ReadOnlySpan<float>)accF.Data.AsSpan(ao, 4))).CopyTo(accF.Data.AsSpan(ao, 4));
-                        }
+                        // one row of N pixels, the four lanes of a pixel in one vector (lane 3 takes a in place of the patch value)
+                        var arow = MemoryMarshal.Cast<float, Vector128<float>>(accF.Data.AsSpan(accF.Idx(bx, by + y), N * 4));
+                        var frow = MemoryMarshal.Cast<float, Vector128<float>>(fpatch.AsSpan(y * N * 4, N * 4));
+                        float wy = Window[y];
+                        for (int x = 0; x < N; x++) arow[x] = Vector128.Create(Window[x] * wy) * frow[x].WithElement(3, a) + arow[x];
                     }
                 }
             }
@@ -285,7 +308,25 @@ public sealed class ImageResolutionAmp
             if (cx1 > cx0 && cy1 > cy0)
             {
                 float K0 = 2.0f, LO = F(0xbdcccccd), HI = F(0x3dcccccd);
+                var kv = Vector128.Create(K0, 0f, 0f, 0f); var lov = Vector128.Create(LO); var hiv = Vector128.Create(HI);
                 for (int y = 0; y < cy1 - cy0; y++)
+                {
+                    if (Vector128.IsHardwareAccelerated)
+                    {
+                        // one row, the four lanes of a pixel in one vector
+                        int nrow = (cx1 - cx0) * 4;
+                        var arow = MemoryMarshal.Cast<float, Vector128<float>>(accF.Data.AsSpan(accF.Idx(cx0, cy0 + y), nrow));
+                        var orow = MemoryMarshal.Cast<float, Vector128<float>>(outCrop.Data.AsSpan(outCrop.Idx(0, y), nrow));
+                        var urow = MemoryMarshal.Cast<float, Vector128<float>>(L1up.Data.AsSpan(L1up.Idx(0, y), nrow));
+                        for (int x = 0; x < orow.Length; x++)
+                        {
+                            var av = arow[x]; var ov = orow[x];
+                            var det = (Vector128.Create(av.GetElement(3)) * kv) * (urow[x] - ov);
+                            det = Simd.Min(Simd.Max(det, lov), hiv);
+                            orow[x] = (av + ov) + det;
+                        }
+                        continue;
+                    }
                     for (int x = 0; x < cx1 - cx0; x++)
                     {
                         int ai = accF.Idx(cx0 + x, cy0 + y), oi = outCrop.Idx(x, y), ui = L1up.Idx(x, y);
@@ -298,14 +339,29 @@ public sealed class ImageResolutionAmp
                             outCrop.Data[oi + e] = (accF.Data[ai + e] + outCrop.Data[oi + e]) + det;
                         }
                     }
+                }
             }
         }
         Trace?.Emit("out65", outCrop);
         // decorrelation inverse (Mᵀ) + alpha 1
         var M = ModulePrep.Mrow;
+        var m0 = Vector128.Create(M[0], M[1], M[2], 0f); var m1 = Vector128.Create(M[3], M[4], M[5], 0f); var m2 = Vector128.Create(M[6], M[7], M[8], 0f);
         for (int y = 0; y < rh; y++)
         {
             int b = outCrop.Idx(0, y);
+            if (Vector128.IsHardwareAccelerated)
+            {
+                // the three results of a pixel are three lanes of one vector
+                var row = MemoryMarshal.Cast<float, Vector128<float>>(outCrop.Data.AsSpan(b, rw * 4));
+                for (int x = 0; x < row.Length; x++)
+                {
+                    var p = row[x];
+                    var q = Vector128.Create(p.GetElement(1)) * m1 + Vector128.Create(p.GetElement(0)) * m0;
+                    q = Vector128.Create(p.GetElement(2)) * m2 + q;
+                    row[x] = q.WithElement(3, 1.0f);
+                }
+                continue;
+            }
             for (int x = 0; x < rw; x++)
             {
                 int o = b + x * 4; float px = outCrop.Data[o], py = outCrop.Data[o + 1], pz = outCrop.Data[o + 2];

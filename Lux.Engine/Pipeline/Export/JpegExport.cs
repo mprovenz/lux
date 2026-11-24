@@ -77,6 +77,8 @@ public sealed class JpegExportRenderer
             var blurred = ToU8(ExportResample.ConvSeparable(ToFloat(src), sw, sh, kernelX, kernelY));
             outp = WarpBilinearU8(blurred, sw, sh, _size.W, _size.H, to);
         }
+        else if (ExportResample.IntegerShift(to, sw, sh, _size.W, _size.H, out int cx, out int cy) && cx == 0 && cy == 0 && sw == _size.W && sh == _size.H)
+            outp = src;   // the full-size export: every output byte is its source byte (see WarpClamped2U8)
         else outp = WarpClamped2U8(src, sw, sh, _size.W, _size.H, to, Threads);
         StageHook?.Invoke("r8out", _size.W, _size.H, outp);
         return outp;
@@ -155,9 +157,16 @@ public sealed class JpegExportRenderer
     /// the `vec4x32f` instantiation — `p = (int)((map − 1)·64)`, 64-phase Catmull-Rom, clamped 4×4 gather at the border,
     /// zero fill outside, `max(−0.25·P, N) + P` recombination — with the samples widened from u8 and the result stored
     /// through `cvtps2dq`/`packssdw`/`packuswb`. Kept byte-in/byte-out so a full-size (8320×6240) export does not need
-    /// two 830 MB float buffers.</summary>
+    /// two 830 MB float buffers. For a whole-pixel shift (<see cref="ExportResample.IntegerShift"/>) the weights are (0, 1, 0, 0) on
+    /// both axes, so each output byte is the source byte at the shifted position, and the rows are copied.</summary>
     public static byte[] WarpClamped2U8(byte[] src, int sw, int sh, int dw, int dh, TransformOutput to, int threads = 1)
     {
+        if (ExportResample.IntegerShift(to, sw, sh, dw, dh, out int cx, out int cy) && (long)sw * sh * 4 <= src.Length && (long)dw * dh * 4 <= Array.MaxLength)
+        {
+            var cp = GC.AllocateUninitializedArray<byte>(dw * dh * 4);
+            for (int y = 0; y < dh; y++) Buffer.BlockCopy(src, ((y + cy) * sw + cx) * 4, cp, y * dw * 4, dw * 4);
+            return cp;
+        }
         var dst = new byte[(long)dw * dh * 4];
         void Row(int y)
         {

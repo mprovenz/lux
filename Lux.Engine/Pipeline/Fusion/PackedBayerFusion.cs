@@ -620,7 +620,7 @@ public sealed class PackedBayerFusion
                     var (sw, sh) = PackedSrcDims[i];
                     if (!(Math.Max(sx, 0) < Math.Min(sx + 16, sw) && Math.Max(sy, 0) < Math.Min(sy + 16, sh)))
                     {
-                        for (int k = 0; k < 256; k++) acc[k] = Store(Load(acc[k]) + Load(R[k]));
+                        BayerMerge.AddInto(acc, R);
                         cnt = cnt + oneV;
                         continue;
                     }
@@ -629,7 +629,7 @@ public sealed class PackedBayerFusion
                     var nz = new Vec4F(noise.R * cN, noise.G * cN, noise.B * cN, noise.A * cN);
                     var q = Load(BayerMerge.Shrink(S, Rw, nz));
                     BayerWavelet.Inverse(S);
-                    for (int k = 0; k < 256; k++) acc[k] = Store(Load(acc[k]) + Load(S[k]));
+                    BayerMerge.AddInto(acc, S);
                     cnt = (cnt + oneV) - q;
                     q2 = q2 + q * q;
                 }
@@ -640,10 +640,10 @@ public sealed class PackedBayerFusion
         }
         float N = (float)(nSrc + 1);
         float rN = BayerMerge.RcpNR(N);
-        for (int i = 0; i < refImg.Length; i++) { var v = refImg[i]; refImg[i] = new Vec4F(v.R * rN, v.G * rN, v.B * rN, v.A * rN); }
+        BayerMerge.Scale(refImg, rN);
         long n2 = (long)(nSrc + 1) * (nSrc + 1);
         float rN2 = BayerMerge.RcpNR((float)(ulong)n2);
-        for (int i = 0; i < wImg.Length; i++) { var v = wImg[i]; wImg[i] = new Vec4F(v.R * rN2, v.G * rN2, v.B * rN2, v.A * rN2); }
+        BayerMerge.Scale(wImg, rN2);
         return (refImg, wImg, rw, rh);
     }
 

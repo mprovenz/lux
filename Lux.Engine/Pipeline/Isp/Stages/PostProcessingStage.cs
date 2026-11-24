@@ -36,7 +36,7 @@ public sealed class PostProcessingStage : IStage
         var ci = p.Companion;
         if (ci is not null)
         {   // the pre-denoise working image on the same rect (LDiff companion)
-            comp = new float[w * h * 4];
+            comp = ScratchPool.Rent<float>(w * h * 4);
             for (int y = 0; y < h; y++) MemoryMarshal.Cast<Vec4F, float>(ci.Row(abs.Y0 - ci.Rect.Y0 + y).Slice(abs.X0 - ci.Rect.X0, w)).CopyTo(comp.AsSpan(y * w * 4, w * 4));
         }
         // extent buffers: the parent image ∩ (region ± 3) — Lumen reads the input beyond the stage region where the previous stage produced data
@@ -49,7 +49,7 @@ public sealed class PostProcessingStage : IStage
             ext = (ed, er.Width, er.Height, abs.X0 - er.X0, abs.Y0 - er.Y0);
             if (ci is not null)
             {
-                compExt = new float[er.Width * er.Height * 4];
+                compExt = ScratchPool.Rent<float>(er.Width * er.Height * 4);
                 for (int y = 0; y < er.Height; y++) MemoryMarshal.Cast<Vec4F, float>(ci.Row(er.Y0 - ci.Rect.Y0 + y).Slice(er.X0 - ci.Rect.X0, er.Width)).CopyTo(compExt.AsSpan(y * er.Width * 4, er.Width * 4));
             }
         }
@@ -61,12 +61,12 @@ public sealed class PostProcessingStage : IStage
             Console.Error.WriteLine($"[pp] er{p.Frame.ExposureRatio:R} rect ({abs.X0} {abs.Y0} {abs.X1} {abs.Y1}) gain {p.Frame.AnalogGain:R} grain_power {a:R} grain_sigma {b:R} sharpening {c:R} sharpening_scale {d:R} saturation {sat:R} vibrance {vib:R} comp {(comp is null ? "none" : "yes")}");
             string key = $"er{p.Frame.ExposureRatio:R}_{abs.X0}_{abs.Y0}_{w}x{h}";   // the frame info carries no module id: gain + exposure ratio identify the module
             File.WriteAllBytes($"{ppd}_pp_src_{key}.f32", MemoryMarshal.AsBytes(buf.AsSpan(0, w * h * 4)).ToArray());
-            if (comp is not null) File.WriteAllBytes($"{ppd}_pp_comp_{key}.f32", MemoryMarshal.AsBytes(comp.AsSpan()).ToArray());
+            if (comp is not null) File.WriteAllBytes($"{ppd}_pp_comp_{key}.f32", MemoryMarshal.AsBytes(comp.AsSpan(0, w * h * 4)).ToArray());
         }
         PostProcessingLumen.Run(buf, w, h, p.Frame.AnalogGain, a, b, c, d, sat, vib, comp, ext, compExt, monotone);
         if (ppd is not null) File.WriteAllBytes($"{ppd}_pp_out_er{p.Frame.ExposureRatio:R}_{abs.X0}_{abs.Y0}_{w}x{h}.f32", MemoryMarshal.AsBytes(buf.AsSpan(0, w * h * 4)).ToArray());
         for (int y = 0; y < h; y++)
             buf.AsSpan(y * w * 4, w * 4).CopyTo(MemoryMarshal.Cast<Vec4F, float>(img.Row(abs.Y0 - img.Rect.Y0 + y).Slice(abs.X0 - img.Rect.X0, w)));
-        ScratchPool.Return(buf); if (ext is { } e) ScratchPool.Return(e.Data);
+        ScratchPool.Return(buf); if (ext is { } e) ScratchPool.Return(e.Data); ScratchPool.Return(comp); ScratchPool.Return(compExt);
     }
 }

@@ -203,6 +203,41 @@ public sealed class AlignedCalib
         return ((lu * dx + Cx) * inv, (Cy + dy * lu) * inv);
     }
 
+    /// <summary>The map of one row of level-L pixels up to the lens factor: for the points `(originX + i, y)`, `du[i] = lu·dx` and
+    /// `dv[i] = dy·lu`. These are the offsets of the mapped point from `(Cx, Cy)` in level-0 pixels. The statements are those of
+    /// <see cref="Map"/>, so `((du + Cx)·inv, (Cy + dv)·inv)` is the result of <see cref="Map"/> and `((Cx + −1) + du, (Cy + −1) + dv)`
+    /// at level 0 is the result of <see cref="MapInlinedMinus1"/>.</summary>
+    public void MapRowOffsets(int originX, float y, int level, Span<float> du, Span<float> dv)
+    {
+        if (dv.Length < du.Length) throw new ArgumentException("the second row is shorter than the first", nameof(dv));
+        var h = H; float h0 = h[0], h1 = h[1], h2 = h[2], h3 = h[3], h4 = h[4], h5 = h[5], h6 = h[6], h7 = h[7], h8 = h[8];
+        float cx = Cx, cy = Cy, sx = Sx, sy = Sy; var lut = Lut;
+        float scale = 1 << level;
+        float ys = y * scale;
+        for (int i = 0; i < du.Length; i++)
+        {
+            float xs = ((float)originX + (float)i) * scale;
+            float den = (ys * h7 + xs * h6) + h8;
+            float w = 1.0f / den;
+            float xn = h2 + (ys * h1 + xs * h0);
+            float yn = h5 + (ys * h4 + xs * h3);
+            float dx = w * xn - cx, dy = w * yn - cy;
+            float a = sx * dx, b = sy * dy;
+            float r2 = b * b + a * a;
+            float r;
+            if (r2 == 0f) r = 0f;
+            else
+            {
+                float rs = IntelApprox.Rsqrt(r2);
+                float s = r2 * rs;
+                r = ((s * rs + -3.0f) * -0.5f) * s;
+            }
+            int idx = (int)r; if (idx > 0xfff) idx = 0xfff;
+            float lu = lut[idx];
+            du[i] = lu * dx; dv[i] = dy * lu;
+        }
+    }
+
     /// <summary>`PipelineCache::processLevel1` inlined map: the level-0 map with the final coordinate
     /// associated as `((cx + −1) + lu·dx)` / `((cy + −1) + dy·lu)` (the reference-cache kernel does `((lu·dx + cx) + −1)`); the caller
     /// subtracts the source offset.</summary>

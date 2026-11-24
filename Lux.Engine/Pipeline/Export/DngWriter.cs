@@ -198,15 +198,13 @@ public static class DngWriter
                         int vx1 = Math.Min(x + tw, w), vy1 = Math.Min(y + th, h);
                         int vw = vx1 - x, vh = vy1 - y;
                         if (vw > tw || vh > th) throw new InvalidOperationException("Write window too small");
-                        var ms = new MemoryStream();
-                        if (vw == tw && vh == th) LosslessJpeg.Encode(ms, u16, tw, th, w * 4, (y * w + x) * 4);   // view into the block image
+                        if (vw == tw && vh == th) encoded[j] = LosslessJpeg.Encode(u16, tw, th, w * 4, (y * w + x) * 4);   // view into the block image
                         else
                         {   // zero-filled tile with the view copied at (0,0)
                             var tile = new ushort[tw * th * 4];
                             for (int yy = 0; yy < vh; yy++) Array.Copy(u16, ((y + yy) * w + x) * 4, tile, yy * tw * 4, vw * 4);
-                            LosslessJpeg.Encode(ms, tile, tw, th, tw * 4);
+                            encoded[j] = LosslessJpeg.Encode(tile, tw, th, tw * 4);
                         }
-                        encoded[j] = ms.ToArray();
                     }
                     if (threads > 1 && jobs.Count > 1) Parallel.For(0, jobs.Count, new ParallelOptions { MaxDegreeOfParallelism = threads }, EncodeOne);
                     else for (int j = 0; j < jobs.Count; j++) EncodeOne(j);

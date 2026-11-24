@@ -1,4 +1,10 @@
+using System.Buffers.Binary;
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 using System.Text;
+using Lux.Engine.Imaging;
 
 namespace Lux.Engine.Pipeline.Export;
 
@@ -27,7 +33,8 @@ namespace Lux.Engine.Pipeline.Export;
 /// </list>
 ///
 /// libjpeg-turbo's SIMD kernels for `islow` FDCT, RGB→YCbCr and h2v2 downsampling are bit-identical to the C
-/// reference (that identity is part of its own test suite), so this scalar port is the right target.
+/// reference (that identity is part of its own test suite), so the C reference is the right target. The vector code here (DCT,
+/// quantization, the nonzero mask of the Huffman coder) gives the results of the scalar code.
 /// </summary>
 public sealed class JpegEncoder
 {
@@ -217,35 +224,36 @@ public sealed class JpegEncoder
     // ---------------------------------------------------------------- jfdctint.c
 
     const int ConstBits = 13, Pass1Bits = 2;
-    const long Fix0_298631336 = 2446, Fix0_390180644 = 3196, Fix0_541196100 = 4433, Fix0_765366865 = 6270;
-    const long Fix0_899976223 = 7373, Fix1_175875602 = 9633, Fix1_501321110 = 12299, Fix1_847759065 = 15137;
-    const long Fix1_961570560 = 16069, Fix2_053119869 = 16819, Fix2_562915447 = 20995, Fix3_072711026 = 25172;
+    const int Fix0_298631336 = 2446, Fix0_390180644 = 3196, Fix0_541196100 = 4433, Fix0_765366865 = 6270;
+    const int Fix0_899976223 = 7373, Fix1_175875602 = 9633, Fix1_501321110 = 12299, Fix1_847759065 = 15137;
+    const int Fix1_961570560 = 16069, Fix2_053119869 = 16819, Fix2_562915447 = 20995, Fix3_072711026 = 25172;
 
-    static long Descale(long x, int n) => (x + (1L << (n - 1))) >> n;
+    static int Descale(int x, int n) => (x + (1 << (n - 1))) >> n;
 
-    /// <summary>`jpeg_fdct_islow` (`jfdctint.c`): AAN-free LL&amp;M integer DCT, output scaled by 8.</summary>
-    internal static void FdctIslow(long[] d)
+    /// <summary>`jpeg_fdct_islow` (`jfdctint.c`): AAN-free LL&amp;M integer DCT, output scaled by 8. It uses 32-bit integers, as
+    /// libjpeg-turbo does for 8-bit samples: no intermediate value of a block of 8-bit samples leaves 32 bits.</summary>
+    internal static void FdctIslow(int[] d)
     {
         // Pass 1: rows, results scaled up by 2^PASS1_BITS
         for (int c = 0, o = 0; c < 8; c++, o += 8)
         {
-            long tmp0 = d[o + 0] + d[o + 7], tmp7 = d[o + 0] - d[o + 7];
-            long tmp1 = d[o + 1] + d[o + 6], tmp6 = d[o + 1] - d[o + 6];
-            long tmp2 = d[o + 2] + d[o + 5], tmp5 = d[o + 2] - d[o + 5];
-            long tmp3 = d[o + 3] + d[o + 4], tmp4 = d[o + 3] - d[o + 4];
+            int tmp0 = d[o + 0] + d[o + 7], tmp7 = d[o + 0] - d[o + 7];
+            int tmp1 = d[o + 1] + d[o + 6], tmp6 = d[o + 1] - d[o + 6];
+            int tmp2 = d[o + 2] + d[o + 5], tmp5 = d[o + 2] - d[o + 5];
+            int tmp3 = d[o + 3] + d[o + 4], tmp4 = d[o + 3] - d[o + 4];
 
-            long tmp10 = tmp0 + tmp3, tmp13 = tmp0 - tmp3;
-            long tmp11 = tmp1 + tmp2, tmp12 = tmp1 - tmp2;
+            int tmp10 = tmp0 + tmp3, tmp13 = tmp0 - tmp3;
+            int tmp11 = tmp1 + tmp2, tmp12 = tmp1 - tmp2;
 
             d[o + 0] = (tmp10 + tmp11) << Pass1Bits;
             d[o + 4] = (tmp10 - tmp11) << Pass1Bits;
 
-            long z1 = (tmp12 + tmp13) * Fix0_541196100;
+            int z1 = (tmp12 + tmp13) * Fix0_541196100;
             d[o + 2] = Descale(z1 + tmp13 * Fix0_765366865, ConstBits - Pass1Bits);
             d[o + 6] = Descale(z1 + tmp12 * -Fix1_847759065, ConstBits - Pass1Bits);
 
-            z1 = tmp4 + tmp7; long z2 = tmp5 + tmp6, z3 = tmp4 + tmp6, z4 = tmp5 + tmp7;
-            long z5 = (z3 + z4) * Fix1_175875602;
+            z1 = tmp4 + tmp7; int z2 = tmp5 + tmp6, z3 = tmp4 + tmp6, z4 = tmp5 + tmp7;
+            int z5 = (z3 + z4) * Fix1_175875602;
 
             tmp4 *= Fix0_298631336; tmp5 *= Fix2_053119869; tmp6 *= Fix3_072711026; tmp7 *= Fix1_501321110;
             z1 *= -Fix0_899976223; z2 *= -Fix2_562915447; z3 *= -Fix1_961570560; z4 *= -Fix0_390180644;
@@ -260,23 +268,23 @@ public sealed class JpegEncoder
         // Pass 2: columns, removing the PASS1_BITS scaling (overall factor 8 remains)
         for (int o = 0; o < 8; o++)
         {
-            long tmp0 = d[o + 8 * 0] + d[o + 8 * 7], tmp7 = d[o + 8 * 0] - d[o + 8 * 7];
-            long tmp1 = d[o + 8 * 1] + d[o + 8 * 6], tmp6 = d[o + 8 * 1] - d[o + 8 * 6];
-            long tmp2 = d[o + 8 * 2] + d[o + 8 * 5], tmp5 = d[o + 8 * 2] - d[o + 8 * 5];
-            long tmp3 = d[o + 8 * 3] + d[o + 8 * 4], tmp4 = d[o + 8 * 3] - d[o + 8 * 4];
+            int tmp0 = d[o + 8 * 0] + d[o + 8 * 7], tmp7 = d[o + 8 * 0] - d[o + 8 * 7];
+            int tmp1 = d[o + 8 * 1] + d[o + 8 * 6], tmp6 = d[o + 8 * 1] - d[o + 8 * 6];
+            int tmp2 = d[o + 8 * 2] + d[o + 8 * 5], tmp5 = d[o + 8 * 2] - d[o + 8 * 5];
+            int tmp3 = d[o + 8 * 3] + d[o + 8 * 4], tmp4 = d[o + 8 * 3] - d[o + 8 * 4];
 
-            long tmp10 = tmp0 + tmp3, tmp13 = tmp0 - tmp3;
-            long tmp11 = tmp1 + tmp2, tmp12 = tmp1 - tmp2;
+            int tmp10 = tmp0 + tmp3, tmp13 = tmp0 - tmp3;
+            int tmp11 = tmp1 + tmp2, tmp12 = tmp1 - tmp2;
 
             d[o + 8 * 0] = Descale(tmp10 + tmp11, Pass1Bits);
             d[o + 8 * 4] = Descale(tmp10 - tmp11, Pass1Bits);
 
-            long z1 = (tmp12 + tmp13) * Fix0_541196100;
+            int z1 = (tmp12 + tmp13) * Fix0_541196100;
             d[o + 8 * 2] = Descale(z1 + tmp13 * Fix0_765366865, ConstBits + Pass1Bits);
             d[o + 8 * 6] = Descale(z1 + tmp12 * -Fix1_847759065, ConstBits + Pass1Bits);
 
-            z1 = tmp4 + tmp7; long z2 = tmp5 + tmp6, z3 = tmp4 + tmp6, z4 = tmp5 + tmp7;
-            long z5 = (z3 + z4) * Fix1_175875602;
+            z1 = tmp4 + tmp7; int z2 = tmp5 + tmp6, z3 = tmp4 + tmp6, z4 = tmp5 + tmp7;
+            int z5 = (z3 + z4) * Fix1_175875602;
 
             tmp4 *= Fix0_298631336; tmp5 *= Fix2_053119869; tmp6 *= Fix3_072711026; tmp7 *= Fix1_501321110;
             z1 *= -Fix0_899976223; z2 *= -Fix2_562915447; z3 *= -Fix1_961570560; z4 *= -Fix0_390180644;
@@ -287,6 +295,83 @@ public sealed class JpegEncoder
             d[o + 8 * 3] = Descale(tmp6 + z2 + z3, ConstBits + Pass1Bits);
             d[o + 8 * 1] = Descale(tmp7 + z1 + z4, ConstBits + Pass1Bits);
         }
+    }
+
+    /// <summary>One pass of <see cref="FdctIslow"/> on four lanes at once: <paramref name="v0"/> … <paramref name="v7"/> are the eight
+    /// points of the 1-D transform, each lane an independent row (pass 1, <paramref name="first"/>) or column (pass 2). Each lane does the
+    /// integer operations of the scalar pass.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static void DctPass(bool first, ref Vector128<int> v0, ref Vector128<int> v1, ref Vector128<int> v2, ref Vector128<int> v3,
+                        ref Vector128<int> v4, ref Vector128<int> v5, ref Vector128<int> v6, ref Vector128<int> v7)
+    {
+        var tmp0 = v0 + v7; var tmp7 = v0 - v7; var tmp1 = v1 + v6; var tmp6 = v1 - v6;
+        var tmp2 = v2 + v5; var tmp5 = v2 - v5; var tmp3 = v3 + v4; var tmp4 = v3 - v4;
+        var tmp10 = tmp0 + tmp3; var tmp13 = tmp0 - tmp3; var tmp11 = tmp1 + tmp2; var tmp12 = tmp1 - tmp2;
+        int n = first ? ConstBits - Pass1Bits : ConstBits + Pass1Bits;
+        var round = Vector128.Create(1 << (n - 1));
+        if (first) { v0 = (tmp10 + tmp11) << Pass1Bits; v4 = (tmp10 - tmp11) << Pass1Bits; }
+        else
+        {
+            var round1 = Vector128.Create(1 << (Pass1Bits - 1));
+            v0 = Vector128.ShiftRightArithmetic(tmp10 + tmp11 + round1, Pass1Bits); v4 = Vector128.ShiftRightArithmetic(tmp10 - tmp11 + round1, Pass1Bits);
+        }
+        var z1 = (tmp12 + tmp13) * Fix0_541196100;
+        v2 = Vector128.ShiftRightArithmetic(z1 + tmp13 * Fix0_765366865 + round, n);
+        v6 = Vector128.ShiftRightArithmetic(z1 + tmp12 * -Fix1_847759065 + round, n);
+        z1 = tmp4 + tmp7; var z2 = tmp5 + tmp6; var z3 = tmp4 + tmp6; var z4 = tmp5 + tmp7;
+        var z5 = (z3 + z4) * Fix1_175875602;
+        tmp4 *= Fix0_298631336; tmp5 *= Fix2_053119869; tmp6 *= Fix3_072711026; tmp7 *= Fix1_501321110;
+        z1 *= -Fix0_899976223; z2 *= -Fix2_562915447; z3 *= -Fix1_961570560; z4 *= -Fix0_390180644;
+        z3 += z5; z4 += z5;
+        v7 = Vector128.ShiftRightArithmetic(tmp4 + z1 + z3 + round, n);
+        v5 = Vector128.ShiftRightArithmetic(tmp5 + z2 + z4 + round, n);
+        v3 = Vector128.ShiftRightArithmetic(tmp6 + z2 + z3 + round, n);
+        v1 = Vector128.ShiftRightArithmetic(tmp7 + z1 + z4 + round, n);
+    }
+
+    /// <summary>The 4 × 4 transpose of four lanes of four vectors.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static void Transpose4(ref Vector128<int> a, ref Vector128<int> b, ref Vector128<int> c, ref Vector128<int> d)
+    {
+        var ab0 = Simd.UnpackLow(a, b).AsInt64(); var cd0 = Simd.UnpackLow(c, d).AsInt64();     // a0 b0 a1 b1 / c0 d0 c1 d1
+        var ab2 = Simd.UnpackHigh(a, b).AsInt64(); var cd2 = Simd.UnpackHigh(c, d).AsInt64();   // a2 b2 a3 b3 / c2 d2 c3 d3
+        a = Simd.UnpackLow(ab0, cd0).AsInt32(); b = Simd.UnpackHigh(ab0, cd0).AsInt32();
+        c = Simd.UnpackLow(ab2, cd2).AsInt32(); d = Simd.UnpackHigh(ab2, cd2).AsInt32();
+    }
+
+    /// <summary>The 8 × 8 transpose of a block held as sixteen vectors, element 2·r + h = row r, columns 4h … 4h + 3.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static void Transpose8(Span<Vector128<int>> m)
+    {
+        Transpose4(ref m[0], ref m[2], ref m[4], ref m[6]);
+        Transpose4(ref m[9], ref m[11], ref m[13], ref m[15]);
+        Transpose4(ref m[1], ref m[3], ref m[5], ref m[7]);
+        Transpose4(ref m[8], ref m[10], ref m[12], ref m[14]);
+        (m[1], m[8]) = (m[8], m[1]); (m[3], m[10]) = (m[10], m[3]); (m[5], m[12]) = (m[12], m[5]); (m[7], m[14]) = (m[14], m[7]);
+    }
+
+    /// <summary>The quotient of `quantize` on four lanes: `sign(t)·⌊(|t| + d/2)/d⌋`. A float estimate of the quotient (the numerator is
+    /// below 2²³, so the estimate is within one of the true quotient), then one integer correction in each direction. For 8-bit samples
+    /// the quotient fits in 16 bits, so the `(short)` of the scalar code changes nothing.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector128<int> Quantize(Vector128<int> t, Vector128<int> d, Vector128<float> reciprocal)
+    {
+        var sign = Vector128.ShiftRightArithmetic(t, 31);
+        var n = ((t ^ sign) - sign) + Vector128.ShiftRightArithmetic(d, 1);
+        var q = Simd.ConvertToVector128Int32WithTruncation(Vector128.ConvertToSingle(n) * reciprocal);
+        var r = n - q * d;
+        var low = Vector128.ShiftRightArithmetic(r, 31);   // all ones where the estimate is one too high
+        q += low; r += low & d;
+        q -= Vector128.GreaterThanOrEqual(r, d);           // all ones (−1) where it is one too low
+        return (q ^ sign) - sign;
+    }
+
+    /// <summary>The divisors of one quantization table (`quantval[i] &lt;&lt; 3`, natural order) and their float reciprocals.</summary>
+    sealed class Divisors
+    {
+        public readonly int[] D = new int[64];
+        public readonly float[] Reciprocal = new float[64];
+        public Divisors(int[] quantval) { for (int i = 0; i < 64; i++) { D[i] = quantval[i] << 3; Reciprocal[i] = 1f / (float)D[i]; } }
     }
 
     // ---------------------------------------------------------------- the compressor
@@ -302,35 +387,58 @@ public sealed class JpegEncoder
     }
 
     Stream _s = Stream.Null;
-    int _bitBuffer, _bitCount;
+    // the output goes through this buffer to the stream
+    readonly byte[] _out = Array.Empty<byte>();
+    int _outPos;
+    // emit_bits state: the low _bitCount bits of _bitBuffer are pending, most significant first
+    ulong _bitBuffer;
+    int _bitCount;
 
     /// <summary>An option set (the `{ quality, subsamplingId }` struct plus the markers Lumen adds around it).</summary>
     public JpegEncoder() { }
-    JpegEncoder(Stream s) { _s = s; }
+    JpegEncoder(Stream s) { _s = s; _out = new byte[1 << 16]; }
 
-    void Byte(int b) => _s.WriteByte((byte)b);
+    void Byte(int b)
+    {
+        if (_outPos == _out.Length) FlushOutput();
+        _out[_outPos++] = (byte)b;
+    }
+    void Bytes(ReadOnlySpan<byte> b) { FlushOutput(); _s.Write(b); }
+    void FlushOutput() { _s.Write(_out, 0, _outPos); _outPos = 0; }
     void Word(int v) { Byte(v >> 8); Byte(v & 0xff); }
     void Marker(int m) { Byte(0xFF); Byte(m); }
 
-    /// <summary>`emit_bits` — MSB first, `0xFF` byte-stuffed with a following `0x00`.</summary>
+    /// <summary>`emit_bits` — MSB first, `0xFF` byte-stuffed with a following `0x00`. The pending bits are kept in a 64-bit word and
+    /// written 32 at a time. <paramref name="size"/> is at most 32.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     void EmitBits(int code, int size)
     {
         if (size == 0) return;
-        int put = _bitBuffer, cnt = _bitCount;
-        put |= (code & ((1 << size) - 1)) << (24 - cnt - size);
-        cnt += size;
-        while (cnt >= 8)
-        {
-            int c = (put >> 16) & 0xFF;
-            Byte(c);
-            if (c == 0xFF) Byte(0);
-            put = (put << 8) & 0xFFFFFF; cnt -= 8;
-        }
-        _bitBuffer = put; _bitCount = cnt;
+        _bitBuffer = (_bitBuffer << size) | ((uint)code & (uint)((1L << size) - 1)); _bitCount += size;
+        if (_bitCount >= 32) EmitWord();
     }
 
-    /// <summary>`flush_bits`: pad the partial byte with 1 bits.</summary>
-    void FlushBits() { EmitBits(0x7F, 7); _bitBuffer = 0; _bitCount = 0; }
+    /// <summary>The 32 oldest pending bits as four bytes, each 0xFF followed by 0x00.</summary>
+    void EmitWord()
+    {
+        _bitCount -= 32;
+        uint w = (uint)(_bitBuffer >> _bitCount);
+        if (_outPos + 8 > _out.Length) FlushOutput();
+        if (((~w - 0x01010101u) & w & 0x80808080u) == 0)
+        {   // no 0xFF byte in the word
+            BinaryPrimitives.WriteUInt32BigEndian(_out.AsSpan(_outPos, 4), w); _outPos += 4;
+        }
+        else
+            for (int k = 24; k >= 0; k -= 8) { byte b = (byte)(w >> k); _out[_outPos++] = b; if (b == 0xFF) _out[_outPos++] = 0; }
+    }
+
+    /// <summary>`flush_bits`: 7 one bits, the whole bytes out, the rest dropped.</summary>
+    void FlushBits()
+    {
+        EmitBits(0x7F, 7);
+        while (_bitCount >= 8) { _bitCount -= 8; int c = (int)(_bitBuffer >> _bitCount) & 0xFF; Byte(c); if (c == 0xFF) Byte(0); }
+        _bitBuffer = 0; _bitCount = 0;
+    }
 
     /// <summary>
     /// Encode one image. <paramref name="pixels"/> is either RGBX/RGBA (4 bytes per pixel, alpha ignored — the
@@ -405,10 +513,10 @@ public sealed class JpegEncoder
         if (!string.IsNullOrEmpty(Comment))
         {
             var b = Encoding.ASCII.GetBytes(Comment);
-            Marker(0xFE); Word(b.Length + 2); _s.Write(b);
+            Marker(0xFE); Word(b.Length + 2); Bytes(b);
         }
-        if (ExifApp1 is { Length: > 0 }) { Marker(0xE1); Word(ExifApp1.Length + 2); _s.Write(ExifApp1); }
-        foreach (var app1 in ExtraApp1) { Marker(0xE1); Word(app1.Length + 2); _s.Write(app1); }
+        if (ExifApp1 is { Length: > 0 }) { Marker(0xE1); Word(ExifApp1.Length + 2); Bytes(ExifApp1); }
+        foreach (var app1 in ExtraApp1) { Marker(0xE1); Word(app1.Length + 2); Bytes(app1); }
         if (IccProfile is { Length: > 0 } icc)
         {
             // ICC.1 Annex B: each segment holds "ICC_PROFILE\0", the chunk number (from 1), the chunk count, then up to 65519 profile bytes
@@ -418,8 +526,8 @@ public sealed class JpegEncoder
             {
                 int off = k * Max, n = Math.Min(Max, icc.Length - off);
                 Marker(0xE2); Word(2 + 14 + n);
-                _s.Write("ICC_PROFILE\0"u8); Byte(k + 1); Byte(count);
-                _s.Write(icc, off, n);
+                Bytes("ICC_PROFILE\0"u8); Byte(k + 1); Byte(count);
+                Bytes(icc.AsSpan(off, n));
             }
         }
 
@@ -449,8 +557,7 @@ public sealed class JpegEncoder
         Byte(0); Byte(63); Byte(0);
 
         // ---- jccoefct.c compress_data + jchuff.c encode_mcu_huff
-        var divisors = qtab.Select(q => q.Select(v => (long)(v << 3)).ToArray()).ToList();
-        var workspace = new long[64];
+        var divisors = qtab.Select(q => new Divisors(q)).ToList();
         var block = new int[64];
         int lastIMcuRow = totalIMcuRows - 1, lastMcuCol = mcusPerRow - 1;
         for (int iMcuRow = 0; iMcuRow < totalIMcuRows; iMcuRow++)
@@ -469,7 +576,7 @@ public sealed class JpegEncoder
                         {
                             if (real && bi < blockcnt)
                             {
-                                Forward(c, iMcuRow * c.McuHeight * 8 + ypos, xpos + bi * 8, workspace, divisors[c.QuantTbl], block);
+                                Forward(c, iMcuRow * c.McuHeight * 8 + ypos, xpos + bi * 8, divisors[c.QuantTbl], block);
                                 EncodeBlock(block, c, dc, ac);
                             }
                             else
@@ -490,53 +597,98 @@ public sealed class JpegEncoder
         }
         FlushBits();
         Marker(0xD9);   // EOI
+        FlushOutput();
     }
 
     /// <summary>The dummy-block DC rule of `jccoefct.c`: `MCU_buffer[blkn + bi][0][0] = MCU_buffer[blkn + bi − 1][0][0]`
     /// for the right edge, and `= MCU_buffer[blkn − 1][0][0]` (the last block of the previous row of this MCU) for the
     /// bottom edge. Both reduce to "the DC of the block encoded just before it in this component's MCU", which — since
-    /// the DC of every block is the *difference* against the running predictor — makes the emitted difference 0.</summary>
+    /// the DC of every block is the *difference* against the running predictor — makes the emitted difference 0.
+    /// <para>`encode_one_block`: the coefficients in zigzag order, the AC runs found from a 64-bit mask of the nonzero ones, and each
+    /// Huffman code sent in one call together with its value bits. The symbols and bits are the same, in the same order.</para></summary>
     void EncodeBlock(int[] block, Component c, HuffTable dc, HuffTable ac)
     {
-        int temp = block[0] - c.LastDc, temp2 = temp;
-        c.LastDc = block[0];
+        var zz = _zigzag;
+        for (int k = 0; k < 64; k++) zz[k] = block[NaturalOrder[k]];
+        int temp = zz[0] - c.LastDc, temp2 = temp;
+        c.LastDc = zz[0];
         if (temp < 0) { temp = -temp; temp2--; }
-        int nbits = 0;
-        while (temp != 0) { nbits++; temp >>= 1; }
-        EmitBits(dc.Code[nbits], dc.Size[nbits]);
-        if (nbits != 0) EmitBits(temp2, nbits);
+        int nbits = 32 - BitOperations.LeadingZeroCount((uint)temp);   // the bit length of |diff|
+        EmitBits((dc.Code[nbits] << nbits) | (temp2 & ((1 << nbits) - 1)), dc.Size[nbits] + nbits);
 
-        int r = 0;
-        for (int k = 1; k < 64; k++)
+        ulong nonzero = NonzeroMask(zz) & ~1UL;   // bit k: AC coefficient k is not 0
+        int last = 0;
+        while (nonzero != 0)
         {
-            temp = block[NaturalOrder[k]];
-            if (temp == 0) { r++; continue; }
+            int k = BitOperations.TrailingZeroCount(nonzero);
+            nonzero &= nonzero - 1;
+            int r = k - last - 1;   // the zeros before coefficient k
             while (r > 15) { EmitBits(ac.Code[0xF0], ac.Size[0xF0]); r -= 16; }
-            temp2 = temp;
+            temp = zz[k]; temp2 = temp;
             if (temp < 0) { temp = -temp; temp2--; }
-            nbits = 1;
-            while ((temp >>= 1) != 0) nbits++;
+            nbits = 32 - BitOperations.LeadingZeroCount((uint)temp);
             int sym = (r << 4) + nbits;
-            EmitBits(ac.Code[sym], ac.Size[sym]);
-            EmitBits(temp2, nbits);
-            r = 0;
+            EmitBits((ac.Code[sym] << nbits) | (temp2 & ((1 << nbits) - 1)), ac.Size[sym] + nbits);
+            last = k;
         }
-        if (r > 0) EmitBits(ac.Code[0], ac.Size[0]);
+        if (last != 63) EmitBits(ac.Code[0], ac.Size[0]);   // EOB after a run of zeros up to the end
     }
 
-    /// <summary>`jcdctmgr.c` `forward_DCT`: level-shift by −128, `jpeg_fdct_islow`, then `quantize` with
-    /// `divisors[i] = quantval[i] &lt;&lt; 3` and round-half-away division of the magnitude.</summary>
-    void Forward(Component c, int row, int col, long[] ws, long[] divisors, int[] outBlock)
+    /// <summary>Bit k is set when <paramref name="zz"/>[k] is not 0.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static ulong NonzeroMask(int[] zz)
     {
+        ulong m = 0;
+        if (Vector128.IsHardwareAccelerated)
+        {
+            var v = MemoryMarshal.Cast<int, Vector128<int>>(zz.AsSpan(0, 64));
+            for (int i = 0; i < 16; i++) m |= (ulong)(~Vector128.Equals(v[i], Vector128<int>.Zero).ExtractMostSignificantBits() & 0xF) << (4 * i);
+            return m;
+        }
+        for (int k = 0; k < 64; k++) if (zz[k] != 0) m |= 1UL << k;
+        return m;
+    }
+
+    readonly int[] _zigzag = new int[64], _workspace = new int[64];
+
+    /// <summary>`jcdctmgr.c` `forward_DCT`: level-shift by −128, `jpeg_fdct_islow`, then `quantize` with
+    /// `divisors[i] = quantval[i] &lt;&lt; 3` and round-half-away division of the magnitude. With vector hardware the block is sixteen
+    /// four-lane vectors (<see cref="DctPass"/>, <see cref="Quantize"/>), with the same results.</summary>
+    void Forward(Component c, int row, int col, Divisors div, int[] outBlock)
+    {
+        var plane = c.Plane; int stride = c.PlaneStride, start = row * stride + col;
+        if (Vector128.IsHardwareAccelerated)
+        {
+            // element 2·r + h: row r, columns 4h … 4h + 3, level-shifted
+            Span<Vector128<int>> m = stackalloc Vector128<int>[16];
+            var shift = Vector128.Create(128);
+            for (int r = 0; r < 8; r++)
+            {
+                var w = Vector128.WidenLower(Vector128.CreateScalar(BinaryPrimitives.ReadUInt64LittleEndian(plane.AsSpan(start + r * stride, 8))).AsByte());
+                m[2 * r] = Vector128.WidenLower(w).AsInt32() - shift;
+                m[2 * r + 1] = Vector128.WidenUpper(w).AsInt32() - shift;
+            }
+            Transpose8(m);   // element 2·x + g: column x, rows 4g … 4g + 3
+            for (int g = 0; g < 2; g++) DctPass(true, ref m[g], ref m[2 + g], ref m[4 + g], ref m[6 + g], ref m[8 + g], ref m[10 + g], ref m[12 + g], ref m[14 + g]);
+            Transpose8(m);   // element 2·r + h: row r, coefficients 4h … 4h + 3
+            for (int h = 0; h < 2; h++) DctPass(false, ref m[h], ref m[2 + h], ref m[4 + h], ref m[6 + h], ref m[8 + h], ref m[10 + h], ref m[12 + h], ref m[14 + h]);
+            var dv = MemoryMarshal.Cast<int, Vector128<int>>(div.D.AsSpan());
+            var rv = MemoryMarshal.Cast<float, Vector128<float>>(div.Reciprocal.AsSpan());
+            var ov = MemoryMarshal.Cast<int, Vector128<int>>(outBlock.AsSpan(0, 64));
+            for (int i = 0; i < 16; i++) ov[i] = Quantize(m[i], dv[i], rv[i]);   // element i: natural indices 4i … 4i + 3
+            return;
+        }
+        var ws = _workspace;
         for (int y = 0; y < 8; y++)
         {
-            int o = (row + y) * c.PlaneStride + col;
-            for (int x = 0; x < 8; x++) ws[y * 8 + x] = c.Plane[o + x] - 128;
+            int o = start + y * stride;
+            for (int x = 0; x < 8; x++) ws[y * 8 + x] = plane[o + x] - 128;
         }
         FdctIslow(ws);
+        var d = div.D;
         for (int i = 0; i < 64; i++)
         {
-            long t = ws[i], q = divisors[i];
+            int t = ws[i], q = d[i];
             if (t < 0) { t = -t; t += q >> 1; t /= q; t = -t; }
             else { t += q >> 1; t /= q; }
             outBlock[i] = (int)(short)t;

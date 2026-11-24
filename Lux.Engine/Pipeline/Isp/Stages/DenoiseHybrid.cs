@@ -35,7 +35,7 @@ public sealed class DenoiseHybridStage : IStage
         int padL = Math.Min(63, abs.X0 - img.Rect.X0), padT = Math.Min(63, abs.Y0 - img.Rect.Y0), padR = Math.Min(63, img.Rect.X1 - abs.X1), padB = Math.Min(63, img.Rect.Y1 - abs.Y1);
         var view = new RectI(abs.X0 - padL, abs.Y0 - padT, abs.X1 + padR, abs.Y1 + padB);
         int w = view.Width, h = view.Height;
-        var src = new Vec4F[w * h];
+        var src = ScratchPool.Rent<Vec4F>(w * h);
         for (int y = 0; y < h; y++) img.Row(view.Y0 - img.Rect.Y0 + y).Slice(view.X0 - img.Rect.X0, w).CopyTo(src.AsSpan(y * w, w));
         var noise = p.Stats.Noise ?? p.Frame.Noise ?? throw new InvalidOperationException("Denoising:hybrid needs the sensor noise model");
         float black = !float.IsNaN(p.Stats.SensorBlack) ? p.Stats.SensorBlack : noise.Black, white = !float.IsNaN(p.Stats.SensorWhite) ? p.Stats.SensorWhite : noise.White;
@@ -69,6 +69,7 @@ public sealed class DenoiseHybridStage : IStage
         // the stage swaps the denoised image into the working slot; the previous working image stays in the payload and PostProcessing uses it as the LDiff companion
         var before = new Image<Vec4F>(img.Rect); for (int y = 0; y < img.Height; y++) img.Row(y).CopyTo(before.Row(y)); p.Companion = before;
         for (int y = 0; y < abs.Height; y++) outp.AsSpan((y + padT) * w + padL, abs.Width).CopyTo(img.Row(abs.Y0 - img.Rect.Y0 + y).Slice(abs.X0 - img.Rect.X0, abs.Width));
+        ScratchPool.Return(outp); ScratchPool.Return(std); ScratchPool.Return(src);
     }
 }
 
@@ -80,7 +81,7 @@ public static class HybridDenoise
     {
         if (DumpPrefix is null) return;
         using var fo = File.Create($"{DumpPrefix}_hyb_{tag}_{w}x{h}.f32");   // the size keeps calls of different ISPs (tiles vs a telephoto grown rect) from overwriting each other
-        var bytes = new byte[img.Length * 16]; System.Runtime.InteropServices.MemoryMarshal.AsBytes(img.AsSpan()).CopyTo(bytes); fo.Write(bytes);
+        fo.Write(System.Runtime.InteropServices.MemoryMarshal.AsBytes(img.AsSpan(0, w * h)));   // the images can be pooled arrays, longer than w·h
     }
     internal static void DumpStd(Vec4F[] img, int w, int h) => Dump("stdmul_out", img, w, h);
     public sealed class NlmParams { public int WindowSize = 5, PatchSize = 5, StepSize = 2, PyramidSize = 5; public float ChromaBoost = 2f, MinLumaStd = 0f; }
@@ -106,6 +107,35 @@ public static class HybridDenoise
     }
     static ReadOnlySpan<Vector128<float>> AsV(Vec4F[] a) => System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, Vector128<float>>(a);
     static Span<Vector128<float>> AsVW(Vec4F[] a) => System.Runtime.InteropServices.MemoryMarshal.Cast<Vec4F, Vector128<float>>(a.AsSpan());
+
+    // ---- two pixels as one eight-lane vector: pixel x in the low half, x + 1 in the high half. Each half does exactly the
+    //      four-lane operations of its pixel, so the result is the same as for the four-lane code ----
+    /// <summary>True when the bilateral kernels take two pixels per eight-lane vector.</summary>
+    static bool PairsSupported => Vector256.IsHardwareAccelerated && Simd.IsWideSupported;
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector256<float> MaxW(Vector256<float> a, Vector256<float> b) => Vector256.ConditionalSelect(Vector256.GreaterThan(a, b), a, b);   // a > b ? a : b
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector256<float> AbsW(Vector256<float> a) => (a.AsInt32() & Vector256.Create(0x7fffffff)).AsSingle();
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]   // always inlined, so the control stays an immediate
+    static Vector256<float> BcW(Vector256<float> v, [System.Diagnostics.CodeAnalysis.ConstantExpected] byte lane) => Simd.Permute(v, lane);   // broadcast one lane in each half
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector256<float> TapWeightW(Vector256<float> d, Vector256<float> s, Vector256<float> r)
+    {
+        var t = MaxW(d - s, Vector256<float>.Zero);
+        return MaxW(Vector256.Create(1.0f) - t * r, Vector256.Create(Eps6));
+    }
+    /// <summary>The weight of neighbor <paramref name="n"/> in the 5×5 kernel: d = max(max(dR, dG), dB).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector256<float> Tap5W(Vector256<float> n, Vector256<float> c, Vector256<float> s, Vector256<float> r)
+    {
+        var ad = AbsW(n - c);
+        return TapWeightW(MaxW(MaxW(BcW(ad, 0x00), BcW(ad, 0x55)), BcW(ad, 0xAA)), s, r);
+    }
+    /// <summary>Pixels i and i + 1. The callers check the range before the loop.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector256<float> LoadW(ReadOnlySpan<Vector128<float>> a, int i) => Vector256.LoadUnsafe(ref Unsafe.As<Vector128<float>, float>(ref System.Runtime.InteropServices.MemoryMarshal.GetReference(a)), (nuint)i * 4);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static void StoreW(Span<Vector128<float>> a, int i, Vector256<float> v) => v.StoreUnsafe(ref Unsafe.As<Vector128<float>, float>(ref System.Runtime.InteropServices.MemoryMarshal.GetReference(a)), (nuint)i * 4);
     static readonly float Eps6 = BitConverter.Int32BitsToSingle(0x358637BD), Eps5 = BitConverter.Int32BitsToSingle(0x3727C5AC);
     static readonly float M0 = BitConverter.Int32BitsToSingle(0x3F13CD36), M3 = BitConverter.Int32BitsToSingle(0x3F350529), M5 = BitConverter.Int32BitsToSingle(unchecked((int)0xBF350529)),
                           M6 = BitConverter.Int32BitsToSingle(0x3ED10625), M7 = BitConverter.Int32BitsToSingle(unchecked((int)0xBF510625));
@@ -120,17 +150,17 @@ public static class HybridDenoise
         float kr = k * neutral[0], kg = k * neutral[1], kb = k * neutral[2], ka = k * 1.0f;
         var K = Vector128.Create(kr, kg, kb, ka); var Ov = Vector128.Create(o); var Av = Vector128.Create(model.R.A, model.G.A, model.Bl.A, 1.0f); var Bv = Vector128.Create(model.R.B, model.G.B, model.Bl.B, 1.0f);
         var e5 = Vector128.Create(Eps5);
-        var std = new Vec4F[w * h]; var S = AsV(src); var O = AsVW(std);
-        for (int i = 0; i < src.Length; i++) O[i] = Vector128.Sqrt(MaxV(((S[i] * K) + Ov) * Av + Bv, e5));
+        var std = ScratchPool.Rent<Vec4F>(w * h); var S = AsV(src); var O = AsVW(std);
+        for (int i = 0; i < w * h; i++) O[i] = Vector128.Sqrt(MaxV(((S[i] * K) + Ov) * Av + Bv, e5));
         return std;
     }
 
     /// <summary>`ImageApplyColorMatrix`: out = ((v.w·c3) + (v.z·c2)) + ((v.y·c1) + (v.x·c0)), columns of the 4×4 (rows m, last row (0,0,0,1)).</summary>
-    static Vec4F[] ApplyMatrix(Vec4F[] src, float[] m)
+    static Vec4F[] ApplyMatrix(Vec4F[] src, float[] m, int n)
     {
-        var o = new Vec4F[src.Length]; var S = AsV(src); var O = AsVW(o);
+        var o = ScratchPool.Rent<Vec4F>(n); var S = AsV(src); var O = AsVW(o);
         var c0 = Vector128.Create(m[0], m[3], m[6], 0f); var c1 = Vector128.Create(m[1], m[4], m[7], 0f); var c2 = Vector128.Create(m[2], m[5], m[8], 0f); var z = Vector128<float>.Zero;
-        for (int i = 0; i < src.Length; i++)
+        for (int i = 0; i < n; i++)
         {
             var v = S[i];   // ((A·0) + (B·c2)) + ((G·c1) + (R·c0)) on lanes 0–2, lane 3 = the source alpha
             O[i] = (((Bc(v, 0xFF) * z) + (Bc(v, 0xAA) * c2)) + ((Bc(v, 0x55) * c1) + (Bc(v, 0x00) * c0))).WithElement(3, src[i].A);
@@ -140,12 +170,12 @@ public static class HybridDenoise
     static float[] Transpose(float[] m) => new[] { m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8] };
 
     /// <summary>`ImageTransformSTD`: out = max(sqrt((q.z·c2) + ((q.y·c1) + (q.x·c0))), floor) with q = s², c_k = squared matrix columns; lane 3 = 0.</summary>
-    static Vec4F[] TransformStd(Vec4F[] vst, float[] m, float floorY)
+    static Vec4F[] TransformStd(Vec4F[] vst, float[] m, float floorY, int n)
     {
         float c00 = m[0] * m[0], c01 = m[3] * m[3], c02 = m[6] * m[6], c10 = m[1] * m[1], c11 = m[4] * m[4], c12 = m[7] * m[7], c20 = m[2] * m[2], c21 = m[5] * m[5], c22 = m[8] * m[8];
-        var o = new Vec4F[vst.Length]; var S = AsV(vst); var O = AsVW(o);
+        var o = ScratchPool.Rent<Vec4F>(n); var S = AsV(vst); var O = AsVW(o);
         var k0 = Vector128.Create(c00, c01, c02, 0f); var k1 = Vector128.Create(c10, c11, c12, 0f); var k2 = Vector128.Create(c20, c21, c22, 0f); var fl = Vector128.Create(floorY, 0f, 0f, 0f);
-        for (int i = 0; i < vst.Length; i++)
+        for (int i = 0; i < n; i++)
         {
             var q = S[i] * S[i];   // (qx, qy, qz, ·); lane c: max(sqrt((qz·c2c) + ((qy·c1c) + (qx·c0c))), floor_c), lane 3 = 0
             O[i] = MaxV(Vector128.Sqrt((Bc(q, 0xAA) * k2) + ((Bc(q, 0x55) * k1) + (Bc(q, 0x00) * k0))), fl).WithElement(3, 0f);
@@ -155,14 +185,16 @@ public static class HybridDenoise
 
     static int CeilLog2(int v) { int l = 0; while ((1 << l) < v) l++; return l; }
 
-    /// <summary>The hybrid core: RGB→YCC rotation, pyramid bilateral, full-resolution NLM, rotation back.</summary>
+    /// <summary>The hybrid core: RGB→YCC rotation, pyramid bilateral, full-resolution NLM, rotation back. The result is a
+    /// <see cref="ScratchPool"/> array of at least w·h pixels; the caller gives it back.</summary>
     public static Vec4F[] Run(Vec4F[] src, Vec4F[] vst, int w, int h, float thr, NlmParams nlm, BilateralParams bil)
     {
         if (nlm.PyramidSize != bil.PyramidSize) throw new InvalidOperationException("pyramid size mismatch!");
         bool transform = Math.Abs((double)nlm.ChromaBoost - 1.0) > 1e-4 || Math.Abs((double)bil.ChromaBoost - 1.0) > 1e-4;
         Dump("fstd_out", vst, w, h);
-        var srcT = transform ? ApplyMatrix(src, M) : src; Dump("mat0_out", srcT, w, h);
-        var vstT = transform ? TransformStd(vst, M, nlm.MinLumaStd) : vst; Dump("tstd_out", vstT, w, h);
+        var srcT = transform ? ApplyMatrix(src, M, w * h) : src; Dump("mat0_out", srcT, w, h);
+        var vstT = transform ? TransformStd(vst, M, nlm.MinLumaStd, w * h) : vst; Dump("tstd_out", vstT, w, h);
+        var temps = new List<Vec4F[]>();   // the pooled intermediate images, given back at the end
         int maxLevels = Math.Max(CeilLog2(w), CeilLog2(h)) + 1;
         int N = Math.Min(nlm.PyramidSize, maxLevels);
         var pyr = new List<(Vec4F[] Img, int W, int H)>(); var vpyr = new List<(Vec4F[] Img, int W, int H)>();
@@ -172,6 +204,7 @@ public static class HybridDenoise
             for (int l = 0; l < N; l++)
             {
                 var d = CnrPyramid.Downsample(cur, cw, ch, out int w2, out int h2); var vd = CnrPyramid.Downsample(vcur, cw, ch, out _, out _);
+                temps.Add(d); temps.Add(vd);
                 pyr.Add((d, w2, h2)); vpyr.Add((vd, w2, h2)); cur = d; vcur = vd; cw = w2; ch = h2;
                 if (w2 == 1 && h2 == 1) break;
             }
@@ -179,7 +212,7 @@ public static class HybridDenoise
         }
         var hb = new Vec4F(1.0f * thr, bil.ChromaBoost * thr, bil.ChromaBoost * thr, 1.0f * thr);
         var hn = new Vec4F(1.0f * thr, nlm.ChromaBoost * thr, nlm.ChromaBoost * thr, 1.0f * thr);
-        var curL = (Vec4F[])pyr[N - 1].Img.Clone();
+        var curL = pyr[N - 1].Img;   // the kernels only read their inputs
         for (int L = N - 1; L >= 1; L--)
         {
             float e2 = MathF.ScaleB(1.0f, -(L + 1));
@@ -187,14 +220,18 @@ public static class HybridDenoise
             int bi = N - 1 - L; Dump($"bil{bi}_src", curL, pyr[L].W, pyr[L].H); Dump($"bil{bi}_vst", vpyr[L].Img, pyr[L].W, pyr[L].H);
             Vec4F[] den; using (Diagnostics.PhaseLog.Time("hyb.bilateral")) den = Bilateral(bil.WindowSize, curL, vpyr[L].Img, pyr[L].W, pyr[L].H, tune); Dump($"bil{bi}_out", den, pyr[L].W, pyr[L].H);
             using (Diagnostics.PhaseLog.Time("hyb.ups")) curL = UpscaleAdd(den, pyr[L].Img, pyr[L].W, pyr[L].H, pyr[L - 1].Img, pyr[L - 1].W, pyr[L - 1].H); Dump($"ups{bi}_out", curL, pyr[L - 1].W, pyr[L - 1].H);
+            temps.Add(den); temps.Add(curL);
         }
         float r = Rcp(2.0f); r = (1.0f - (r + r)) * r + r;
         Dump($"bil{N - 1}_src", curL, pyr[0].W, pyr[0].H); Dump($"bil{N - 1}_vst", vpyr[0].Img, pyr[0].W, pyr[0].H);
         Vec4F[] den0; using (Diagnostics.PhaseLog.Time("hyb.bilateral0")) den0 = Bilateral(bil.WindowSize, curL, vpyr[0].Img, pyr[0].W, pyr[0].H, new Vec4F(hb.R * r, hb.G * r, hb.B * r, hb.A * r)); Dump($"bil{N - 1}_out", den0, pyr[0].W, pyr[0].H);
         Vec4F[] full; using (Diagnostics.PhaseLog.Time("hyb.ups0")) full = UpscaleAdd(den0, pyr[0].Img, pyr[0].W, pyr[0].H, srcT, w, h); Dump($"ups{N - 1}_out", full, w, h); Dump("nlm_src", full, w, h); Dump("nlm_vst", vstT, w, h);
+        temps.Add(den0); temps.Add(full);
         if (nlm.StepSize <= 0) throw new NotSupportedException("nlm_denoiser.step_size == 0 (ImageDenoiseNLM) is not ported");
         Vec4F[] outp; using (Diagnostics.PhaseLog.Time("hyb.nlm")) outp = PatchNlm4(full, vstT, w, h, hn, nlm.WindowSize, nlm.StepSize); Dump("nlm_out", outp, w, h);
-        var fin = transform ? ApplyMatrix(outp, Transpose(M)) : outp; Dump("mat1_out", fin, w, h);
+        var fin = transform ? ApplyMatrix(outp, Transpose(M), w * h) : outp; Dump("mat1_out", fin, w, h);
+        if (transform) { temps.Add(srcT); temps.Add(vstT); temps.Add(outp); }
+        foreach (var a in temps) ScratchPool.Return(a);
         return fin;
     }
 
@@ -226,13 +263,44 @@ public static class HybridDenoise
     /// **Lumen's compiler did NOT unroll this variant**: it is a real row loop (dy = −4…4) around a real tap loop (dx = −4…+4),
     /// and both accumulators are live across all 81 taps. So there is no per-row association tree at all — acc and wsum are a
     /// straight left-to-right sequential sum in raster tap order, unlike `&lt;3,0&gt;`/`&lt;5,0&gt;`/`&lt;7,0&gt;` which each fold one
-    /// unrolled row into the carry with a tree.</summary>
+    /// unrolled row into the carry with a tree.
+    /// With <see cref="PairsSupported"/>, the pixels whose taps are all inside the row go two at a time.</summary>
     static Vec4F[] Bilateral9(Vec4F[] src, Vec4F[] vst, int w, int h, Vec4F tune)
     {
-        var o = new Vec4F[w * h]; var S = AsV(src); var Vs = AsV(vst); var O = AsVW(o); var T = V(tune); var z = Vector128<float>.Zero;
+        var o = ScratchPool.Rent<Vec4F>(w * h); var S = AsV(src); var Vs = AsV(vst); var O = AsVW(o); var T = V(tune); var z = Vector128<float>.Zero;
+        bool pairs = PairsSupported && src.Length >= w * h && vst.Length >= w * h;
+        var TW = Vector256.Create(T, T); var lane3 = Vector256.Create(0, 0, 0, -1, 0, 0, 0, -1).AsSingle();
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
             {
+                if (pairs && x >= 4 && x + 5 < w)
+                {
+                    var cW = LoadW(S, y * w + x); var sgW = TW * LoadW(Vs, y * w + x);
+                    var rW = IntelApprox.Reciprocal(Vector256.ConditionalSelect(lane3, Vector256.Create(1.0f), sgW));   // lane 3 = 1.0 in each pixel
+                    var aW = Vector256<float>.Zero; var wsW = Vector256<float>.Zero;
+                    for (int dy = -4; dy <= 4; dy++)
+                    {
+                        int yy = y + dy;
+                        if (yy < 0 || yy >= h)
+                        {   // nine zero neighbors: the same weight nine times
+                            var adz = AbsW(Vector256<float>.Zero - cW);
+                            var kz = TapWeightW(MaxW(MaxW(BcW(adz, 0xAA), BcW(adz, 0x00)), MaxW(BcW(adz, 0xAA), BcW(adz, 0x55))), sgW, rW);
+                            for (int dx = -4; dx <= 4; dx++) { aW = aW + Vector256<float>.Zero * kz; wsW = wsW + kz; }
+                            continue;
+                        }
+                        int rb = yy * w + x;
+                        for (int dx = -4; dx <= 4; dx++)
+                        {
+                            var n = LoadW(S, rb + dx);
+                            var ad = AbsW(n - cW);
+                            var k = TapWeightW(MaxW(MaxW(BcW(ad, 0xAA), BcW(ad, 0x00)), MaxW(BcW(ad, 0xAA), BcW(ad, 0x55))), sgW, rW);
+                            aW = aW + n * k; wsW = wsW + k;
+                        }
+                    }
+                    StoreW(O, y * w + x, IntelApprox.Reciprocal(wsW) * aW);
+                    x++;
+                    continue;
+                }
                 var c = S[y * w + x]; var sg = T * Vs[y * w + x];
                 var r = IntelApprox.Reciprocal(sg.WithElement(3, 1.0f));          // lane 3 = 1.0, then the RCPPS estimate
                 var a = z; var ws = z;
@@ -259,7 +327,7 @@ public static class HybridDenoise
     /// out = rcpps(wsum)·acc.</summary>
     static Vec4F[] Bilateral7(Vec4F[] src, Vec4F[] vst, int w, int h, Vec4F tune)
     {
-        var o = new Vec4F[w * h]; var S = AsV(src); var Vs = AsV(vst); var O = AsVW(o); var T = V(tune); var z = Vector128<float>.Zero;
+        var o = ScratchPool.Rent<Vec4F>(w * h); var S = AsV(src); var Vs = AsV(vst); var O = AsVW(o); var T = V(tune); var z = Vector128<float>.Zero;
         Span<Vector128<float>> n = stackalloc Vector128<float>[7]; Span<Vector128<float>> kk = stackalloc Vector128<float>[7];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -285,14 +353,35 @@ public static class HybridDenoise
         return o;
     }
 
-    /// <summary>`ImageDenoiseBilateralGeneric&lt;5,0&gt;`: neighbors outside the image are (0,0,0,0); per tap w = max(1 − max(d − σ, 0)·rcp(σ), 1e-6) with d = max over R,G,B of |n − c|.</summary>
+    /// <summary>`ImageDenoiseBilateralGeneric&lt;5,0&gt;`: neighbors outside the image are (0,0,0,0); per tap w = max(1 − max(d − σ, 0)·rcp(σ), 1e-6) with d = max over R,G,B of |n − c|.
+    /// With <see cref="PairsSupported"/>, the pixels whose taps are all inside the row go two at a time.</summary>
     static Vec4F[] Bilateral5(Vec4F[] src, Vec4F[] vst, int w, int h, Vec4F tune)
     {
-        var o = new Vec4F[w * h]; var S = AsV(src); var Vs = AsV(vst); var O = AsVW(o); var T = V(tune); var z = Vector128<float>.Zero;
+        var o = ScratchPool.Rent<Vec4F>(w * h); var S = AsV(src); var Vs = AsV(vst); var O = AsVW(o); var T = V(tune); var z = Vector128<float>.Zero;
         Span<Vector128<float>> n = stackalloc Vector128<float>[5]; Span<Vector128<float>> kk = stackalloc Vector128<float>[5];
+        bool pairs = PairsSupported && src.Length >= w * h && vst.Length >= w * h;
+        var TW = Vector256.Create(T, T); var lane3 = Vector256.Create(0, 0, 0, -1, 0, 0, 0, -1).AsSingle();
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
             {
+                if (pairs && x >= 2 && x + 3 < w)
+                {
+                    var cW = LoadW(S, y * w + x); var sgW = TW * LoadW(Vs, y * w + x);
+                    var rW = IntelApprox.Reciprocal(Vector256.ConditionalSelect(lane3, Vector256.Create(1.0f), sgW));   // lane 3 = 1.0 in each pixel
+                    var aW = Vector256<float>.Zero; var wsW = Vector256<float>.Zero;
+                    for (int dy = -2; dy <= 2; dy++)
+                    {
+                        int yy = y + dy; bool rowIn = yy >= 0 && yy < h; int rb = yy * w + x;
+                        var n0 = rowIn ? LoadW(S, rb - 2) : Vector256<float>.Zero; var n1 = rowIn ? LoadW(S, rb - 1) : Vector256<float>.Zero; var n2 = rowIn ? LoadW(S, rb) : Vector256<float>.Zero;
+                        var n3 = rowIn ? LoadW(S, rb + 1) : Vector256<float>.Zero; var n4 = rowIn ? LoadW(S, rb + 2) : Vector256<float>.Zero;
+                        var k0 = Tap5W(n0, cW, sgW, rW); var k1 = Tap5W(n1, cW, sgW, rW); var k2 = Tap5W(n2, cW, sgW, rW); var k3 = Tap5W(n3, cW, sgW, rW); var k4 = Tap5W(n4, cW, sgW, rW);
+                        aW = (n4 * k4 + n3 * k3) + ((n2 * k2 + n1 * k1) + (n0 * k0 + aW));
+                        wsW = (k4 + k3) + ((k2 + k1) + (k0 + wsW));
+                    }
+                    StoreW(O, y * w + x, IntelApprox.Reciprocal(wsW) * aW);
+                    x++;
+                    continue;
+                }
                 var c = S[y * w + x]; var sg = T * Vs[y * w + x];
                 var r = IntelApprox.Reciprocal(sg.WithElement(3, 1.0f));
                 var a = z; var ws = z;
@@ -322,7 +411,7 @@ public static class HybridDenoise
     /// Unreachable from `IsoTuning` (no row carries `bilateral window` 3) but present in the dispatcher, so it is ported too.</summary>
     static Vec4F[] Bilateral3(Vec4F[] src, Vec4F[] vst, int w, int h, Vec4F tune)
     {
-        var o = new Vec4F[w * h]; var S = AsV(src); var Vs = AsV(vst); var O = AsVW(o); var T = V(tune); var z = Vector128<float>.Zero;
+        var o = ScratchPool.Rent<Vec4F>(w * h); var S = AsV(src); var Vs = AsV(vst); var O = AsVW(o); var T = V(tune); var z = Vector128<float>.Zero;
         Span<Vector128<float>> n = stackalloc Vector128<float>[3]; Span<Vector128<float>> kk = stackalloc Vector128<float>[3];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -353,8 +442,8 @@ public static class HybridDenoise
     /// the last column of an odd width uses the x-even formula; small-image taps clamped (row/column cache replication).</summary>
     static Vec4F[] UpscaleAdd(Vec4F[] a, Vec4F[] b, int sw, int sh, Vec4F[] c, int w, int h)
     {
-        var s = new Vec4F[sw * sh]; var A = AsV(a); var B = AsV(b); var Sv = AsVW(s); for (int i = 0; i < s.Length; i++) Sv[i] = A[i] - B[i];
-        var o = new Vec4F[w * h]; var O = AsVW(o); var C = AsV(c); var SS = AsV(s);
+        var s = ScratchPool.Rent<Vec4F>(sw * sh); var A = AsV(a); var B = AsV(b); var Sv = AsVW(s); for (int i = 0; i < sw * sh; i++) Sv[i] = A[i] - B[i];
+        var o = ScratchPool.Rent<Vec4F>(w * h); var O = AsVW(o); var C = AsV(c); var SS = AsV(s);
         var u64 = Vector128.Create(U64); var u08 = Vector128.Create(U08); var u01 = Vector128.Create(U01); var u05 = Vector128.Create(U05); var u40 = Vector128.Create(U40); var u25 = Vector128.Create(U25);
         for (int y = 0; y < h; y++)
         {
@@ -378,6 +467,7 @@ public static class HybridDenoise
                 }
             }
         }
+        ScratchPool.Return(s);
         return o;
     }
 
@@ -393,16 +483,17 @@ public static class HybridDenoise
         return t;
     }
 
-    /// <summary>`ImageDenoisePatchNLM&lt;4&gt;`: jittered 4×4 patch NLM over a quincunx window, four quadrant passes per 128×128 tile, weights per lane.</summary>
+    /// <summary>`ImageDenoisePatchNLM&lt;4&gt;`: jittered 4×4 patch NLM over a quincunx window, four quadrant passes per 128×128 tile, weights per lane.
+    /// The result is a <see cref="ScratchPool"/> array of at least w·h pixels.</summary>
     public static Vec4F[] PatchNlm4(Vec4F[] src, Vec4F[] vst, int w, int h, Vec4F hn, int W, int step)
     {
         var tab = _jitter.GetOrAdd(step, Jitter);
-        var outp = new Vec4F[w * h]; var wsum = new Vec4F[w * h];
+        int n = w * h; var outp = ScratchPool.Rent<Vec4F>(n); var wsum = ScratchPool.Rent<Vec4F>(n);
         var S = AsV(src); var Vs = AsV(vst); var O = AsVW(outp); var WS = AsVW(wsum);
         var c001 = Vector128.Create(C001);
-        for (int i = 0; i < src.Length; i++) { O[i] = S[i] * c001; WS[i] = c001; }
+        for (int i = 0; i < n; i++) { O[i] = S[i] * c001; WS[i] = c001; }
         var k16 = Vector128.Create(hn.R * 16.0f, hn.G * 16.0f, hn.B * 16.0f, hn.A * 16.0f);   // h16 = hn·16, T = vst(q)·h16 per lane
-        var h16 = new Vec4F[w * h]; var H16 = AsVW(h16); for (int i = 0; i < vst.Length; i++) H16[i] = Vs[i] * k16;
+        var h16 = ScratchPool.Rent<Vec4F>(n); var H16 = AsVW(h16); for (int i = 0; i < n; i++) H16[i] = Vs[i] * k16;
         var region = new RectI(2, 2, w - 1, h - 1);
         var tiles = Tiler.Rects(region, 128, 128).ToList();
         Span<Vector128<float>> acc = stackalloc Vector128<float>[16]; Span<Vector128<float>> refp = stackalloc Vector128<float>[16];
@@ -458,7 +549,8 @@ public static class HybridDenoise
                             }
                     }
             }
-        for (int i = 0; i < outp.Length; i++) O[i] = (IntelApprox.Reciprocal(WS[i]) * O[i]).WithElement(3, src[i].A);
+        for (int i = 0; i < n; i++) O[i] = (IntelApprox.Reciprocal(WS[i]) * O[i]).WithElement(3, src[i].A);
+        ScratchPool.Return(wsum); ScratchPool.Return(h16);
         return outp;
     }
 }

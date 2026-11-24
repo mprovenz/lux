@@ -42,10 +42,26 @@ public static class BayerWavelet
     [MethodImpl(MethodImplOptions.AggressiveInlining)] internal static Vec4F Add(Vec4F a, Vec4F b) => new(a.R + b.R, a.G + b.G, a.B + b.B, a.A + b.A);
     [MethodImpl(MethodImplOptions.AggressiveInlining)] internal static Vec4F Sub(Vec4F a, Vec4F b) => new(a.R - b.R, a.G - b.G, a.B - b.B, a.A - b.A);
 
+    /// <summary>The samples of <paramref name="a"/> as vectors: one vector holds the four lanes of one sample. The caller checks the
+    /// array length before it reads or writes through the reference.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static ref Vector128<float> Lanes(Vec4F[] a) => ref Unsafe.As<Vec4F, Vector128<float>>(ref MemoryMarshal.GetArrayDataReference(a));
+
     /// <summary>Forward transform of a 16×16 row-major vec4 block, in place.</summary>
     public static void Forward(Vec4F[] block)
     {
         if (block.Length != 256) throw new ArgumentException("16x16 block expected", nameof(block));
+        if (Vector128.IsHardwareAccelerated)
+        {
+            ref var v = ref Lanes(block);
+            for (int level = 0; level < 4; level++)
+            {
+                int step = 1 << level, n = 16 >> level;
+                for (int r = 0; r < 16; r += step) ForwardLine(ref Unsafe.Add(ref v, r * 16), step, n);
+                for (int c = 0; c < 16; c += step) ForwardLine(ref Unsafe.Add(ref v, c), step * 16, n);
+            }
+            return;
+        }
         for (int level = 0; level < 4; level++)
         {
             int step = 1 << level, n = 16 >> level;
@@ -58,6 +74,17 @@ public static class BayerWavelet
     public static void Inverse(Vec4F[] block)
     {
         if (block.Length != 256) throw new ArgumentException("16x16 block expected", nameof(block));
+        if (Vector128.IsHardwareAccelerated)
+        {
+            ref var v = ref Lanes(block);
+            for (int level = 3; level >= 0; level--)
+            {
+                int step = 1 << level, n = 16 >> level;
+                for (int r = 0; r < 16; r += step) InverseLine(ref Unsafe.Add(ref v, r * 16), step, n);
+                for (int c = 0; c < 16; c += step) InverseLine(ref Unsafe.Add(ref v, c), step * 16, n);
+            }
+            return;
+        }
         for (int level = 3; level >= 0; level--)
         {
             int step = 1 << level, n = 16 >> level;
@@ -88,6 +115,21 @@ public static class BayerWavelet
         a[b] = Add(Mul(a[b + st], C4), Mul(a[b], C0));
     }
 
+    /// <summary>The forward lifting step of <see cref="ForwardLine(Vec4F[], int, int, int)"/> on the line `x[k] = a[k·st]`, with the
+    /// four lanes of a sample in one vector. Each lane does the same multiply, add and subtract in the same order.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static void ForwardLine(ref Vector128<float> a, int st, int n)
+    {
+        int h = n >> 1;
+        var c0 = Vector128.Create(C0); var c1 = Vector128.Create(C1); var c2 = Vector128.Create(C2); var c3 = Vector128.Create(C3); var c4 = Vector128.Create(C4);
+        Unsafe.Add(ref a, (n - 1) * st) = Unsafe.Add(ref a, (n - 1) * st) * c1 - Unsafe.Add(ref a, (n - 2) * st) * c1;
+        for (int k = 0; k < h - 1; k++)
+            Unsafe.Add(ref a, (2 * k + 1) * st) = Unsafe.Add(ref a, (2 * k + 1) * st) * c1 - (Unsafe.Add(ref a, (2 * k + 2) * st) + Unsafe.Add(ref a, 2 * k * st)) * c3;
+        for (int k = 1; k < h; k++)
+            Unsafe.Add(ref a, 2 * k * st) = (Unsafe.Add(ref a, (2 * k - 1) * st) + Unsafe.Add(ref a, (2 * k + 1) * st)) * c2 + Unsafe.Add(ref a, 2 * k * st) * c0;
+        a = Unsafe.Add(ref a, st) * c4 + a * c0;
+    }
+
     /// <summary>
     /// One inverse lifting step on a line (forms: `x0 = s0·c1 − d0·c1`, `x[2k] = s[k]·c1 − (d[k] + d[k−1])·c3`,
     /// `x[2k+1] = (x[2k] + x[2k+2])·0.5 + d[k]·c0`, `x[n−1] = d·c0 + x[n−2]`). Even samples are rebuilt first (they read only
@@ -106,6 +148,21 @@ public static class BayerWavelet
             a[b + (2 * k + 1) * st] = Add(Mul(Add(a[b + 2 * k * st], a[b + (2 * k + 2) * st]), Half), Mul(a[b + (2 * k + 1) * st], C0));
         // x[n−1] = d·c0 + x[n−2]
         a[b + (n - 1) * st] = Add(Mul(a[b + (n - 1) * st], C0), a[b + (n - 2) * st]);
+    }
+
+    /// <summary>The inverse lifting step of <see cref="InverseLine(Vec4F[], int, int, int)"/> on the line `x[k] = a[k·st]`, with the
+    /// four lanes of a sample in one vector.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static void InverseLine(ref Vector128<float> a, int st, int n)
+    {
+        int h = n >> 1;
+        var c0 = Vector128.Create(C0); var c1 = Vector128.Create(C1); var c3 = Vector128.Create(C3); var half = Vector128.Create(Half);
+        a = a * c1 - Unsafe.Add(ref a, st) * c1;
+        for (int k = 1; k < h; k++)
+            Unsafe.Add(ref a, 2 * k * st) = Unsafe.Add(ref a, 2 * k * st) * c1 - (Unsafe.Add(ref a, (2 * k + 1) * st) + Unsafe.Add(ref a, (2 * k - 1) * st)) * c3;
+        for (int k = 0; k < h - 1; k++)
+            Unsafe.Add(ref a, (2 * k + 1) * st) = (Unsafe.Add(ref a, 2 * k * st) + Unsafe.Add(ref a, (2 * k + 2) * st)) * half + Unsafe.Add(ref a, (2 * k + 1) * st) * c0;
+        Unsafe.Add(ref a, (n - 1) * st) = Unsafe.Add(ref a, (n - 1) * st) * c0 + Unsafe.Add(ref a, (n - 2) * st);
     }
 }
 
@@ -167,6 +224,27 @@ public static class BayerMerge
     {
         if (S.Length != 256 || Rw.Length != 256) throw new ArgumentException("16x16 blocks expected");
         var T = NoiseGain;
+        if (Vector128.IsHardwareAccelerated)
+        {
+            // The four lanes of a coefficient in one vector. The four sums of the scalar code are equal, so one sum is kept.
+            ref var vs = ref BayerWavelet.Lanes(S); ref var vr = ref BayerWavelet.Lanes(Rw); ref var vt = ref BayerWavelet.Lanes(T);
+            var nzv = Vector128.Create(nz.R, nz.G, nz.B, nz.A);
+            float ac = 0f;
+            for (int i = 0; i < 256; i++)
+            {
+                var s = Unsafe.Add(ref vs, i);
+                var d = Unsafe.Add(ref vr, i) - s;
+                var d2 = d * d;
+                var den = Unsafe.Add(ref vt, i) * nzv + d2;
+                var t = IntelApprox.Reciprocal(den) * d2;
+                var m = Simd.Max(Simd.MoveHighToLow(t, t), t);        // lane 0 = max(t2, t0), lane 1 = max(t3, t1), MAXPS order
+                float tm = MaxPs(m.ToScalar(), m.GetElement(1));       // MAXSS order
+                Unsafe.Add(ref vs, i) = d * Vector128.Create(tm) + s;
+                ac = (1f - tm) + ac;
+            }
+            float q = ac * Inv256;
+            return new Vec4F(q, q, q, q);
+        }
         float aR = 0f, aG = 0f, aB = 0f, aA = 0f;
         for (int i = 0; i < 256; i++)
         {
@@ -203,6 +281,25 @@ public static class BayerMerge
     {
         if (block.Length != 256) throw new ArgumentException("16x16 block expected", nameof(block));
         if (bx <= -16 || by <= -16 || bx >= w + 16 || by >= h + 16) throw new ArgumentOutOfRangeException(nameof(bx), "block must intersect the image");
+        if (Vector128.IsHardwareAccelerated && bx >= 0 && by >= 0 && bx + 16 <= w && by + 16 <= h)
+        {
+            // The block is inside the image: no clamps. Each row is 64 adjacent halves. The two indexed reads check the row
+            // against the array.
+            ref var vb = ref BayerWavelet.Lanes(block);
+            var rv = Vector128.Create(range);
+            for (int r = 0; r < 16; r++)
+            {
+                int p = ((by + r) * w + bx) * 4;
+                _ = packed[p + 63];
+                ref ushort src = ref packed[p];
+                for (int c = 0; c < 16; c++)
+                {
+                    ref ushort q = ref Unsafe.Add(ref src, c * 4);
+                    Unsafe.Add(ref vb, r * 16 + c) = Vector128.Create(Half16.ToFloat(q), Half16.ToFloat(Unsafe.Add(ref q, 1)), Half16.ToFloat(Unsafe.Add(ref q, 2)), Half16.ToFloat(Unsafe.Add(ref q, 3))) * rv;
+                }
+            }
+            return;
+        }
         for (int r = 0; r < 16; r++)
         {
             int y = by + r;
@@ -227,6 +324,21 @@ public static class BayerMerge
     public static void AddHann(Vec4F[] dst, int w, int h, int bx, int by, Vec4F[] block, float[] hann)
     {
         int x0 = Math.Max(bx, 0), y0 = Math.Max(by, 0), x1 = Math.Min(bx + 16, w), y1 = Math.Min(by + 16, h);
+        if (Vector128.IsHardwareAccelerated && x0 < x1 && y0 < y1 && dst.Length >= (long)w * h && block.Length >= 256 && hann.Length >= 16)
+        {
+            // Every index of the loop is inside its array: 0 ≤ x < w, 0 ≤ y < h, and the block and window offsets are 0 to 15.
+            ref var vd = ref BayerWavelet.Lanes(dst); ref var vb = ref BayerWavelet.Lanes(block);
+            for (int y = y0; y < y1; y++)
+            {
+                var hyv = Vector128.Create(hann[y - by]);
+                for (int x = x0; x < x1; x++)
+                {
+                    ref var d = ref Unsafe.Add(ref vd, y * w + x);
+                    d = (Unsafe.Add(ref vb, (y - by) * 16 + (x - bx)) * hyv) * Vector128.Create(hann[x - bx]) + d;
+                }
+            }
+            return;
+        }
         for (int y = y0; y < y1; y++)
         {
             float hy = hann[y - by];
@@ -244,6 +356,21 @@ public static class BayerMerge
     public static void AddHannScalar(Vec4F[] dst, int w, int h, int bx, int by, Vec4F s, float[] hann)
     {
         int x0 = Math.Max(bx, 0), y0 = Math.Max(by, 0), x1 = Math.Min(bx + 16, w), y1 = Math.Min(by + 16, h);
+        if (Vector128.IsHardwareAccelerated && x0 < x1 && y0 < y1 && dst.Length >= (long)w * h && hann.Length >= 16)
+        {
+            ref var vd = ref BayerWavelet.Lanes(dst);
+            var sv = Vector128.Create(s.R, s.G, s.B, s.A);
+            for (int y = y0; y < y1; y++)
+            {
+                var hs = sv * Vector128.Create(hann[y - by]);
+                for (int x = x0; x < x1; x++)
+                {
+                    ref var d = ref Unsafe.Add(ref vd, y * w + x);
+                    d = hs * Vector128.Create(hann[x - bx]) + d;
+                }
+            }
+            return;
+        }
         for (int y = y0; y < y1; y++)
         {
             Vec4F hs = BayerWavelet.Mul(s, hann[y - by]);
@@ -253,6 +380,31 @@ public static class BayerMerge
                 dst[di] = BayerWavelet.Add(BayerWavelet.Mul(hs, hann[x - bx]), dst[di]);
             }
         }
+    }
+
+    /// <summary>`acc[k] = acc[k] + src[k]` for the 256 samples of a block.</summary>
+    public static void AddInto(Vec4F[] acc, Vec4F[] src)
+    {
+        if (acc.Length != 256 || src.Length != 256) throw new ArgumentException("16x16 blocks expected");
+        if (Vector128.IsHardwareAccelerated)
+        {
+            ref var a = ref BayerWavelet.Lanes(acc); ref var b = ref BayerWavelet.Lanes(src);
+            for (int k = 0; k < 256; k++) Unsafe.Add(ref a, k) = Unsafe.Add(ref a, k) + Unsafe.Add(ref b, k);
+            return;
+        }
+        for (int k = 0; k < 256; k++) acc[k] = BayerWavelet.Add(acc[k], src[k]);
+    }
+
+    /// <summary>Every lane of every pixel of <paramref name="img"/> times <paramref name="f"/>.</summary>
+    public static void Scale(Vec4F[] img, float f)
+    {
+        if (Vector128.IsHardwareAccelerated)
+        {
+            var v = MemoryMarshal.Cast<Vec4F, Vector128<float>>(img.AsSpan()); var fv = Vector128.Create(f);
+            for (int i = 0; i < v.Length; i++) v[i] = v[i] * fv;
+            return;
+        }
+        for (int i = 0; i < img.Length; i++) img[i] = BayerWavelet.Mul(img[i], f);
     }
 
     /// <summary>`rcpps` + one Newton step: `r' = ((1 − n·r)·r) + r`.</summary>

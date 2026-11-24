@@ -1,3 +1,6 @@
+using System.Buffers.Binary;
+using System.Runtime.CompilerServices;
+
 namespace Lux.Engine.Pipeline.Export;
 
 /// <summary>
@@ -85,43 +88,11 @@ public static class LosslessJpeg
         return t;
     }
 
-    sealed class BitWriter
-    {
-        readonly Stream _s; readonly byte[] _buf = new byte[4096]; int _pos; int _left = 8;
-        public BitWriter(Stream s) { _s = s; }
-        public void Put(int code, int len)
-        {
-            while (len > 0)
-            {
-                int take = Math.Min(len, _left);
-                _buf[_pos] |= (byte)(((uint)(code << (32 - len))) >> (32 - _left));
-                _left -= take; len -= take;
-                if (_left == 0)
-                {
-                    _left = 8; byte b = _buf[_pos]; _pos++;
-                    if (_pos == _buf.Length) Flush();
-                    else if (b == 0xff) { _buf[_pos] = 0; _pos++; if (_pos == _buf.Length) Flush(); }
-                }
-            }
-        }
-        void Flush()
-        {
-            if (_pos > 0) _s.Write(_buf, 0, _pos);
-            if (_pos > 0 && _buf[_pos - 1] == 0xff) _s.WriteByte(0);
-            Array.Clear(_buf, 0, _pos); _pos = 0; _left = 8;
-        }
-        public void Finish()
-        {
-            int n = _pos;
-            if (_left < 8) { _buf[_pos] |= (byte)((1 << _left) - 1); n++; }
-            if (n > 0) _s.Write(_buf, 0, n);
-            if (n > 0 && _buf[n - 1] == 0xff) _s.WriteByte(0);
-            Array.Clear(_buf, 0, n); _pos = 0; _left = 8;
-        }
-    }
-
     /// <summary>Encode a `w×h` tile of `Vec4&lt;u16&gt;` pixels (`stride` in u16 units) as the complete JPEG stream (SOI … EOI).</summary>
-    public static void Encode(Stream s, ushort[] img, int w, int h, int stride, int offset = 0)
+    public static void Encode(Stream s, ushort[] img, int w, int h, int stride, int offset = 0) => s.Write(Encode(img, w, h, stride, offset));
+
+    /// <summary><see cref="Encode(Stream, ushort[], int, int, int, int)"/> into a new array that holds exactly the stream.</summary>
+    public static byte[] Encode(ushort[] img, int w, int h, int stride, int offset = 0)
     {
         var freq = new long[3][]; for (int c = 0; c < 3; c++) freq[c] = new long[17];
         for (int y = 0; y < h; y++)
@@ -136,48 +107,101 @@ public static class LosslessJpeg
             }
         }
         var tables = new HuffTable[3]; for (int c = 0; c < 3; c++) tables[c] = BuildTable(freq[c]);
-        s.WriteByte(0xff); s.WriteByte(0xd8);                       // SOI
-        // SOF3
-        s.Write(new byte[] { 0xff, 0xc3, 0, 0x11, 0x10, (byte)(h >> 8), (byte)h, (byte)(w >> 8), (byte)w, 3 });
-        for (int c = 0; c < 3; c++) s.Write(new byte[] { (byte)c, 0x11, 0 });
+        // The exact length of the coded data: per category, its count times its code length plus its value bits.
+        long bits = 0;
         for (int c = 0; c < 3; c++)
-        {   // DHT
-            var t = tables[c]; int len = t.Vals.Count + 19;
-            s.Write(new byte[] { 0xff, 0xc4, (byte)(len >> 8), (byte)len, (byte)(c & 3) });
-            s.Write(t.Bits, 0, 16);
-            foreach (var v in t.Vals) s.WriteByte(v);
-        }
-        // SOS
-        s.Write(new byte[] { 0xff, 0xda, 0, 0x0c, 3 });
-        for (int c = 0; c < 3; c++) s.Write(new byte[] { (byte)c, (byte)((c & 3) << 4) });
-        s.Write(new byte[] { 1, 0, 0 });
-        var bw = new BitWriter(s);
-        for (int y = 0; y < h; y++)
+            for (int cat = 0; cat < 17; cat++) bits += freq[c][cat] * (tables[c].Size[cat] + ((cat | 0x10) != 0x10 ? cat : 0));
+        long dataBytes = (bits + 7) / 8;
+        // the headers, then the coded data with a 0x00 after each 0xFF byte (at most doubles it), then EOI
+        long cap = 256 + 2 * dataBytes + 2;
+        if (cap > Array.MaxLength) throw new ArgumentException("tile too large for one lossless JPEG stream");
+        var buf = ScratchPool.Rent<byte>((int)cap);
+        try
         {
-            int p0, p1, p2;
-            if (y == 0) { p0 = p1 = p2 = 0x8000; } else { int o = offset + (y - 1) * stride; p0 = img[o]; p1 = img[o + 1]; p2 = img[o + 2]; }
-            for (int x = 0; x < w; x++)
-            {
-                int o = offset + y * stride + x * 4;
-                int c0 = img[o], c1 = img[o + 1], c2 = img[o + 2];
-                EmitDiff(bw, tables[0], (short)(c0 - p0));
-                EmitDiff(bw, tables[1], (short)(c1 - p1));
-                EmitDiff(bw, tables[2], (short)(c2 - p2));
-                p0 = c0; p1 = c1; p2 = c2;
+            int pos = 0;
+            void Put(ReadOnlySpan<byte> b) { b.CopyTo(buf.AsSpan(pos)); pos += b.Length; }
+            Put([0xff, 0xd8]);                                                                        // SOI
+            Put([0xff, 0xc3, 0, 0x11, 0x10, (byte)(h >> 8), (byte)h, (byte)(w >> 8), (byte)w, 3]);   // SOF3
+            for (int c = 0; c < 3; c++) Put([(byte)c, 0x11, 0]);
+            for (int c = 0; c < 3; c++)
+            {   // DHT
+                var t = tables[c]; int len = t.Vals.Count + 19;
+                Put([0xff, 0xc4, (byte)(len >> 8), (byte)len, (byte)(c & 3)]);
+                Put(t.Bits.AsSpan(0, 16));
+                foreach (var v in t.Vals) buf[pos++] = v;
             }
+            Put([0xff, 0xda, 0, 0x0c, 3]);                                                           // SOS
+            for (int c = 0; c < 3; c++) Put([(byte)c, (byte)((c & 3) << 4)]);
+            Put([1, 0, 0]);
+            // each category's code and code length, packed as code << 8 | length
+            var cs = new int[3 * 17];
+            for (int c = 0; c < 3; c++) for (int cat = 0; cat < 17; cat++) cs[c * 17 + cat] = (tables[c].Code[cat] << 8) | tables[c].Size[cat];
+            var bw = new BitBuffer(buf, pos);
+            for (int y = 0; y < h; y++)
+            {
+                int p0, p1, p2;
+                if (y == 0) { p0 = p1 = p2 = 0x8000; } else { int o = offset + (y - 1) * stride; p0 = img[o]; p1 = img[o + 1]; p2 = img[o + 2]; }
+                var row = img.AsSpan(offset + y * stride, Math.Max(0, w * 4 - 1));   // lanes 0 to 2 of each pixel
+                for (int x = 0; x < row.Length; x += 4)
+                {
+                    int c0 = row[x], c1 = row[x + 1], c2 = row[x + 2];
+                    bw.Diff(cs, 0, (short)(c0 - p0));
+                    bw.Diff(cs, 17, (short)(c1 - p1));
+                    bw.Diff(cs, 34, (short)(c2 - p2));
+                    p0 = c0; p1 = c1; p2 = c2;
+                }
+            }
+            pos = bw.Finish();
+            buf[pos++] = 0xff; buf[pos++] = 0xd9;                                                    // EOI
+            return buf.AsSpan(0, pos).ToArray();
         }
-        bw.Finish();
-        s.WriteByte(0xff); s.WriteByte(0xd9);                       // EOI
+        finally { ScratchPool.Return(buf); }
     }
 
-    static void EmitDiff(BitWriter bw, HuffTable t, int diff)
+    /// <summary>The bit packer: MSB-first bits gathered in a 64-bit word and written to the array 32 at a time, a 0x00 after every
+    /// 0xFF byte, the last byte filled with 1 bits. The caller sizes the array for the stuffed stream.</summary>
+    struct BitBuffer(byte[] buf, int pos)
     {
-        int cat = Category(diff);
-        bw.Put(t.Code[cat], t.Size[cat]);
-        if ((cat | 0x10) != 0x10)
+        ulong _acc; int _n;   // the low _n bits of _acc are pending
+
+        /// <summary>The code of the category of <paramref name="diff"/> (packed table <paramref name="cs"/> from <paramref name="c0"/>),
+        /// then its value bits: the low `cat` bits of diff, or of diff − 1 when it is negative.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Diff(int[] cs, int c0, int diff)
         {
-            int mask = (1 << cat) - 1;
-            if (diff < 0) bw.Put(mask & (diff - 1), cat); else bw.Put(mask & diff, cat);
+            int cat = Category(diff);
+            int e = cs[c0 + cat], len = e & 0xff;
+            _acc = (_acc << len) | (uint)(e >> 8); _n += len;
+            if ((cat | 0x10) != 0x10)
+            {
+                _acc = (_acc << cat) | (uint)((diff < 0 ? diff - 1 : diff) & ((1 << cat) - 1)); _n += cat;
+            }
+            if (_n >= 32)
+            {   // at most 31 + 16 + 15 bits are pending here
+                _n -= 32;
+                uint word = (uint)(_acc >> _n);
+                if (((~word - 0x01010101u) & word & 0x80808080u) == 0)
+                {   // no 0xFF byte in the word: the four bytes as they are
+                    BinaryPrimitives.WriteUInt32BigEndian(buf.AsSpan(pos, 4), word);
+                    pos += 4;
+                }
+                else { Byte((byte)(word >> 24)); Byte((byte)(word >> 16)); Byte((byte)(word >> 8)); Byte((byte)word); }
+            }
+        }
+
+        void Byte(byte b)
+        {
+            buf[pos++] = b;
+            if (b == 0xff) buf[pos++] = 0;
+        }
+
+        /// <summary>The pending whole bytes, then the partial byte filled with 1 bits; the position after the data.</summary>
+        public int Finish()
+        {
+            while (_n >= 8) { _n -= 8; Byte((byte)(_acc >> _n)); }
+            if (_n > 0) Byte((byte)((_acc << (8 - _n)) | ((1u << (8 - _n)) - 1)));
+            _n = 0;
+            return pos;
         }
     }
 

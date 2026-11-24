@@ -399,4 +399,42 @@ public static class Simd
         if (Arm && AdvSimd.IsSupported) return AdvSimd.FusedAddRoundedHalving(a, b);
         return (a | b) - ((a ^ b) >>> 1);
     }
+
+    // ---- integer interleaves ----
+
+    /// <summary>`punpckldq`: (a0, b0, a1, b1).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Vector128<int> UnpackLow(Vector128<int> a, Vector128<int> b)
+    {
+        if (X86 && Sse2.IsSupported) return Sse2.UnpackLow(a, b);
+        if (Arm && AdvSimd.Arm64.IsSupported) return AdvSimd.Arm64.ZipLow(a, b);
+        return Vector128.Create(a.GetElement(0), b.GetElement(0), a.GetElement(1), b.GetElement(1));
+    }
+
+    /// <summary>`punpckhdq`: (a2, b2, a3, b3).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Vector128<int> UnpackHigh(Vector128<int> a, Vector128<int> b)
+    {
+        if (X86 && Sse2.IsSupported) return Sse2.UnpackHigh(a, b);
+        if (Arm && AdvSimd.Arm64.IsSupported) return AdvSimd.Arm64.ZipHigh(a, b);
+        return Vector128.Create(a.GetElement(2), b.GetElement(2), a.GetElement(3), b.GetElement(3));
+    }
+
+    /// <summary>`punpcklqdq`: (a0, b0) of the 64-bit lanes.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Vector128<long> UnpackLow(Vector128<long> a, Vector128<long> b)
+    {
+        if (X86 && Sse2.IsSupported) return Sse2.UnpackLow(a, b);
+        if (Arm && AdvSimd.Arm64.IsSupported) return AdvSimd.Arm64.ZipLow(a, b);
+        return Vector128.Create(a.GetElement(0), b.GetElement(0));
+    }
+
+    /// <summary>`punpckhqdq`: (a1, b1) of the 64-bit lanes.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Vector128<long> UnpackHigh(Vector128<long> a, Vector128<long> b)
+    {
+        if (X86 && Sse2.IsSupported) return Sse2.UnpackHigh(a, b);
+        if (Arm && AdvSimd.Arm64.IsSupported) return AdvSimd.Arm64.ZipHigh(a, b);
+        return Vector128.Create(a.GetElement(1), b.GetElement(1));
+    }
 }

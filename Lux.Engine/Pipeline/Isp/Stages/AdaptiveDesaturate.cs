@@ -1,4 +1,6 @@
 using Lux.Engine.Imaging;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -49,8 +51,8 @@ public static class AdaptiveDesaturateKernel
         int gw = g.Width, gh = g.Height;
         float thrR = highlightCutoff * (1f / neutral[0]), thrG = highlightCutoff * (1f / neutral[1]), thrB = highlightCutoff * (1f / neutral[2]);
         // mask plane: 1.0 where all three channels exceed their cutoff (the compare is `0 < c − thr`)
-        var mask = new float[gw * gh];
-        var rgb = new Vec4F[gw * gh];
+        var mask = ScratchPool.Rent<float>(gw * gh);
+        var rgb = ScratchPool.Rent<Vec4F>(gw * gh);
         for (int y = 0; y < gh; y++)
         {
             var row = src.Row(g.Y0 + y - src.Rect.Y0);
@@ -65,11 +67,41 @@ public static class AdaptiveDesaturateKernel
         var maskBlur = Conv3x3(mask, gw, gh, k);
         var rgbBlur = Conv3x3(rgb, gw, gh, new[] { Third, Third, Third });
         float invShadow = 1f / shadowCutoff, invK1 = 1f / k[1];
+        // Eight pixels at a time as lane vectors: each lane does the scalar operations of its pixel. Vector256.Max is the IEEE
+        // maximum of MathF.Max. The loads stay inside rgb, rgbBlur, maskBlur and the destination row (xs + 8 ≤ rect.X1 ≤ g.X1).
+        bool wide = Soa8.Supported && Vector256.IsHardwareAccelerated;
+        ref float rgbF = ref MemoryMarshal.GetReference(MemoryMarshal.Cast<Vec4F, float>(rgb.AsSpan()));
+        ref float blurF = ref MemoryMarshal.GetReference(MemoryMarshal.Cast<Vec4F, float>(rgbBlur.AsSpan()));
+        ref float maskF = ref MemoryMarshal.GetArrayDataReference(maskBlur);
         for (int y = rect.Y0; y < rect.Y1; y++)
         {
             var drow = dst.Row(y - rect.Y0);
             int gy = y - g.Y0;
-            for (int x = rect.X0; x < rect.X1; x++)
+            int xs = rect.X0;
+            if (wide)
+            {
+                ref float dstF = ref MemoryMarshal.GetReference(MemoryMarshal.Cast<Vec4F, float>(drow));
+                var third = Vector256.Create(Third); var vInvShadow = Vector256.Create(invShadow); var vInvK1 = Vector256.Create(invK1); var one = Vector256.Create(1f);
+                for (; xs + 8 <= rect.X1; xs += 8)
+                {
+                    int gi = gy * gw + (xs - g.X0);
+                    Soa8.Load(ref Unsafe.Add(ref rgbF, gi * 4), out var pR, out var pG, out var pB, out var pA);
+                    Soa8.Load(ref Unsafe.Add(ref blurF, gi * 4), out var bR, out var bG, out var bB, out _);
+                    var mean = (pG + (pR + pB)) * third;
+                    var maxc = Vector256.Max(Vector256.Max(bB, bR), Vector256.Max(bB, bG));
+                    var xx = maxc * vInvShadow; xx = Vector256.ConditionalSelect(Vector256.GreaterThan(xx, Vector256<float>.Zero), xx, Vector256<float>.Zero);
+                    var r = IntelApprox.ReciprocalSqrt(xx); var xr = xx * r;
+                    var s = ((xr * r) + Vector256.Create(-3f)) * (xr * Vector256.Create(-0.5f));
+                    s = Vector256.ConditionalSelect(Vector256.Equals(xx, Vector256<float>.Zero), Vector256<float>.Zero, s);
+                    s = Vector256.ConditionalSelect(Vector256.GreaterThan(s, one), one, s);
+                    var h = Vector256.LoadUnsafe(ref maskF, (nuint)gi) * vInvK1; h = Vector256.ConditionalSelect(Vector256.GreaterThan(h, one), one, h);
+                    var R = (h * (mean - pR)) * s + ((pR - mean) * s + mean);
+                    var G = (h * (mean - pG)) * s + ((pG - mean) * s + mean);
+                    var B = (h * (mean - pB)) * s + ((pB - mean) * s + mean);
+                    Soa8.Store(ref Unsafe.Add(ref dstF, (xs - rect.X0) * 4), R, G, B, pA);
+                }
+            }
+            for (int x = xs; x < rect.X1; x++)
             {
                 int gi = gy * gw + (x - g.X0);
                 var p = rgb[gi]; var b = rgbBlur[gi];
@@ -87,14 +119,16 @@ public static class AdaptiveDesaturateKernel
                 drow[x - rect.X0] = new Vec4F(R, G, B, p.A);
             }
         }
+        ScratchPool.Return(mask); ScratchPool.Return(rgb); ScratchPool.Return(maskBlur); ScratchPool.Return(rgbBlur);
         return dst;
     }
 
     /// <summary>`ImageConvSeparable2D&lt;3,3,float,float&gt;` (vertical pass, then horizontal pass):
-    /// v = (k0·above + k1·center) + k2·below, then (k0·left + k1·center) + k2·right, clamped at the image edge.</summary>
+    /// v = (k0·above + k1·center) + k2·below, then (k0·left + k1·center) + k2·right, clamped at the image edge.
+    /// The result is a <see cref="ScratchPool"/> array of at least w·h values.</summary>
     public static float[] Conv3x3(float[] src, int w, int h, float[] k)
     {
-        var tmp = new float[w * h]; var dst = new float[w * h];
+        var tmp = ScratchPool.Rent<float>(w * h); var dst = ScratchPool.Rent<float>(w * h);
         for (int y = 0; y < h; y++)
         {
             int ya = Math.Max(y - 1, 0), yb = Math.Min(y + 1, h - 1);
@@ -106,28 +140,37 @@ public static class AdaptiveDesaturateKernel
                 int xa = Math.Max(x - 1, 0), xb = Math.Min(x + 1, w - 1);
                 dst[y * w + x] = (k[0] * tmp[y * w + xa] + k[1] * tmp[y * w + x]) + k[2] * tmp[y * w + xb];
             }
+        ScratchPool.Return(tmp);
         return dst;
     }
 
     /// <summary>`ImageConvSeparable2D&lt;3,3,vec4,float&gt;`:
     /// v = (k2·above + k1·center) + k0·below, then (k2·left + k1·center) + k0·right — the vec4 variant broadcasts
-    /// the kernel reversed (equal to the float variant for symmetric kernels). Alpha is filtered too.</summary>
+    /// the kernel reversed (equal to the float variant for symmetric kernels). Alpha is filtered too.
+    /// A pixel's four lanes are one vector, and each lane does the scalar operations in the same order.
+    /// The result is a <see cref="ScratchPool"/> array of at least w·h pixels.</summary>
     public static Vec4F[] Conv3x3(Vec4F[] src, int w, int h, float[] k)
     {
-        var tmp = new Vec4F[w * h]; var dst = new Vec4F[w * h];
-        Vec4F F(float ka, Vec4F a, float kb, Vec4F b, float kc, Vec4F c) => new(
-            (ka * a.R + kb * b.R) + kc * c.R, (ka * a.G + kb * b.G) + kc * c.G, (ka * a.B + kb * b.B) + kc * c.B, (ka * a.A + kb * b.A) + kc * c.A);
+        var tmp = ScratchPool.Rent<Vec4F>(w * h); var dst = ScratchPool.Rent<Vec4F>(w * h);
+        var S = MemoryMarshal.Cast<Vec4F, Vector128<float>>(src.AsSpan());
+        var Tm = MemoryMarshal.Cast<Vec4F, Vector128<float>>(tmp.AsSpan());
+        var D = MemoryMarshal.Cast<Vec4F, Vector128<float>>(dst.AsSpan());
+        var ka = Vector128.Create(k[2]); var kb = Vector128.Create(k[1]); var kc = Vector128.Create(k[0]);
         for (int y = 0; y < h; y++)
         {
-            int ya = Math.Max(y - 1, 0), yb = Math.Min(y + 1, h - 1);
-            for (int x = 0; x < w; x++) tmp[y * w + x] = F(k[2], src[ya * w + x], k[1], src[y * w + x], k[0], src[yb * w + x]);
+            int ya = Math.Max(y - 1, 0) * w, yb = Math.Min(y + 1, h - 1) * w, yc = y * w;
+            for (int x = 0; x < w; x++) Tm[yc + x] = (ka * S[ya + x] + kb * S[yc + x]) + kc * S[yb + x];
         }
         for (int y = 0; y < h; y++)
+        {
+            int yc = y * w;
             for (int x = 0; x < w; x++)
             {
                 int xa = Math.Max(x - 1, 0), xb = Math.Min(x + 1, w - 1);
-                dst[y * w + x] = F(k[2], tmp[y * w + xa], k[1], tmp[y * w + x], k[0], tmp[y * w + xb]);
+                D[yc + x] = (ka * Tm[yc + xa] + kb * Tm[yc + x]) + kc * Tm[yc + xb];
             }
+        }
+        ScratchPool.Return(tmp);
         return dst;
     }
 }
